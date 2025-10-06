@@ -13,6 +13,7 @@ ark-ff = { version = "^0.4.0", default-features = false, features = ["asm"] }
 ark-poly = { version = "^0.4.0", default-features = false }
 ark-serialize =  { version = "^0.4.0", default-features = false }
 ark-std = { version = "^0.4.0", default-features = false }
+ark-crypto-primitives = { version = "0.4.0", default-features = false, features = ["sponge"] }
 derivative = { version = "2", features = ["use_core"] }
 displaydoc = { version = "0.2.3", default-features = false }
 enum_dispatch = "0.3.13"
@@ -32,6 +33,7 @@ util = { path = "../util" }
 # path = "benches/iop_bench.rs"
 # harness = false
 deDory = { path = "../deDory" }
+sha2 = { version = "0.10.9" }
 
 # Benchmarks
 [[bench]]

@@ -1,33 +1,27 @@
-// Copyright (c) 2023 Espresso Systems (espressosys.com)
-// This file is part of the HyperPlonk library.
+use crate::*;
 
-// You should have received a copy of the MIT License
-// along with the HyperPlonk library. If not, see <https://mit-license.org/>.
+// mod dory;
+// mod dummy;
+// mod errors;
+// mod multilinear_kzg;
+// mod structs;
+// mod univariate_kzg;
+// mod deMultilinear_kzg;
 
-mod dory;
-mod dummy;
-mod errors;
-mod multilinear_kzg;
-mod structs;
-mod univariate_kzg;
-mod deMultilinear_kzg;
-
-mod ligero;
-mod hashpcs;
-
-pub mod prelude;
+// pub mod prelude;
 
 use ark_ec::pairing::Pairing;
-use ark_ff::Field;
+use ark_ff::{Field, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::rand::Rng;
-use errors::PCSError;
+use ark_crypto_primitives::sponge::{Absorb, CryptographicSponge};
+use super::errors::PCSError;
 use std::{borrow::Borrow, fmt::Debug, hash::Hash};
 use transcript::IOPTranscript;
 
 /// This trait defines APIs for polynomial commitment schemes.
 /// Note that for our usage of PCS, we do not require the hiding property.
-pub trait PolynomialCommitmentScheme<E: Pairing> {
+pub trait HashBasedPCS<F: PrimeField> {
     /// Prover parameters
     type ProverParam: Clone + Sync;
     /// Verifier parameters
@@ -63,8 +57,8 @@ pub trait PolynomialCommitmentScheme<E: Pairing> {
     ///
     /// WARNING: THIS FUNCTION IS FOR TESTING PURPOSE ONLY.
     /// THE OUTPUT SRS SHOULD NOT BE USED IN PRODUCTION.
-    fn gen_srs_for_testing<R: Rng>(
-        rng: &mut R,
+    fn gen_srs_for_testing(
+        rng: &mut impl Rng,
         supported_size: usize,
     ) -> Result<Self::SRS, PCSError>;
 
@@ -79,9 +73,10 @@ pub trait PolynomialCommitmentScheme<E: Pairing> {
     /// ..)` or `trim(srs: Box<Self::SRS>, ..)` or `trim(srs: Arc<Self::SRS>,
     /// ..)` etc.
     fn trim(
-        srs: impl Borrow<Self::SRS>,
-        supported_degree: Option<usize>,
-        supported_num_vars: Option<usize>,
+        srs: &Self::SRS,
+        // srs: impl Borrow<Self::SRS>,
+        // supported_degree: Option<usize>,
+        // supported_num_vars: Option<usize>,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError>;
 
     /// Generate a commitment for a polynomial
@@ -134,6 +129,7 @@ pub trait PolynomialCommitmentScheme<E: Pairing> {
         polynomial: &Self::Polynomial,
         prover_advice: &Self::ProverCommitmentAdvice,
         point: &Self::Point,
+        _sponge: &mut impl CryptographicSponge,
     ) -> Result<Self::Proof, PCSError>;
 
     /// Input a list of multilinear extensions, and a same number of points, and
@@ -144,7 +140,7 @@ pub trait PolynomialCommitmentScheme<E: Pairing> {
         _advices: &[Self::ProverCommitmentAdvice],
         _points: &[Self::Point],
         _evals: &[Self::Evaluation],
-        _transcript: &mut IOPTranscript<E::ScalarField>,
+        _transcript: &mut IOPTranscript<F>,
     ) -> Result<Self::BatchProof, PCSError> {
         // the reason we use unimplemented!() is to enable developers to implement the
         // trait without always implementing the batching APIs.
@@ -157,7 +153,7 @@ pub trait PolynomialCommitmentScheme<E: Pairing> {
         _advices: &[Self::ProverCommitmentAdvice],
         _points: &[Self::Point],
         _evals: &[Self::Evaluation],
-        _transcript: &mut IOPTranscript<E::ScalarField>,
+        _transcript: &mut IOPTranscript<F>,
     ) -> Result<Option<Self::BatchProof>, PCSError> {
         unimplemented!();
     }
@@ -168,8 +164,9 @@ pub trait PolynomialCommitmentScheme<E: Pairing> {
         verifier_param: &Self::VerifierParam,
         commitment: &Self::Commitment,
         point: &Self::Point,
-        value: &E::ScalarField,
+        value: &F,
         proof: &Self::Proof,
+        sponge: &mut impl CryptographicSponge,
     ) -> Result<bool, PCSError>;
 
     /// Verifies that `value_i` is the evaluation at `x_i` of the polynomial
@@ -179,7 +176,7 @@ pub trait PolynomialCommitmentScheme<E: Pairing> {
         _commitments: &[Self::Commitment],
         _points: &[Self::Point],
         _batch_proof: &Self::BatchProof,
-        _transcript: &mut IOPTranscript<E::ScalarField>,
+        _transcript: &mut IOPTranscript<F>,
     ) -> Result<bool, PCSError> {
         // the reason we use unimplemented!() is to enable developers to implement the
         // trait without always implementing the batching APIs.
@@ -188,16 +185,16 @@ pub trait PolynomialCommitmentScheme<E: Pairing> {
 }
 
 /// API definitions for structured reference string
-pub trait StructuredReferenceString<E: Pairing>: Sized {
+pub trait HashBasedSRS<F>: Sized {
     /// Prover parameters
     type ProverParam;
     /// Verifier parameters
     type VerifierParam;
 
     /// Extract the prover parameters from the public parameters.
-    fn extract_prover_param(&self, supported_size: usize) -> Self::ProverParam;
+    fn extract_prover_param(&self) -> Self::ProverParam;
     /// Extract the verifier parameters from the public parameters.
-    fn extract_verifier_param(&self, supported_size: usize) -> Self::VerifierParam;
+    fn extract_verifier_param(&self) -> Self::VerifierParam;
 
     /// Trim the universal parameters to specialize the public parameters
     /// for polynomials to the given `supported_size`, and
@@ -208,10 +205,7 @@ pub trait StructuredReferenceString<E: Pairing>: Sized {
     ///   variables.
     ///
     /// `supported_log_size` should be in range `1..=params.log_size`
-    fn trim(
-        &self,
-        supported_size: usize,
-    ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError>;
+    fn trim(&self) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError>;
 
     /// Build SRS for testing.
     ///
@@ -221,5 +215,5 @@ pub trait StructuredReferenceString<E: Pairing>: Sized {
     ///
     /// WARNING: THIS FUNCTION IS FOR TESTING PURPOSE ONLY.
     /// THE OUTPUT SRS SHOULD NOT BE USED IN PRODUCTION.
-    fn gen_srs_for_testing<R: Rng>(rng: &mut R, supported_size: usize) -> Result<Self, PCSError>;
+    fn gen_srs_for_testing(rng: &mut impl Rng, supported_size: usize) -> Result<Self, PCSError>;
 }

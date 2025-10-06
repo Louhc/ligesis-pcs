@@ -1,0 +1,239 @@
+// pub(crate) mod batching;
+pub(crate) mod srs;
+// pub(crate) mod util;
+
+use crate::pcs::{hashpcs::HashBasedPCS, PCSError};
+use ark_ff::PrimeField;
+use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_std::{
+    borrow::Borrow, marker::PhantomData, rand::Rng,
+    sync::Arc, vec, vec::Vec, cmp::min,
+};
+use ark_crypto_primitives::sponge::{Absorb, CryptographicSponge};
+use transcript::IOPTranscript;
+
+pub mod hash;
+use hash::*;
+pub mod rscode;
+use rscode::*;
+pub mod rand;
+use rand::*;
+
+/// Ligero Polynomial Commitment Scheme
+pub struct LigeroPCS<F: PrimeField> {
+    #[doc(hidden)]
+    phantom: PhantomData<F>,
+}
+
+#[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq)]
+/// proof of opening
+pub struct LigeroProof<F: PrimeField> {
+    pub msg: Vec<F>,
+    pub mt_proofs: Vec<Vec<Byte32>>,
+    pub cols: Vec<Vec<F>>,
+}
+
+impl<F: PrimeField + Absorb> HashBasedPCS<F> for LigeroPCS<F> {
+    // Parameters
+    type ProverParam = (usize, usize, usize); // (num of variables, num of variables in one side, length of RS code)
+    type VerifierParam = (usize, usize, usize);
+    type SRS = (usize, usize, usize); // (num of variables, length of RS code)
+    // Polynomial and its associated types
+    type Polynomial = Arc<DenseMultilinearExtension<F>>;
+    type ProverCommitmentAdvice = MerkleTree; // merkle tree structure
+    type Point = Vec<F>;
+    type Evaluation = F;
+    // Commitments and proofs
+    type Commitment = Byte32; // merkle tree root
+    type Proof = LigeroProof<F>; // merkle tree paths, columes of `E`
+    type BatchProof = (); // 
+
+    fn gen_srs_for_testing(rng: &mut impl Rng, log_size: usize) -> Result<Self::SRS, PCSError> {
+        // MultilinearUniversalParams::<E>::gen_srs_for_testing(rng, log_size)
+        let log_n = log_size;
+        let log_m = log_n / 2;
+        let rs_len = (1 << log_m) * 2;
+        Ok((log_n, log_m, rs_len))
+    }
+
+    fn trim(
+        srs: &Self::SRS,
+        // supported_degree: Option<usize>,
+        // supported_num_vars: Option<usize>,
+    ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError> {
+        Ok((srs.clone(), srs.clone()))
+    }
+
+    fn commit(
+        prover_param: impl Borrow<Self::ProverParam>,
+        poly: &Self::Polynomial,
+    ) -> Result<(Self::Commitment, Self::ProverCommitmentAdvice), PCSError> {
+        // trim parameters
+        let &(log_n, log_m0, rs_len) = prover_param.borrow();
+        let log_m1 = log_n - log_m0;
+        let (n, m0, m1) = (1 << log_n, 1 << log_m0, 1 << log_m1);
+        assert!(log_n == log_m0 + log_m1 && poly.num_vars == n);
+        let mat_a = reshape(&poly.evaluations, m0, m1);
+
+        // encode `A`
+        let rs = ReedSolomon::new(m1, rs_len);
+        let mat_e = mat_a.iter().map(
+            |row| rs.encode(row)
+        ).collect::<Vec<_>>();
+
+        // build merkle tree on columes
+        let hash_cols = (0..(m1 << 1)).map(
+            |j| compute_sha256_row(
+                &((0..m0).map(|i| mat_e[i][j]).collect::<Vec<_>>())
+            )
+        ).collect::<Vec<_>>();
+        let mt = MerkleTree::new(&hash_cols);
+
+        Ok((mt.root().clone(), mt))
+    }
+
+    fn open(
+        prover_param: impl Borrow<Self::ProverParam>,
+        poly: &Self::Polynomial,
+        advice: &Self::ProverCommitmentAdvice,
+        point: &Self::Point,
+        sponge: &mut impl CryptographicSponge,
+    ) -> Result<Self::Proof, PCSError> {
+        // trim parameters
+        let &(log_n, log_m0, rs_len) = prover_param.borrow();
+        let log_m1 = log_n - log_m0;
+        let (n, m0, m1) = (1 << log_n, 1 << log_m0, 1 << log_m1);
+        assert!(log_n == log_m0 + log_m1 && poly.num_vars == n);
+        let mat_a = reshape(&poly.evaluations, m0, m1);
+        
+        // encode `A`
+        let rs = ReedSolomon::new(m1, rs_len);
+        let mat_e = mat_a.iter().map(
+            |row| rs.encode(row)
+        ).collect::<Vec<_>>();
+
+        // generate `r` and compute the tensor vector `u0`
+        let seed_r = sponge.squeeze_bytes(32);
+        let r = random_field_vector::<F>(m0, seed_r.try_into().unwrap());
+        sponge.absorb(&r.as_slice());
+        let u0 = get_tensor(&point[..log_m0].to_vec());
+
+        // compute `rA` and `u0A` and compute msg
+        let f0: Vec<F> = (0..m1).map(
+            |j| (0..m0).map(|i| r[i] * mat_a[i][j]).sum()
+        ).collect::<Vec<_>>();
+        let f1: Vec<F> = (0..m1).map(
+            |j| (0..m0).map(|i| u0[i] * mat_a[i][j]).sum()
+        ).collect::<Vec<_>>();
+        let msg: Vec<F> = { let mut f = f0.clone(); f.append(&mut f1.clone()); f };
+        
+        // build merkle tree on columes
+        let mt = advice;
+        // let hash_cols = (0..(m1 << 1)).map(
+        //     |j| compute_sha256_row(
+        //         &((0..m0).map(|i| mat_e[i][j]).collect::<Vec<_>>())
+        //     )
+        // ).collect::<Vec<_>>();
+        // let mt = MerkleTree::new(&hash_cols);
+        
+        // generate lambda indices and alpha
+        let seed_idx = sponge.squeeze_bytes(32);
+        let idx: Vec<usize> = random_indices_vector(m1 << 1, min(128, m1 << 1), seed_idx.try_into().unwrap());
+        sponge.absorb(&idx.as_slice());
+        let seed_alpha = sponge.squeeze_bytes(32);
+        let alpha: F = random_field_vector(1, seed_alpha.try_into().unwrap())[0];
+        sponge.absorb(&alpha);
+
+        // trim all needed columes and compute merkle paths
+        let cols = idx.iter().map(
+            |&i| mat_e.iter().map(|row| row[i]).collect::<Vec<_>>()
+        ).collect::<Vec<_>>();
+        let mt_proofs = idx.iter().map(
+            |&i| mt.prove(i)
+        ).collect::<Vec<_>>();
+        
+        Ok(LigeroProof{msg, cols, mt_proofs})
+    }
+
+    fn verify(
+        verifier_param: &Self::VerifierParam,
+        com: &Self::Commitment,
+        point: &Self::Point,
+        value: &F,
+        proof: &Self::Proof,
+        sponge: &mut impl CryptographicSponge,
+    ) -> Result<bool, PCSError> {
+        // trim parameters
+        let &(log_n, log_m0, rs_len) = verifier_param;
+        let log_m1 = log_n - log_m0;
+        let (n, m0, m1) = (1 << log_n, 1 << log_m0, 1 << log_m1);
+        let f0 = proof.msg[..m0].to_vec();
+        let f1 = proof.msg[m0..].to_vec();
+
+        // generate the challenge and compuate the tensor vector
+        let seed_r = sponge.squeeze_bytes(32);
+        let r = random_field_vector::<F>(m0, seed_r.try_into().unwrap());
+        sponge.absorb(&r.as_slice());
+        let (u0, u1) = (get_tensor(&point[..log_m0].to_vec()), get_tensor(&point[log_m0..].to_vec()));
+
+        // check if the final value is correctly computed
+        if (0..m0).map(|i| f1[i + m0] * u1[i]).sum::<F>() != *value {
+            return Ok(false);
+        }
+
+        // choose lambda columes
+        // generate a random value alpha and batch `f0 + alpha * f1`
+        let seed_idx = sponge.squeeze_bytes(32);
+        let idx: Vec<usize> = random_indices_vector(m1 << 1, min(128, m1 << 1), seed_idx.try_into().unwrap());
+        sponge.absorb(&idx.as_slice());
+        let seed_alpha = sponge.squeeze_bytes(32);
+        let alpha: F = random_field_vector(1, seed_alpha.try_into().unwrap())[0];
+        sponge.absorb(&alpha);
+        let f = (0..m0).map(|i| f0[i] + alpha * f1[i]).collect();
+        
+        // encode `f`
+        let rs = ReedSolomon::<F>::new(m1, rs_len);
+        let enc = rs.encode(&f);
+        let enc_i = idx.iter().map(
+            |&i| enc[i]
+        ).collect::<Vec<_>>();
+
+        // check if `Enc(f)` and `(r + alpha * u0)^T E` meet at lambda points
+        let cmp_i = idx.iter().map(
+            |&i| (0..m0).map(|j| proof.cols[i][j] * (r[j] + alpha * u0[j])).sum::<F>()
+        ).collect::<Vec<_>>();
+        if cmp_i != enc_i {
+            return Ok(false);
+        }
+
+        // check merkle paths
+        for i in 0..128usize {
+            if !MerkleTree::verify(com, idx[i], 
+                &compute_sha256_row(&proof.cols[i]), 
+                &proof.mt_proofs[i]) {
+                return Ok(false);
+            }
+        }
+
+        return Ok(true);
+    }
+}
+
+pub fn reshape<F: PrimeField>( a: &Vec<F>, n: usize, m: usize ) -> Vec<Vec<F>> {
+    (0..n).map(
+        |i| (0..m).map(
+            |j| if i * m + j < a.len() { a[i * m + j] } else { F::ZERO }
+        ).collect::<Vec<_>>()
+    ).collect::<Vec<_>>()
+}
+
+pub fn get_tensor<F: PrimeField>( r: &Vec<F> ) -> Vec<F> {
+    let mut res = vec![F::ONE];
+    for i in 0..r.len() {
+        let mut tmp = res.iter().map(|&x| x * r[i]).collect::<Vec<_>>();
+        res = res.iter().map(|&x| x * (F::ONE - r[i])).collect::<Vec<_>>();
+        res.append(&mut tmp);
+    }
+    res
+}

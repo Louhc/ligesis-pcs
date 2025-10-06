@@ -10,7 +10,7 @@ BIN=../target/release/examples/$1
 PROCS=()
 for i in 0 1 2 3
 do
-  $BIN $i ./dTests/data/4 &
+  $BIN $i ./dTests/data/4 $2 &
   #RUST_LOG=debug $BIN $i ./data/4 &
   pid=$!
   PROCS+=("$pid")
