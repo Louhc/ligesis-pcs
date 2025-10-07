@@ -11,7 +11,7 @@ use ark_std::{
     sync::Arc, vec, vec::Vec, cmp::min,
 };
 use ark_crypto_primitives::sponge::{Absorb, CryptographicSponge};
-use transcript::IOPTranscript;
+// use transcript::IOPTranscript;
 
 pub mod hash;
 use hash::*;
@@ -29,9 +29,21 @@ pub struct LigeroPCS<F: PrimeField> {
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq)]
 /// proof of opening
 pub struct LigeroProof<F: PrimeField> {
-    pub msg: Vec<F>,
+    pub f0: Vec<F>, // r^T * A
+    pub f1: Vec<F>, // u0^T * A
     pub mt_proofs: Vec<Vec<Byte32>>,
     pub cols: Vec<Vec<F>>,
+}
+
+impl<F: PrimeField> LigeroPCS<F> {
+    pub fn compute_value_from_proof(
+        log_m0: usize,
+        point: &Vec<F>,
+        proof: &LigeroProof<F>,
+    ) -> F {
+        let u1 = get_tensor(&point[log_m0..].to_vec());
+        (0..u1.len()).map(|i| proof.f1[i] * u1[i]).sum::<F>()
+    }
 }
 
 impl<F: PrimeField + Absorb> HashBasedPCS<F> for LigeroPCS<F> {
@@ -73,7 +85,7 @@ impl<F: PrimeField + Absorb> HashBasedPCS<F> for LigeroPCS<F> {
         let &(log_n, log_m0, rs_len) = prover_param.borrow();
         let log_m1 = log_n - log_m0;
         let (n, m0, m1) = (1 << log_n, 1 << log_m0, 1 << log_m1);
-        assert!(log_n == log_m0 + log_m1 && poly.num_vars == n);
+        assert!(log_n == log_m0 + log_m1 && poly.num_vars == log_n);
         let mat_a = reshape(&poly.evaluations, m0, m1);
 
         // encode `A`
@@ -104,7 +116,7 @@ impl<F: PrimeField + Absorb> HashBasedPCS<F> for LigeroPCS<F> {
         let &(log_n, log_m0, rs_len) = prover_param.borrow();
         let log_m1 = log_n - log_m0;
         let (n, m0, m1) = (1 << log_n, 1 << log_m0, 1 << log_m1);
-        assert!(log_n == log_m0 + log_m1 && poly.num_vars == n);
+        assert!(log_n == log_m0 + log_m1 && poly.num_vars == log_n);
         let mat_a = reshape(&poly.evaluations, m0, m1);
         
         // encode `A`
@@ -126,16 +138,10 @@ impl<F: PrimeField + Absorb> HashBasedPCS<F> for LigeroPCS<F> {
         let f1: Vec<F> = (0..m1).map(
             |j| (0..m0).map(|i| u0[i] * mat_a[i][j]).sum()
         ).collect::<Vec<_>>();
-        let msg: Vec<F> = { let mut f = f0.clone(); f.append(&mut f1.clone()); f };
+        // let msg: Vec<F> = { let mut f = f0.clone(); f.append(&mut f1.clone()); f };
         
-        // build merkle tree on columes
+        // get merkle tree on columes
         let mt = advice;
-        // let hash_cols = (0..(m1 << 1)).map(
-        //     |j| compute_sha256_row(
-        //         &((0..m0).map(|i| mat_e[i][j]).collect::<Vec<_>>())
-        //     )
-        // ).collect::<Vec<_>>();
-        // let mt = MerkleTree::new(&hash_cols);
         
         // generate lambda indices and alpha
         let seed_idx = sponge.squeeze_bytes(32);
@@ -153,7 +159,7 @@ impl<F: PrimeField + Absorb> HashBasedPCS<F> for LigeroPCS<F> {
             |&i| mt.prove(i)
         ).collect::<Vec<_>>();
         
-        Ok(LigeroProof{msg, cols, mt_proofs})
+        Ok(LigeroProof{f0, f1, cols, mt_proofs})
     }
 
     fn verify(
@@ -168,8 +174,8 @@ impl<F: PrimeField + Absorb> HashBasedPCS<F> for LigeroPCS<F> {
         let &(log_n, log_m0, rs_len) = verifier_param;
         let log_m1 = log_n - log_m0;
         let (n, m0, m1) = (1 << log_n, 1 << log_m0, 1 << log_m1);
-        let f0 = proof.msg[..m0].to_vec();
-        let f1 = proof.msg[m0..].to_vec();
+        let f0 = proof.f0.clone();
+        let f1 = proof.f1.clone();
 
         // generate the challenge and compuate the tensor vector
         let seed_r = sponge.squeeze_bytes(32);
@@ -178,7 +184,7 @@ impl<F: PrimeField + Absorb> HashBasedPCS<F> for LigeroPCS<F> {
         let (u0, u1) = (get_tensor(&point[..log_m0].to_vec()), get_tensor(&point[log_m0..].to_vec()));
 
         // check if the final value is correctly computed
-        if (0..m0).map(|i| f1[i + m0] * u1[i]).sum::<F>() != *value {
+        if (0..m1).map(|i| f1[i] * u1[i]).sum::<F>() != *value {
             return Ok(false);
         }
 
@@ -190,7 +196,7 @@ impl<F: PrimeField + Absorb> HashBasedPCS<F> for LigeroPCS<F> {
         let seed_alpha = sponge.squeeze_bytes(32);
         let alpha: F = random_field_vector(1, seed_alpha.try_into().unwrap())[0];
         sponge.absorb(&alpha);
-        let f = (0..m0).map(|i| f0[i] + alpha * f1[i]).collect();
+        let f = (0..m1).map(|i| f0[i] + alpha * f1[i]).collect();
         
         // encode `f`
         let rs = ReedSolomon::<F>::new(m1, rs_len);
@@ -200,15 +206,15 @@ impl<F: PrimeField + Absorb> HashBasedPCS<F> for LigeroPCS<F> {
         ).collect::<Vec<_>>();
 
         // check if `Enc(f)` and `(r + alpha * u0)^T E` meet at lambda points
-        let cmp_i = idx.iter().map(
-            |&i| (0..m0).map(|j| proof.cols[i][j] * (r[j] + alpha * u0[j])).sum::<F>()
+        let cmp_i = (0..idx.len()).map(
+            |i| (0..m0).map(|j| proof.cols[i][j] * (r[j] + alpha * u0[j])).sum::<F>()
         ).collect::<Vec<_>>();
         if cmp_i != enc_i {
             return Ok(false);
         }
 
         // check merkle paths
-        for i in 0..128usize {
+        for i in 0..idx.len() {
             if !MerkleTree::verify(com, idx[i], 
                 &compute_sha256_row(&proof.cols[i]), 
                 &proof.mt_proofs[i]) {
@@ -237,3 +243,6 @@ pub fn get_tensor<F: PrimeField>( r: &Vec<F> ) -> Vec<F> {
     }
     res
 }
+
+#[cfg(test)]
+mod tests;

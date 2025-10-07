@@ -7,8 +7,8 @@ pub struct ReedSolomon<F: FftField> {
 }
 
 impl<F: FftField> ReedSolomon<F> {
-    pub fn new(n: usize, ecc: usize) -> Self {
-        let domain = GeneralEvaluationDomain::<F>::new(n + ecc).unwrap();
+    pub fn new(n: usize, rs_len: usize) -> Self {
+        let domain = GeneralEvaluationDomain::<F>::new(rs_len).unwrap();
         Self { n, domain }
     }
 
