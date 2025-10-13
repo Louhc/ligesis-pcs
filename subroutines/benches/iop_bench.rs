@@ -47,7 +47,7 @@ fn bench_sum_check() -> Result<(), PolyIOPErrors> {
                 let start = Instant::now();
                 for _ in 0..repetition {
                     let mut transcript = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
-                    let _proof = <PolyIOP<Fr> as SumCheck<Fr>>::prove(&poly, &mut transcript)?;
+                    let _proof = <PolyIOP<Fr> as SumCheck<Fr>>::prove(poly.clone(), &mut transcript)?;
                 }
 
                 println!(
@@ -57,7 +57,7 @@ fn bench_sum_check() -> Result<(), PolyIOPErrors> {
                     start.elapsed().as_nanos() / repetition as u128
                 );
                 let mut transcript = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
-                <PolyIOP<Fr> as SumCheck<Fr>>::prove(&poly, &mut transcript)?
+                <PolyIOP<Fr> as SumCheck<Fr>>::prove(poly.clone(), &mut transcript)?
             };
 
             {
@@ -104,7 +104,7 @@ fn bench_zero_check() -> Result<(), PolyIOPErrors> {
                 let start = Instant::now();
                 let mut transcript = <PolyIOP<Fr> as ZeroCheck<Fr>>::init_transcript();
                 transcript.append_message(b"testing", b"initializing transcript for testing")?;
-                let proof = <PolyIOP<Fr> as ZeroCheck<Fr>>::prove(&poly, &mut transcript)?;
+                let proof = <PolyIOP<Fr> as ZeroCheck<Fr>>::prove(poly.clone(), &mut transcript)?;
 
                 println!(
                     "zero check proving time for {} variables and {} degree: {} ns",

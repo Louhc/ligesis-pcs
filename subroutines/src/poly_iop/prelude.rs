@@ -8,7 +8,7 @@ pub use crate::poly_iop::{
     errors::PolyIOPErrors,
     lookup::{instruction, instruction::JoltInstruction, LookupCheck, LookupCheckProof},
     perm_check::PermutationCheck,
-    // prod_check::ProductCheck,
+    prod_check::ProductCheck,
     structs::IOPProof,
     sum_check::SumCheck,
     sum_check::generic_sumcheck::{SumcheckInstanceProof, ZerocheckInstanceProof},

@@ -171,7 +171,7 @@ pub(super) fn prove_zero_check<F: PrimeField>(
     // - alpha * f1(x) * ... * fk(x)]
     q_x.add_mle_list(fxs.to_vec(), -*alpha)?;
 
-    let iop_proof = <PolyIOP<F> as ZeroCheck<F>>::prove(q_x, transcript)?;
+    let iop_proof = <PolyIOP<F> as ZeroCheck<F>>::prove(q_x.clone(), transcript)?;
 
     end_timer!(start);
     Ok((iop_proof, q_x))

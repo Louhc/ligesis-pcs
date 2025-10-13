@@ -19,7 +19,7 @@ mod perm_check;
 mod perm_check;
 
 pub mod prelude;
-// mod prod_check;
+mod prod_check;
 mod structs;
 mod combined_check;
 mod sum_check;

@@ -20,4 +20,6 @@ pub use crate::pcs::{
     dory::{Dory, DeDory, DeDorySRS},
     dummy::DummyPCS,
     PolynomialCommitmentScheme, StructuredReferenceString,
+    hashpcs::HashBasedPCS,
+    ligero::*,
 };

@@ -9,9 +9,10 @@
 #![feature(macro_metavar_expr)]
 
 use ark_ec::pairing::Pairing;
+use ark_ff::PrimeField;
 use errors::HyperPlonkErrors;
 use lookup::{HyperPlonkLookupPlugin, HyperPlonkLookupPluginNull};
-use subroutines::{pcs::prelude::PolynomialCommitmentScheme, poly_iop::prelude::PermutationCheck};
+use subroutines::{pcs::prelude::PolynomialCommitmentScheme, poly_iop::prelude::PermutationCheck, HashBasedPCS};
 use transcript::IOPTranscript;
 use witness::WitnessColumn;
 
@@ -25,6 +26,7 @@ mod snark;
 mod structs;
 mod utils;
 mod witness;
+mod ligesis_snark;
 
 /// A trait for HyperPlonk SNARKs.
 /// A HyperPlonk is derived from ZeroChecks and PermutationChecks.
@@ -93,6 +95,77 @@ where
     fn verify(
         vk: &Self::VerifyingKey,
         pub_input: &[E::ScalarField],
+        proof: &Self::Proof,
+    ) -> Result<bool, HyperPlonkErrors>;
+}
+
+/// A trait for hash-based HyperPlonk SNARKs.
+/// A HyperPlonk is derived from ZeroChecks and PermutationChecks.
+pub trait HashBasedHyperPlonkSNARK<F, PCS, Lookup = HyperPlonkLookupPluginNull>//: PermutationCheck<E, PCS>
+where
+    F: PrimeField,
+    PCS: HashBasedPCS<F>,
+    // Lookup: HyperPlonkLookupPlugin<E, PCS>,
+    // Transcript = IOPTranscript<E::ScalarField>>,
+{
+    type Index;
+    type ProvingKey;
+    type VerifyingKey;
+    type Proof;
+
+    /// Generate the preprocessed polynomials output by the indexer.
+    ///
+    /// Inputs:
+    /// - `index`: HyperPlonk index
+    /// - `pcs_srs`: Polynomial commitment structured reference string
+    /// Outputs:
+    /// - The HyperPlonk proving key, which includes the preprocessed
+    ///   polynomials.
+    /// - The HyperPlonk verifying key, which includes the preprocessed
+    ///   polynomial commitments
+    fn preprocess(
+        index: &Self::Index,
+        pcs_srs: &PCS::SRS,
+    ) -> Result<(Self::ProvingKey, Self::VerifyingKey), HyperPlonkErrors>;
+
+    fn d_preprocess(
+        index: &Self::Index,
+        pcs_srs: &PCS::SRS,
+    ) -> Result<(Self::ProvingKey, Option<Self::VerifyingKey>), HyperPlonkErrors>;
+
+    /// Generate HyperPlonk SNARK proof.
+    ///
+    /// Inputs:
+    /// - `pk`: circuit proving key
+    /// - `pub_input`: online public input
+    /// - `witness`: witness assignment
+    /// Outputs:
+    /// - The HyperPlonk SNARK proof.
+    fn prove(
+        pk: &Self::ProvingKey,
+        pub_input: &[F],
+        witnesses: &[WitnessColumn<F>],
+        // ops: &Lookup::Ops,
+    ) -> Result<Self::Proof, HyperPlonkErrors>;
+
+    fn d_prove(
+        pk: &Self::ProvingKey,
+        pub_input: &[F],
+        witnesses: &[WitnessColumn<F>],
+        // ops: &Lookup::Ops,
+    ) -> Result<Option<Self::Proof>, HyperPlonkErrors>;
+
+    /// Verify the HyperPlonk proof.
+    ///
+    /// Inputs:
+    /// - `vk`: verifying key
+    /// - `pub_input`: online public input
+    /// - `proof`: HyperPlonk SNARK proof challenges
+    /// Outputs:
+    /// - Return a boolean on whether the verification is successful
+    fn verify(
+        vk: &Self::VerifyingKey,
+        pub_input: &[F],
         proof: &Self::Proof,
     ) -> Result<bool, HyperPlonkErrors>;
 }

@@ -112,7 +112,7 @@ fn test_multi_helper<E: Pairing, R: Rng>(
         .unzip();
 
     let mut transcript = IOPTranscript::new("test transcript".as_ref());
-    let proof = DeDory::d_multi_open(&ck, polys, &advices, &points, &evals, &mut transcript)?;
+    let proof = DeDory::d_multi_open(&ck, polys.to_vec(), &advices, &points, &evals, &mut transcript)?;
 
     // good path
     let mut transcript = IOPTranscript::new("test transcript".as_ref());
