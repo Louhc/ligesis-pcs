@@ -4,7 +4,8 @@ members = [
   "subroutines",
   "transcript",
   "util",
-  "deNetwork"
+  "deNetwork",
+  "hyperpianist",
 ]
 
 [patch.crates-io]
