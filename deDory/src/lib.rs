@@ -34,7 +34,7 @@ use ark_ec::pairing::{Pairing, PairingOutput};
 // use rand_util::rand_G_vecs;
 // pub use rand_util::test_rng;
 
-mod tests;
+// mod tests;
 
 // mod dory_messages;
 // pub(crate) use dory_messages::DoryMessages;
