@@ -27,7 +27,7 @@ use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 /// An accumulator structure that holds a polynomial and
 /// its opening points
 #[derive(Debug)]
-pub(super) struct PcsAccumulator<E: Pairing, PCS: PolynomialCommitmentScheme<E>> {
+pub(super) struct PcsAccumulator<F: PrimeField, PCS: PolynomialCommitmentScheme<F>> {
     // sequence:
     // - prod(x) at 5 points
     // - w_merged at perm check point
@@ -41,14 +41,14 @@ pub(super) struct PcsAccumulator<E: Pairing, PCS: PolynomialCommitmentScheme<E>>
     pub(crate) evals: Vec<PCS::Evaluation>,
 }
 
-impl<E, PCS> PcsAccumulator<E, PCS>
+impl<F, PCS> PcsAccumulator<F, PCS>
 where
-    E: Pairing,
+    F: PrimeField,
     PCS: PolynomialCommitmentScheme<
-        E,
-        Polynomial = Arc<DenseMultilinearExtension<E::ScalarField>>,
-        Point = Vec<E::ScalarField>,
-        Evaluation = E::ScalarField,
+        F,
+        Polynomial = Arc<DenseMultilinearExtension<F>>,
+        Point = Vec<F>,
+        Evaluation = F,
     >,
 {
     /// Create an empty accumulator.
@@ -91,7 +91,7 @@ where
     pub(super) fn multi_open(
         self,
         prover_param: impl Borrow<PCS::ProverParam>,
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<PCS::BatchProof, HyperPlonkErrors> {
         Ok(PCS::multi_open(
             prover_param.borrow(),
@@ -106,8 +106,8 @@ where
     pub(super) fn d_multi_open(
         self,
         prover_param: impl Borrow<PCS::ProverParam>,
-        evals: &[E::ScalarField],
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        evals: &[F],
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<Option<PCS::BatchProof>, HyperPlonkErrors> {
         Ok(PCS::d_multi_open(
             prover_param.borrow(),
@@ -123,19 +123,19 @@ where
 /// An accumulator structure that automatically creates accumulators
 /// for different num_vars
 #[derive(Debug)]
-pub(super) struct PcsDynamicAccumulator<E: Pairing, PCS: PolynomialCommitmentScheme<E>> {
-    pub(crate) accumulators: Vec<(usize, PcsAccumulator<E, PCS>)>,
+pub(super) struct PcsDynamicAccumulator<F: PrimeField, PCS: PolynomialCommitmentScheme<F>> {
+    pub(crate) accumulators: Vec<(usize, PcsAccumulator<F, PCS>)>,
     pub(crate) indices: Vec<usize>,
 }
 
-impl<E, PCS> PcsDynamicAccumulator<E, PCS>
+impl<F, PCS> PcsDynamicAccumulator<F, PCS>
 where
-    E: Pairing,
+    F: PrimeField,
     PCS: PolynomialCommitmentScheme<
-        E,
-        Polynomial = Arc<DenseMultilinearExtension<E::ScalarField>>,
-        Point = Vec<E::ScalarField>,
-        Evaluation = E::ScalarField,
+        F,
+        Polynomial = Arc<DenseMultilinearExtension<F>>,
+        Point = Vec<F>,
+        Evaluation = F,
     >,
 {
     pub(super) fn new() -> Self {
@@ -182,8 +182,8 @@ where
     pub(super) fn multi_open(
         self,
         prover_param: impl Borrow<PCS::ProverParam>,
-        transcript: &mut IOPTranscript<E::ScalarField>,
-    ) -> Result<PcsDynamicProof<E, PCS>, HyperPlonkErrors> {
+        transcript: &mut IOPTranscript<F>,
+    ) -> Result<PcsDynamicProof<F, PCS>, HyperPlonkErrors> {
         let mut proofs = Vec::with_capacity(self.accumulators.len());
         for (_, accumulator) in self.accumulators {
             let proof = accumulator.multi_open(prover_param.borrow(), transcript)?;
@@ -198,8 +198,8 @@ where
     pub(super) fn d_multi_open(
         self,
         prover_param: impl Borrow<PCS::ProverParam>,
-        transcript: &mut IOPTranscript<E::ScalarField>,
-    ) -> Result<Option<PcsDynamicProof<E, PCS>>, HyperPlonkErrors> {
+        transcript: &mut IOPTranscript<F>,
+    ) -> Result<Option<PcsDynamicProof<F, PCS>>, HyperPlonkErrors> {
         let num_party_vars = Net::n_parties().log_2();
 
         let mut evals = Vec::with_capacity(self.accumulators.len());
@@ -257,25 +257,25 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq, CanonicalSerialize, CanonicalDeserialize)]
-pub struct PcsDynamicProof<E: Pairing, PCS: PolynomialCommitmentScheme<E>> {
+pub struct PcsDynamicProof<F: PrimeField, PCS: PolynomialCommitmentScheme<F>> {
     pub(crate) proofs: Vec<PCS::BatchProof>,
     pub(crate) indices: Vec<usize>,
 }
 
-pub(super) struct PcsDynamicOpenings<'a, E: Pairing, PCS: PolynomialCommitmentScheme<E>> {
-    pub(crate) proof: &'a PcsDynamicProof<E, PCS>,
+pub(super) struct PcsDynamicOpenings<'a, F: PrimeField, PCS: PolynomialCommitmentScheme<F>> {
+    pub(crate) proof: &'a PcsDynamicProof<F, PCS>,
 
     // temporary state
     pub(crate) proof_offsets: Vec<usize>,
     pub(crate) offset: usize,
 }
 
-impl<'a, E, PCS> PcsDynamicOpenings<'a, E, PCS>
+impl<'a, F, PCS> PcsDynamicOpenings<'a, F, PCS>
 where
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E, BatchProof = BatchProof<E, PCS>>,
+    F: PrimeField,
+    PCS: PolynomialCommitmentScheme<F, BatchProof = BatchProof<F, PCS>>,
 {
-    pub(super) fn new(proof: &'a PcsDynamicProof<E, PCS>) -> Self {
+    pub(super) fn new(proof: &'a PcsDynamicProof<F, PCS>) -> Self {
         Self {
             proof,
             proof_offsets: vec![0; proof.proofs.len()],
@@ -283,7 +283,7 @@ where
         }
     }
 
-    pub(super) fn next_openings(&mut self, len: usize) -> Vec<E::ScalarField> {
+    pub(super) fn next_openings(&mut self, len: usize) -> Vec<F> {
         let indices = if len == usize::MAX {
             &self.proof.indices[self.offset..]
         } else {
@@ -310,18 +310,18 @@ where
 /// An accumulator structure that automatically creates accumulators
 /// for different num_vars
 #[derive(Debug)]
-pub(super) struct PcsDynamicVerifier<E: Pairing, PCS: PolynomialCommitmentScheme<E>> {
-    pub(crate) items: Vec<(usize, Vec<PCS::Commitment>, Vec<Vec<E::ScalarField>>)>,
+pub(super) struct PcsDynamicVerifier<F: PrimeField, PCS: PolynomialCommitmentScheme<F>> {
+    pub(crate) items: Vec<(usize, Vec<PCS::Commitment>, Vec<Vec<F>>)>,
 }
 
-impl<E, PCS> PcsDynamicVerifier<E, PCS>
+impl<F, PCS> PcsDynamicVerifier<F, PCS>
 where
-    E: Pairing,
+    F: PrimeField,
     PCS: PolynomialCommitmentScheme<
-        E,
-        Polynomial = Arc<DenseMultilinearExtension<E::ScalarField>>,
-        Point = Vec<E::ScalarField>,
-        Evaluation = E::ScalarField,
+        F,
+        Polynomial = Arc<DenseMultilinearExtension<F>>,
+        Point = Vec<F>,
+        Evaluation = F,
     >,
 {
     pub(super) fn new() -> Self {
@@ -345,7 +345,7 @@ where
         &self,
         verifier_param: impl Borrow<PCS::VerifierParam>,
         batch_proof: &[PCS::BatchProof],
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<bool, HyperPlonkErrors> {
         for (proof, (_, comms, points)) in zip(batch_proof.iter(), self.items.iter()) {
             let res =

@@ -71,15 +71,15 @@ where
     /// - The HyperPlonk SNARK proof.
     fn prove(
         pk: &Self::ProvingKey,
-        pub_input: &[E::ScalarField],
-        witnesses: &[WitnessColumn<E::ScalarField>],
+        pub_input: &[F],
+        witnesses: &[WitnessColumn<F>],
         ops: &Lookup::Ops,
     ) -> Result<Self::Proof, HyperPlonkErrors>;
 
     fn d_prove(
         pk: &Self::ProvingKey,
-        pub_input: &[E::ScalarField],
-        witnesses: &[WitnessColumn<E::ScalarField>],
+        pub_input: &[F],
+        witnesses: &[WitnessColumn<F>],
         ops: &Lookup::Ops,
     ) -> Result<Option<Self::Proof>, HyperPlonkErrors>;
 
@@ -93,7 +93,7 @@ where
     /// - Return a boolean on whether the verification is successful
     fn verify(
         vk: &Self::VerifyingKey,
-        pub_input: &[E::ScalarField],
+        pub_input: &[F],
         proof: &Self::Proof,
     ) -> Result<bool, HyperPlonkErrors>;
 }

@@ -1,4 +1,5 @@
 use ark_ec::pairing::Pairing;
+use ark_ff::PrimeField;
 use ark_poly::DenseMultilinearExtension;
 use ark_serialize::{CanonicalSerialize, CanonicalDeserialize};
 use ark_std::log2;
@@ -9,30 +10,30 @@ use subroutines::{
 };
 use transcript::IOPTranscript;
 
-pub struct HyperPlonkLookupProverOpeningPoints<E, PCS>
+pub struct HyperPlonkLookupProverOpeningPoints<F, PCS>
 where
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E>,
+    F: PrimeField,
+    PCS: PolynomialCommitmentScheme<F>,
 {
     pub regular_advices: Vec<PCS::ProverCommitmentAdvice>,
     // Second item is advice index
-    pub regular_openings: Vec<(PCS::Polynomial, usize, Vec<E::ScalarField>)>,
-    pub witness_openings: Vec<Vec<E::ScalarField>>,
+    pub regular_openings: Vec<(PCS::Polynomial, usize, Vec<F>)>,
+    pub witness_openings: Vec<Vec<F>>,
 }
 
-pub struct HyperPlonkLookupVerifierOpeningPoints<E, PCS>
+pub struct HyperPlonkLookupVerifierOpeningPoints<F, PCS>
 where
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E>,
+    F: PrimeField,
+    PCS: PolynomialCommitmentScheme<F>,
 {
-    pub regular_openings: Vec<(PCS::Commitment, Vec<E::ScalarField>)>,
-    pub witness_openings: Vec<Vec<E::ScalarField>>,
+    pub regular_openings: Vec<(PCS::Commitment, Vec<F>)>,
+    pub witness_openings: Vec<Vec<F>>,
 }
 
-pub trait HyperPlonkLookupPlugin<E, PCS>
+pub trait HyperPlonkLookupPlugin<F, PCS>
 where
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E>,
+    F: PrimeField,
+    PCS: PolynomialCommitmentScheme<F>,
 {
     type Ops: Sync;
     type Preprocessing: Clone + Sync;
@@ -40,7 +41,7 @@ where
     type Proof: Send + Sync + CanonicalSerialize + CanonicalDeserialize;
 
     fn preprocess() -> Self::Preprocessing;
-    fn construct_witnesses(ops: &Self::Ops) -> Vec<Arc<DenseMultilinearExtension<E::ScalarField>>>;
+    fn construct_witnesses(ops: &Self::Ops) -> Vec<Arc<DenseMultilinearExtension<F>>>;
     fn num_witness_columns() -> Vec<usize>;
     fn max_num_variables() -> usize;
     fn prove(
@@ -48,7 +49,7 @@ where
         pcs_param: &PCS::ProverParam,
         ops: &Self::Ops,
         transcript: &mut Self::Transcript,
-    ) -> (Self::Proof, HyperPlonkLookupProverOpeningPoints<E, PCS>);
+    ) -> (Self::Proof, HyperPlonkLookupProverOpeningPoints<F, PCS>);
     fn d_prove(
         preprocessing: &Self::Preprocessing,
         pcs_param: &PCS::ProverParam,
@@ -56,15 +57,15 @@ where
         transcript: &mut Self::Transcript,
     ) -> (
         Option<Self::Proof>,
-        HyperPlonkLookupProverOpeningPoints<E, PCS>,
+        HyperPlonkLookupProverOpeningPoints<F, PCS>,
     );
     fn num_regular_openings(proof: &Self::Proof) -> usize;
     fn verify(
         proof: &Self::Proof,
-        witness_openings: &[E::ScalarField],
-        regular_openings: &[E::ScalarField],
+        witness_openings: &[F],
+        regular_openings: &[F],
         transcript: &mut Self::Transcript,
-    ) -> Result<HyperPlonkLookupVerifierOpeningPoints<E, PCS>, PolyIOPErrors>;
+    ) -> Result<HyperPlonkLookupVerifierOpeningPoints<F, PCS>, PolyIOPErrors>;
 }
 
 pub struct HyperPlonkLookupPluginSingle<
@@ -75,25 +76,25 @@ pub struct HyperPlonkLookupPluginSingle<
     marker: PhantomData<Instruction>,
 }
 
-impl<E, PCS, Instruction, const C: usize, const M: usize> HyperPlonkLookupPlugin<E, PCS>
+impl<F, PCS, Instruction, const C: usize, const M: usize> HyperPlonkLookupPlugin<F, PCS>
     for HyperPlonkLookupPluginSingle<Instruction, C, M>
 where
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E, Polynomial = Arc<DenseMultilinearExtension<E::ScalarField>>>,
+    F: PrimeField,
+    PCS: PolynomialCommitmentScheme<F, Polynomial = Arc<DenseMultilinearExtension<F>>>,
     Instruction: JoltInstruction + Default,
 {
     type Ops = Vec<Instruction>;
     type Preprocessing =
-        <PolyIOP<E::ScalarField> as LookupCheck<E, PCS, Instruction, C, M>>::Preprocessing;
+        <PolyIOP<F> as LookupCheck<F, PCS, Instruction, C, M>>::Preprocessing;
     type Proof =
-        <PolyIOP<E::ScalarField> as LookupCheck<E, PCS, Instruction, C, M>>::LookupCheckProof;
-    type Transcript = IOPTranscript<E::ScalarField>;
+        <PolyIOP<F> as LookupCheck<F, PCS, Instruction, C, M>>::LookupCheckProof;
+    type Transcript = IOPTranscript<F>;
 
     fn preprocess() -> Self::Preprocessing {
-        <PolyIOP<E::ScalarField> as LookupCheck<E, PCS, Instruction, C, M>>::preprocess()
+        <PolyIOP<F> as LookupCheck<F, PCS, Instruction, C, M>>::preprocess()
     }
-    fn construct_witnesses(ops: &Self::Ops) -> Vec<Arc<DenseMultilinearExtension<E::ScalarField>>> {
-        <PolyIOP<E::ScalarField> as LookupCheck<E, PCS, Instruction, C, M>>::construct_witnesses(
+    fn construct_witnesses(ops: &Self::Ops) -> Vec<Arc<DenseMultilinearExtension<F>>> {
+        <PolyIOP<F> as LookupCheck<F, PCS, Instruction, C, M>>::construct_witnesses(
             ops,
         )
     }
@@ -109,14 +110,14 @@ where
         pcs_param: &PCS::ProverParam,
         ops: &Self::Ops,
         transcript: &mut Self::Transcript,
-    ) -> (Self::Proof, HyperPlonkLookupProverOpeningPoints<E, PCS>) {
+    ) -> (Self::Proof, HyperPlonkLookupProverOpeningPoints<F, PCS>) {
         let alpha = transcript
             .get_and_append_challenge(b"lookup_alpha")
             .unwrap();
         let tau = transcript.get_and_append_challenge(b"lookup_tau").unwrap();
 
         let mut polys =
-            <PolyIOP<E::ScalarField> as LookupCheck<E, PCS, Instruction, C, M>>::construct_polys(
+            <PolyIOP<F> as LookupCheck<F, PCS, Instruction, C, M>>::construct_polys(
                 preprocessing,
                 ops,
                 &alpha,
@@ -124,7 +125,7 @@ where
 
         #[cfg(feature = "rational_sumcheck_piop")]
         let (proof, advices, r_f, r_g, r_z, r_primary_sumcheck, f_inv, g_inv) =
-            <PolyIOP<E::ScalarField> as LookupCheck<E, PCS, Instruction, C, M>>::prove(
+            <PolyIOP<F> as LookupCheck<F, PCS, Instruction, C, M>>::prove(
                 preprocessing,
                 pcs_param,
                 &mut polys,
@@ -136,7 +137,7 @@ where
 
         #[cfg(not(feature = "rational_sumcheck_piop"))]
         let (proof, advices, r_f, r_g, r_z, r_primary_sumcheck) =
-            <PolyIOP<E::ScalarField> as LookupCheck<E, PCS, Instruction, C, M>>::prove(
+            <PolyIOP<F> as LookupCheck<F, PCS, Instruction, C, M>>::prove(
                 preprocessing,
                 pcs_param,
                 &mut polys,
@@ -199,7 +200,7 @@ where
         transcript: &mut Self::Transcript,
     ) -> (
         Option<Self::Proof>,
-        HyperPlonkLookupProverOpeningPoints<E, PCS>,
+        HyperPlonkLookupProverOpeningPoints<F, PCS>,
     ) {
         let (alpha, tau) = if Net::am_master() {
             let alpha = transcript
@@ -213,7 +214,7 @@ where
         };
 
         let mut polys =
-            <PolyIOP<E::ScalarField> as LookupCheck<E, PCS, Instruction, C, M>>::construct_polys(
+            <PolyIOP<F> as LookupCheck<F, PCS, Instruction, C, M>>::construct_polys(
                 preprocessing,
                 ops,
                 &alpha,
@@ -223,7 +224,7 @@ where
 
         #[cfg(feature = "rational_sumcheck_piop")]
         let (proof, advices, r_f, r_g, r_z, r_primary_sumcheck, f_inv, g_inv) =
-            <PolyIOP<E::ScalarField> as LookupCheck<E, PCS, Instruction, C, M>>::d_prove(
+            <PolyIOP<F> as LookupCheck<F, PCS, Instruction, C, M>>::d_prove(
                 preprocessing,
                 pcs_param,
                 &mut polys,
@@ -235,7 +236,7 @@ where
 
         #[cfg(not(feature = "rational_sumcheck_piop"))]
         let (proof, advices, r_f, r_g, r_z, r_primary_sumcheck) =
-            <PolyIOP<E::ScalarField> as LookupCheck<E, PCS, Instruction, C, M>>::d_prove(
+            <PolyIOP<F> as LookupCheck<F, PCS, Instruction, C, M>>::d_prove(
                 preprocessing,
                 pcs_param,
                 &mut polys,
@@ -305,16 +306,16 @@ where
     }
     fn verify(
         proof: &Self::Proof,
-        witness_openings: &[E::ScalarField],
-        regular_openings: &[E::ScalarField],
+        witness_openings: &[F],
+        regular_openings: &[F],
         transcript: &mut Self::Transcript,
-    ) -> Result<HyperPlonkLookupVerifierOpeningPoints<E, PCS>, PolyIOPErrors> {
+    ) -> Result<HyperPlonkLookupVerifierOpeningPoints<F, PCS>, PolyIOPErrors> {
         let alpha = transcript
             .get_and_append_challenge(b"lookup_alpha")
             .unwrap();
         let tau = transcript.get_and_append_challenge(b"lookup_tau").unwrap();
 
-        let subclaim = <PolyIOP<E::ScalarField> as LookupCheck<E, PCS, Instruction, C, M>>::verify(
+        let subclaim = <PolyIOP<F> as LookupCheck<F, PCS, Instruction, C, M>>::verify(
             proof, transcript,
         )?;
 
@@ -333,7 +334,7 @@ where
         {
             let f_inv_openings = next_openings(proof.logup_checking.f_inv_comm.len());
             let g_inv_openings = next_openings(proof.logup_checking.g_inv_comm.len());
-            <PolyIOP<E::ScalarField> as LookupCheck<E, PCS, Instruction, C, M>>::check_openings(
+            <PolyIOP<F> as LookupCheck<F, PCS, Instruction, C, M>>::check_openings(
                 &subclaim,
                 dim_openings,
                 E_openings,
@@ -347,7 +348,7 @@ where
         }
 
         #[cfg(not(feature = "rational_sumcheck_piop"))]
-        <PolyIOP<E::ScalarField> as LookupCheck<E, PCS, Instruction, C, M>>::check_openings(
+        <PolyIOP<F> as LookupCheck<F, PCS, Instruction, C, M>>::check_openings(
             &subclaim,
             dim_openings,
             E_openings,
@@ -411,25 +412,25 @@ macro_rules! combine_lookup_plugins {
     ($name:ident : $($plugin:ty),*) => {
         pub struct $name {}
 
-        impl<E, PCS> $crate::lookup::HyperPlonkLookupPlugin<E, PCS> for $name
-            where E: ark_ec::pairing::Pairing,
-            PCS: subroutines::pcs::prelude::PolynomialCommitmentScheme<E,
-                Polynomial = std::sync::Arc<ark_poly::DenseMultilinearExtension<E::ScalarField>>,
-                Point = Vec<E::ScalarField>,
-                Evaluation = E::ScalarField,
-                BatchProof = subroutines::BatchProof<E, PCS>,
+        impl<F, PCS> $crate::lookup::HyperPlonkLookupPlugin<F, PCS> for $name
+            where F: ark_ff::PrimeField,
+            PCS: subroutines::pcs::prelude::PolynomialCommitmentScheme<F,
+                Polynomial = std::sync::Arc<ark_poly::DenseMultilinearExtension<F>>,
+                Point = Vec<F>,
+                Evaluation = F,
+                BatchProof = subroutines::BatchProof<F, PCS>,
             > {
-            type Ops = ($(Option<<$plugin as $crate::lookup::HyperPlonkLookupPlugin<E, PCS>>::Ops>,)*);
-            type Preprocessing = ($(<$plugin as $crate::lookup::HyperPlonkLookupPlugin<E, PCS>>::Preprocessing,)*);
-            type Proof = ($(Option<<$plugin as $crate::lookup::HyperPlonkLookupPlugin<E, PCS>>::Proof>,)*);
-            type Transcript = transcript::IOPTranscript<E::ScalarField>;
+            type Ops = ($(Option<<$plugin as $crate::lookup::HyperPlonkLookupPlugin<F, PCS>>::Ops>,)*);
+            type Preprocessing = ($(<$plugin as $crate::lookup::HyperPlonkLookupPlugin<F, PCS>>::Preprocessing,)*);
+            type Proof = ($(Option<<$plugin as $crate::lookup::HyperPlonkLookupPlugin<F, PCS>>::Proof>,)*);
+            type Transcript = transcript::IOPTranscript<F>;
 
             fn preprocess() -> Self::Preprocessing {
-                ($(<$plugin as $crate::lookup::HyperPlonkLookupPlugin<E, PCS>>::preprocess(),)*)
+                ($(<$plugin as $crate::lookup::HyperPlonkLookupPlugin<F, PCS>>::preprocess(),)*)
             }
-            fn construct_witnesses(ops: &Self::Ops) -> Vec<std::sync::Arc<ark_poly::DenseMultilinearExtension<E::ScalarField>>> {
-                let witness_vecs : Vec<Vec<std::sync::Arc<ark_poly::DenseMultilinearExtension<E::ScalarField>>>> = vec![$(if let Some(ops) = &ops.${index()} {
-                    <$plugin as $crate::lookup::HyperPlonkLookupPlugin<E, PCS>>::construct_witnesses(ops)
+            fn construct_witnesses(ops: &Self::Ops) -> Vec<std::sync::Arc<ark_poly::DenseMultilinearExtension<F>>> {
+                let witness_vecs : Vec<Vec<std::sync::Arc<ark_poly::DenseMultilinearExtension<F>>>> = vec![$(if let Some(ops) = &ops.${index()} {
+                    <$plugin as $crate::lookup::HyperPlonkLookupPlugin<F, PCS>>::construct_witnesses(ops)
                 } else {
                     vec![]
                 }),*];
@@ -437,18 +438,18 @@ macro_rules! combine_lookup_plugins {
             }
             fn num_witness_columns() -> Vec<usize> {
                 let witness_columns : Vec<Vec<usize>> =
-                    vec![$(<$plugin as $crate::lookup::HyperPlonkLookupPlugin<E, PCS>>::num_witness_columns()),*];
+                    vec![$(<$plugin as $crate::lookup::HyperPlonkLookupPlugin<F, PCS>>::num_witness_columns()),*];
                 witness_columns.concat()
             }
             fn max_num_variables() -> usize {
-                *vec![0, $(<$plugin as $crate::lookup::HyperPlonkLookupPlugin<E, PCS>>::max_num_variables()),*].iter().max().unwrap()
+                *vec![0, $(<$plugin as $crate::lookup::HyperPlonkLookupPlugin<F, PCS>>::max_num_variables()),*].iter().max().unwrap()
             }
             fn prove(
                 preprocessing: &Self::Preprocessing,
                 pcs_param: &PCS::ProverParam,
                 ops: &Self::Ops,
                 transcript: &mut Self::Transcript,
-            ) -> (Self::Proof, $crate::lookup::HyperPlonkLookupProverOpeningPoints<E, PCS>) {
+            ) -> (Self::Proof, $crate::lookup::HyperPlonkLookupProverOpeningPoints<F, PCS>) {
                 let mut all_openings = $crate::lookup::HyperPlonkLookupProverOpeningPoints {
                     regular_advices: vec![],
                     regular_openings: vec![],
@@ -457,7 +458,7 @@ macro_rules! combine_lookup_plugins {
 
                 (($(
                     if let Some(ops) = &ops.${index()} {
-                        let (proof, mut openings) = <$plugin as $crate::lookup::HyperPlonkLookupPlugin<E, PCS>>::prove(&preprocessing.${index()}, pcs_param, ops, transcript);
+                        let (proof, mut openings) = <$plugin as $crate::lookup::HyperPlonkLookupPlugin<F, PCS>>::prove(&preprocessing.${index()}, pcs_param, ops, transcript);
                         all_openings.regular_openings.extend(openings.regular_openings.iter_mut()
                             .map(|opening| {
                                 let (poly, advice_idx, point) = opening;
@@ -477,7 +478,7 @@ macro_rules! combine_lookup_plugins {
                 pcs_param: &PCS::ProverParam,
                 ops: &Self::Ops,
                 transcript: &mut Self::Transcript
-            ) -> (Option<Self::Proof>, $crate::lookup::HyperPlonkLookupProverOpeningPoints<E, PCS>) {
+            ) -> (Option<Self::Proof>, $crate::lookup::HyperPlonkLookupProverOpeningPoints<F, PCS>) {
                 let mut all_openings = $crate::lookup::HyperPlonkLookupProverOpeningPoints {
                     regular_advices: vec![],
                     regular_openings: vec![],
@@ -486,7 +487,7 @@ macro_rules! combine_lookup_plugins {
 
                 let proofs = ($(
                     if let Some(ops) = &ops.${index()} {
-                        let (proof, mut openings) = <$plugin as $crate::lookup::HyperPlonkLookupPlugin<E, PCS>>::d_prove(&preprocessing.${index()}, pcs_param, ops, transcript);
+                        let (proof, mut openings) = <$plugin as $crate::lookup::HyperPlonkLookupPlugin<F, PCS>>::d_prove(&preprocessing.${index()}, pcs_param, ops, transcript);
                         all_openings.regular_openings.extend(openings.regular_openings.iter_mut()
                             .map(|opening| {
                                 let (poly, advice_idx, point) = opening;
@@ -511,7 +512,7 @@ macro_rules! combine_lookup_plugins {
             ) -> usize {
                 vec![
                     $(if let Some(proof) = &proof.${index()} {
-                        <$plugin as $crate::lookup::HyperPlonkLookupPlugin<E, PCS>>::num_regular_openings(&proof)
+                        <$plugin as $crate::lookup::HyperPlonkLookupPlugin<F, PCS>>::num_regular_openings(&proof)
                     } else {
                         0
                     }),*
@@ -519,10 +520,10 @@ macro_rules! combine_lookup_plugins {
             }
             fn verify(
                 proof: &Self::Proof,
-                witness_openings: &[E::ScalarField],
-                regular_openings: &[E::ScalarField],
+                witness_openings: &[F],
+                regular_openings: &[F],
                 transcript: &mut Self::Transcript,
-            ) -> Result<$crate::lookup::HyperPlonkLookupVerifierOpeningPoints<E, PCS>, subroutines::PolyIOPErrors> {
+            ) -> Result<$crate::lookup::HyperPlonkLookupVerifierOpeningPoints<F, PCS>, subroutines::PolyIOPErrors> {
                 let mut witness_index = 0;
                 let mut regular_index = 0;
                 let mut all_openings = $crate::lookup::HyperPlonkLookupVerifierOpeningPoints {
@@ -531,10 +532,10 @@ macro_rules! combine_lookup_plugins {
                 };
 
                 $(if let Some(proof) = &proof.${index()} {
-                    let num_witnesses : usize = <$plugin as $crate::lookup::HyperPlonkLookupPlugin<E, PCS>>::num_witness_columns().iter().sum();
-                    let num_regular_openings = <$plugin as $crate::lookup::HyperPlonkLookupPlugin<E, PCS>>::num_regular_openings(proof);
+                    let num_witnesses : usize = <$plugin as $crate::lookup::HyperPlonkLookupPlugin<F, PCS>>::num_witness_columns().iter().sum();
+                    let num_regular_openings = <$plugin as $crate::lookup::HyperPlonkLookupPlugin<F, PCS>>::num_regular_openings(proof);
 
-                    let mut openings = <$plugin as $crate::lookup::HyperPlonkLookupPlugin<E, PCS>>::verify(proof,
+                    let mut openings = <$plugin as $crate::lookup::HyperPlonkLookupPlugin<F, PCS>>::verify(proof,
                         &witness_openings[witness_index..witness_index + num_witnesses],
                         &regular_openings[regular_index..regular_index + num_regular_openings],
                         transcript)?;
