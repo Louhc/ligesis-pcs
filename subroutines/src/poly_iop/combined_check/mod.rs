@@ -20,10 +20,10 @@ use transcript::IOPTranscript;
 
 use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 
-pub trait CombinedCheck<E, PCS>
+pub trait CombinedCheck<F, PCS>
 where
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E>,
+    F: PrimeField,
+    PCS: PolynomialCommitmentScheme<F>,
 {
     type MultilinearExtension;
     type CombinedCheckSubClaim;
@@ -42,14 +42,14 @@ where
         prover_param: &PCS::ProverParam,
         witness: &[Self::MultilinearExtension],
         perms: &[Self::MultilinearExtension],
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<
         (
-            Arc<DenseMultilinearExtension<E::ScalarField>>,
+            Arc<DenseMultilinearExtension<F>>,
             PCS::Commitment,
             PCS::ProverCommitmentAdvice,
-            E::ScalarField,
-            E::ScalarField,
+            F,
+            F,
         ),
         PolyIOPErrors,
     >;
@@ -58,59 +58,59 @@ where
         prover_param: &PCS::ProverParam,
         witness: &[Self::MultilinearExtension],
         perms: &[Self::MultilinearExtension],
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<
         (
-            Arc<DenseMultilinearExtension<E::ScalarField>>,
+            Arc<DenseMultilinearExtension<F>>,
             Option<PCS::Commitment>,
             PCS::ProverCommitmentAdvice,
-            E::ScalarField,
-            E::ScalarField,
+            F,
+            F,
         ),
         PolyIOPErrors,
     >;
 
     fn prove(
         to_prove: (
-            Arc<DenseMultilinearExtension<E::ScalarField>>,
+            Arc<DenseMultilinearExtension<F>>,
             PCS::Commitment,
             PCS::ProverCommitmentAdvice,
-            E::ScalarField,
-            E::ScalarField,
+            F,
+            F,
         ),
         witness: &[Self::MultilinearExtension],
         perms: &[Self::MultilinearExtension],
         selectors: &[Self::MultilinearExtension],
         gate: &[(Option<usize>, Vec<usize>)],
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<
         (
             Self::CombinedCheckProof,
             PCS::ProverCommitmentAdvice,
-            Arc<DenseMultilinearExtension<E::ScalarField>>,
-            Vec<E::ScalarField>,
+            Arc<DenseMultilinearExtension<F>>,
+            Vec<F>,
         ),
         PolyIOPErrors,
     >;
 
     fn d_prove(
         to_prove: (
-            Arc<DenseMultilinearExtension<E::ScalarField>>,
+            Arc<DenseMultilinearExtension<F>>,
             Option<PCS::Commitment>,
             PCS::ProverCommitmentAdvice,
-            E::ScalarField,
-            E::ScalarField,
+            F,
+            F,
         ),
         witness: &[Self::MultilinearExtension],
         perms: &[Self::MultilinearExtension],
         selectors: &[Self::MultilinearExtension],
         gate: &[(Option<usize>, Vec<usize>)],
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<
         (
-            Option<(Self::CombinedCheckProof, Vec<E::ScalarField>)>,
+            Option<(Self::CombinedCheckProof, Vec<F>)>,
             PCS::ProverCommitmentAdvice,
-            Arc<DenseMultilinearExtension<E::ScalarField>>,
+            Arc<DenseMultilinearExtension<F>>,
         ),
         PolyIOPErrors,
     >;
@@ -122,21 +122,21 @@ where
 
     fn check_openings(
         subclaim: &Self::CombinedCheckSubClaim,
-        witness_openings: &[E::ScalarField],
-        perm_openings: &[E::ScalarField],
-        selector_openings: &[E::ScalarField],
-        h_opening: &E::ScalarField,
+        witness_openings: &[F],
+        perm_openings: &[F],
+        selector_openings: &[F],
+        h_opening: &F,
         gate: &[(Option<usize>, Vec<usize>)],
     ) -> Result<(), PolyIOPErrors>;
 }
 
 #[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
-pub struct CombinedCheckProof<E, PCS>
+pub struct CombinedCheckProof<F, PCS>
 where
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E>,
+    F: PrimeField,
+    PCS: PolynomialCommitmentScheme<F>,
 {
-    pub proof: (ZerocheckInstanceProof<E::ScalarField>, Vec<E::ScalarField>),
+    pub proof: (ZerocheckInstanceProof<F>, Vec<F>),
     pub h_comm: PCS::Commitment,
     pub num_rounds: usize,
     pub degree_bound: usize,
@@ -650,32 +650,32 @@ fn combined_sumcheck_verify<F: PrimeField>(
     Ok((e, e2, r))
 }
 
-impl<E, PCS> CombinedCheck<E, PCS> for PolyIOP<E::ScalarField>
+impl<F, PCS> CombinedCheck<F, PCS> for PolyIOP<F>
 where
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E, Polynomial = Arc<DenseMultilinearExtension<E::ScalarField>>>,
+    F: PrimeField,
+    PCS: PolynomialCommitmentScheme<F, Polynomial = Arc<DenseMultilinearExtension<F>>>,
 {
-    type MultilinearExtension = Arc<DenseMultilinearExtension<E::ScalarField>>;
-    type Transcript = IOPTranscript<E::ScalarField>;
-    type CombinedCheckSubClaim = CombinedCheckSubClaim<E::ScalarField>;
-    type CombinedCheckProof = CombinedCheckProof<E, PCS>;
+    type MultilinearExtension = Arc<DenseMultilinearExtension<F>>;
+    type Transcript = IOPTranscript<F>;
+    type CombinedCheckSubClaim = CombinedCheckSubClaim<F>;
+    type CombinedCheckProof = CombinedCheckProof<F, PCS>;
 
     fn init_transcript() -> Self::Transcript {
-        IOPTranscript::<E::ScalarField>::new(b"Initializing CombinedCheck transcript")
+        IOPTranscript::<F>::new(b"Initializing CombinedCheck transcript")
     }
 
     fn prove_prepare(
         prover_param: &PCS::ProverParam,
         witness: &[Self::MultilinearExtension],
         perms: &[Self::MultilinearExtension],
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<
         (
-            Arc<DenseMultilinearExtension<E::ScalarField>>,
+            Arc<DenseMultilinearExtension<F>>,
             PCS::Commitment,
             PCS::ProverCommitmentAdvice,
-            E::ScalarField,
-            E::ScalarField,
+            F,
+            F,
         ),
         PolyIOPErrors,
     > {
@@ -684,7 +684,7 @@ where
         let gamma = transcript.get_and_append_challenge(b"gamma")?;
 
         let mut leaves =
-            compute_leaves::<E::ScalarField, false>(&beta, &gamma, witness, witness, perms)?;
+            compute_leaves::<F, false>(&beta, &gamma, witness, witness, perms)?;
         let leaves_len = leaves.len();
         let mut leave = take(&mut leaves[0]);
         assert_eq!(leaves_len, 1);
@@ -700,11 +700,11 @@ where
                 leave[..half_len]
                     .iter()
                     .map(|eval| eval[i])
-                    .sum::<E::ScalarField>()
+                    .sum::<F>()
                     - leave[half_len..]
                         .iter()
                         .map(|eval| eval[i])
-                        .sum::<E::ScalarField>()
+                        .sum::<F>()
             })
             .collect::<Vec<_>>();
         let h_poly = Arc::new(DenseMultilinearExtension::from_evaluations_vec(nv, h_evals));
@@ -719,14 +719,14 @@ where
         prover_param: &PCS::ProverParam,
         witness: &[Self::MultilinearExtension],
         perms: &[Self::MultilinearExtension],
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<
         (
-            Arc<DenseMultilinearExtension<E::ScalarField>>,
+            Arc<DenseMultilinearExtension<F>>,
             Option<PCS::Commitment>,
             PCS::ProverCommitmentAdvice,
-            E::ScalarField,
-            E::ScalarField,
+            F,
+            F,
         ),
         PolyIOPErrors,
     > {
@@ -740,7 +740,7 @@ where
         };
 
         let mut leaves =
-            compute_leaves::<E::ScalarField, true>(&beta, &gamma, witness, witness, perms)?;
+            compute_leaves::<F, true>(&beta, &gamma, witness, witness, perms)?;
         let leaves_len = leaves.len();
         let mut leave = take(&mut leaves[0]);
         assert_eq!(leaves_len, 1);
@@ -756,11 +756,11 @@ where
                 leave[..half_len]
                     .iter()
                     .map(|eval| eval[i])
-                    .sum::<E::ScalarField>()
+                    .sum::<F>()
                     - leave[half_len..]
                         .iter()
                         .map(|eval| eval[i])
-                        .sum::<E::ScalarField>()
+                        .sum::<F>()
             })
             .collect::<Vec<_>>();
         let h_poly = Arc::new(DenseMultilinearExtension::from_evaluations_vec(nv, h_evals));
@@ -775,23 +775,23 @@ where
     // independent instances f, g, g_inv
     fn prove(
         to_prove: (
-            Arc<DenseMultilinearExtension<E::ScalarField>>,
+            Arc<DenseMultilinearExtension<F>>,
             PCS::Commitment,
             PCS::ProverCommitmentAdvice,
-            E::ScalarField,
-            E::ScalarField,
+            F,
+            F,
         ),
         witness: &[Self::MultilinearExtension],
         perms: &[Self::MultilinearExtension],
         selectors: &[Self::MultilinearExtension],
         gate: &[(Option<usize>, Vec<usize>)],
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<
         (
             Self::CombinedCheckProof,
             PCS::ProverCommitmentAdvice,
-            Arc<DenseMultilinearExtension<E::ScalarField>>,
-            Vec<E::ScalarField>,
+            Arc<DenseMultilinearExtension<F>>,
+            Vec<F>,
         ),
         PolyIOPErrors,
     > {
@@ -843,7 +843,7 @@ where
             num_witnesses,
             num_selectors: selectors.len(),
             gate,
-            sid_offset: beta * E::ScalarField::from_u64(evals_len as u64).unwrap(),
+            sid_offset: beta * F::from_u64(evals_len as u64).unwrap(),
         };
 
         let degree_zerocheck = max_gate_degree;
@@ -851,14 +851,14 @@ where
         let extrapolation_aux = {
             let degree = std::cmp::min(degree_zerocheck, degree_permcheck);
             let points = (0..1 + degree as u64)
-                .map(E::ScalarField::from)
+                .map(F::from)
                 .collect::<Vec<_>>();
             let weights = barycentric_weights(&points);
             (points, weights)
         };
         let (proof, point, _) = combined_sumcheck_prove(
-            &E::ScalarField::zero(),
-            &E::ScalarField::zero(),
+            &F::zero(),
+            &F::zero(),
             num_vars,
             beta,
             gamma,
@@ -890,22 +890,22 @@ where
 
     fn d_prove(
         to_prove: (
-            Arc<DenseMultilinearExtension<E::ScalarField>>,
+            Arc<DenseMultilinearExtension<F>>,
             Option<PCS::Commitment>,
             PCS::ProverCommitmentAdvice,
-            E::ScalarField,
-            E::ScalarField,
+            F,
+            F,
         ),
         witness: &[Self::MultilinearExtension],
         perms: &[Self::MultilinearExtension],
         selectors: &[Self::MultilinearExtension],
         gate: &[(Option<usize>, Vec<usize>)],
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<
         (
-            Option<(Self::CombinedCheckProof, Vec<E::ScalarField>)>,
+            Option<(Self::CombinedCheckProof, Vec<F>)>,
             PCS::ProverCommitmentAdvice,
-            Arc<DenseMultilinearExtension<E::ScalarField>>,
+            Arc<DenseMultilinearExtension<F>>,
         ),
         PolyIOPErrors,
     > {
@@ -965,7 +965,7 @@ where
             num_selectors: selectors.len(),
             gate,
             sid_offset: beta
-                * E::ScalarField::from_u64((evals_len * Net::n_parties()) as u64).unwrap(),
+                * F::from_u64((evals_len * Net::n_parties()) as u64).unwrap(),
         };
 
         let degree_zerocheck = max_gate_degree;
@@ -973,14 +973,14 @@ where
         let extrapolation_aux = {
             let degree = std::cmp::min(degree_zerocheck, degree_permcheck);
             let points = (0..1 + degree as u64)
-                .map(E::ScalarField::from)
+                .map(F::from)
                 .collect::<Vec<_>>();
             let weights = barycentric_weights(&points);
             (points, weights)
         };
         let result = d_combined_sumcheck_prove(
-            &E::ScalarField::zero(),
-            &E::ScalarField::zero(),
+            &F::zero(),
+            &F::zero(),
             length,
             &mut polys,
             &r,
@@ -1053,10 +1053,10 @@ where
 
     fn check_openings(
         subclaim: &Self::CombinedCheckSubClaim,
-        witness_openings: &[E::ScalarField],
-        perm_openings: &[E::ScalarField],
-        selector_openings: &[E::ScalarField],
-        h_opening: &E::ScalarField,
+        witness_openings: &[F],
+        perm_openings: &[F],
+        selector_openings: &[F],
+        h_opening: &F,
         gate: &[(Option<usize>, Vec<usize>)],
     ) -> Result<(), PolyIOPErrors> {
         if *h_opening != subclaim.h_expected_evaluation {
@@ -1072,7 +1072,7 @@ where
             num_witnesses: witness_openings.len(),
             num_selectors: selector_openings.len(),
             coeff: subclaim.coeff,
-            sid_offset: subclaim.beta * E::ScalarField::from_u64(num_constraints as u64).unwrap(),
+            sid_offset: subclaim.beta * F::from_u64(num_constraints as u64).unwrap(),
         };
         let mut evals = witness_openings
             .iter()
@@ -1101,208 +1101,5 @@ where
             ));
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::CombinedCheck;
-    use crate::{
-        poly_iop::{errors::PolyIOPErrors, PolyIOP},
-        MultilinearKzgPCS, PolynomialCommitmentScheme,
-    };
-    use arithmetic::{evaluate_opt, math::Math};
-    use ark_bn254::{Bn254, Fr};
-    use ark_ec::pairing::Pairing;
-    use ark_ff::{One, PrimeField, UniformRand, Zero};
-    use ark_poly::DenseMultilinearExtension;
-    use ark_std::test_rng;
-    use rand_core::RngCore;
-    use std::sync::Arc;
-
-    fn generate_polys<R: RngCore>(
-        num_witnesses: usize,
-        num_selectors: usize,
-        nv: usize,
-        gate: &[(Option<usize>, Vec<usize>)],
-        rng: &mut R,
-    ) -> (
-        Vec<Arc<DenseMultilinearExtension<Fr>>>,
-        Vec<Arc<DenseMultilinearExtension<Fr>>>,
-        Vec<Arc<DenseMultilinearExtension<Fr>>>,
-    ) {
-        let num_constraints = nv.pow2();
-        let mut selectors: Vec<Vec<Fr>> = vec![vec![]; num_selectors];
-        let mut witnesses: Vec<Vec<Fr>> = vec![vec![]; num_witnesses];
-
-        for cs in 0..num_constraints {
-            let mut cur_selectors: Vec<Fr> =
-                (0..(num_selectors - 1)).map(|_| Fr::rand(rng)).collect();
-            let cur_witness: Vec<Fr> = if cs < num_constraints / 4 {
-                (0..num_witnesses).map(|_| Fr::rand(rng)).collect()
-            } else {
-                let row = cs % (num_constraints / 4);
-                (0..num_witnesses).map(|i| witnesses[i][row]).collect()
-            };
-            let mut last_selector = Fr::zero();
-            for (index, (q, wit)) in gate.iter().enumerate() {
-                if index != num_selectors - 1 {
-                    let mut cur_monomial = Fr::one();
-                    cur_monomial = match q {
-                        Some(p) => cur_monomial * cur_selectors[*p],
-                        None => cur_monomial,
-                    };
-                    for wit_index in wit.iter() {
-                        cur_monomial *= cur_witness[*wit_index];
-                    }
-                    last_selector += cur_monomial;
-                } else {
-                    let mut cur_monomial = Fr::one();
-                    for wit_index in wit.iter() {
-                        cur_monomial *= cur_witness[*wit_index];
-                    }
-                    last_selector /= -cur_monomial;
-                }
-            }
-            cur_selectors.push(last_selector);
-            for i in 0..num_selectors {
-                selectors[i].push(cur_selectors[i]);
-            }
-            for i in 0..num_witnesses {
-                witnesses[i].push(cur_witness[i]);
-            }
-        }
-
-        let permutation = (0..num_witnesses)
-            .map(|witness_idx| {
-                let portion_len = num_constraints / 4;
-                (0..portion_len)
-                    .map(|i| {
-                        Fr::from_u64((witness_idx * num_constraints + i + portion_len) as u64)
-                            .unwrap()
-                    })
-                    .chain((0..portion_len).map(|i| {
-                        Fr::from_u64((witness_idx * num_constraints + i + 3 * portion_len) as u64)
-                            .unwrap()
-                    }))
-                    .chain(
-                        (0..portion_len).map(|i| {
-                            Fr::from_u64((witness_idx * num_constraints + i) as u64).unwrap()
-                        }),
-                    )
-                    .chain((0..portion_len).map(|i| {
-                        Fr::from_u64((witness_idx * num_constraints + i + 2 * portion_len) as u64)
-                            .unwrap()
-                    }))
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-
-        (
-            witnesses
-                .into_iter()
-                .map(|vec| Arc::new(DenseMultilinearExtension::from_evaluations_vec(nv, vec)))
-                .collect(),
-            permutation
-                .into_iter()
-                .map(|vec| Arc::new(DenseMultilinearExtension::from_evaluations_vec(nv, vec)))
-                .collect(),
-            selectors
-                .into_iter()
-                .map(|vec| Arc::new(DenseMultilinearExtension::from_evaluations_vec(nv, vec)))
-                .collect(),
-        )
-    }
-
-    fn test_combined_check_helper<
-        E: Pairing,
-        PCS: PolynomialCommitmentScheme<E, Polynomial = Arc<DenseMultilinearExtension<E::ScalarField>>>,
-    >(
-        witnesses: &[Arc<DenseMultilinearExtension<E::ScalarField>>],
-        perms: &[Arc<DenseMultilinearExtension<E::ScalarField>>],
-        selectors: &[Arc<DenseMultilinearExtension<E::ScalarField>>],
-        gate: &[(Option<usize>, Vec<usize>)],
-        pcs_param: &PCS::ProverParam,
-    ) -> Result<(), PolyIOPErrors> {
-        // prover
-        let mut transcript = <PolyIOP<E::ScalarField> as CombinedCheck<E, PCS>>::init_transcript();
-        transcript.append_message(b"testing", b"initializing transcript for testing")?;
-
-        let to_prove = <PolyIOP<E::ScalarField> as CombinedCheck<E, PCS>>::prove_prepare(
-            pcs_param,
-            &witnesses,
-            perms,
-            &mut transcript,
-        )?;
-
-        let (proof, _, h_poly, _) = <PolyIOP<E::ScalarField> as CombinedCheck<E, PCS>>::prove(
-            to_prove,
-            witnesses,
-            perms,
-            selectors,
-            gate,
-            &mut transcript,
-        )?;
-
-        // verifier
-        let mut transcript = <PolyIOP<E::ScalarField> as CombinedCheck<E, PCS>>::init_transcript();
-        transcript.append_message(b"testing", b"initializing transcript for testing")?;
-        let subclaim =
-            <PolyIOP<E::ScalarField> as CombinedCheck<E, PCS>>::verify(&proof, &mut transcript)?;
-
-        let witness_openings = witnesses
-            .iter()
-            .map(|f| evaluate_opt(f, &subclaim.point))
-            .collect::<Vec<_>>();
-        let perm_openings = perms
-            .iter()
-            .map(|f| evaluate_opt(f, &subclaim.point))
-            .collect::<Vec<_>>();
-        let selector_openings = selectors
-            .iter()
-            .map(|f| evaluate_opt(f, &subclaim.point))
-            .collect::<Vec<_>>();
-        let h_opening = evaluate_opt(&h_poly, &subclaim.point);
-
-        <PolyIOP<E::ScalarField> as CombinedCheck<E, PCS>>::check_openings(
-            &subclaim,
-            &witness_openings,
-            &perm_openings,
-            &selector_openings,
-            &h_opening,
-            gate,
-        )
-    }
-
-    fn test_combined_check(nv: usize) -> Result<(), PolyIOPErrors> {
-        let mut rng = test_rng();
-
-        let srs = MultilinearKzgPCS::<Bn254>::gen_srs_for_testing(&mut rng, nv)?;
-        let (pcs_param, _) = MultilinearKzgPCS::<Bn254>::trim(&srs, None, Some(nv))?;
-
-        let gate = vec![
-            (Some(0), vec![0]),
-            (Some(1), vec![1]),
-            (Some(2), vec![2]),
-            (Some(3), vec![3]),
-            (Some(4), vec![0, 1]),
-            (Some(5), vec![2, 3]),
-            (Some(6), vec![0, 0, 0, 0, 0]),
-            (Some(7), vec![1, 1, 1, 1, 1]),
-            (Some(8), vec![2, 2, 2, 2, 2]),
-            (Some(9), vec![3, 3, 3, 3, 3]),
-            (Some(10), vec![0, 1, 2, 3]),
-            (Some(11), vec![4]),
-            (Some(12), vec![]),
-        ];
-        let (witnesses, perms, selectors) = generate_polys(5, 13, nv, &gate, &mut rng);
-        test_combined_check_helper::<Bn254, MultilinearKzgPCS<Bn254>>(
-            &witnesses, &perms, &selectors, &gate, &pcs_param,
-        )
-    }
-
-    #[test]
-    fn test_normal_polynomial() -> Result<(), PolyIOPErrors> {
-        test_combined_check(5)
     }
 }

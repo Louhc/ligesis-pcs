@@ -27,12 +27,12 @@ use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 use super::multi_rational_sumcheck::MultiRationalSumcheckSubClaim;
 
 #[derive(CanonicalSerialize, CanonicalDeserialize)]
-pub struct PermutationCheckProof<E, PCS>
+pub struct PermutationCheckProof<F, PCS>
 where
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E>,
+    F: PrimeField,
+    PCS: PolynomialCommitmentScheme<F>,
 {
-    pub proofs: Vec<MultiRationalSumcheckProof<E::ScalarField>>,
+    pub proofs: Vec<MultiRationalSumcheckProof<F>>,
     pub h_comms: Vec<PCS::Commitment>,
 }
 
@@ -62,10 +62,10 @@ pub mod util;
 /// - fs = (f1, ..., fk)
 /// - gs = (g1, ..., gk)
 /// - permutation oracles = (p1, ..., pk)
-pub trait PermutationCheck<E, PCS>
+pub trait PermutationCheck<F, PCS>
 where
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E>,
+    F: PrimeField,
+    PCS: PolynomialCommitmentScheme<F>,
 {
     type PermutationCheckSubClaim;
     type PermutationProof: CanonicalSerialize + CanonicalDeserialize;
@@ -96,13 +96,13 @@ where
         fxs: &[Self::MultilinearExtension],
         gxs: &[Self::MultilinearExtension],
         perms: &[Self::MultilinearExtension],
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<
         (
             Self::PermutationProof,
             Vec<PCS::ProverCommitmentAdvice>,
-            Vec<Vec<E::ScalarField>>,
-            Vec<Arc<DenseMultilinearExtension<E::ScalarField>>>,
+            Vec<Vec<F>>,
+            Vec<Arc<DenseMultilinearExtension<F>>>,
         ),
         PolyIOPErrors,
     >;
@@ -112,17 +112,17 @@ where
         fxs: &[Self::MultilinearExtension],
         gxs: &[Self::MultilinearExtension],
         perms: &[Self::MultilinearExtension],
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<
         (
             Vec<(
-                Vec<Arc<DenseMultilinearExtension<E::ScalarField>>>,
-                Arc<DenseMultilinearExtension<E::ScalarField>>,
-                E::ScalarField,
+                Vec<Arc<DenseMultilinearExtension<F>>>,
+                Arc<DenseMultilinearExtension<F>>,
+                F,
                 Option<PCS::Commitment>,
                 PCS::ProverCommitmentAdvice,
             )>,
-            Vec<E::ScalarField>,
+            Vec<F>,
         ),
         PolyIOPErrors,
     >;
@@ -130,19 +130,19 @@ where
     fn d_prove(
         prover_param: &PCS::ProverParam,
         to_prove: Vec<(
-            Vec<Arc<DenseMultilinearExtension<E::ScalarField>>>,
-            Arc<DenseMultilinearExtension<E::ScalarField>>,
-            E::ScalarField,
+            Vec<Arc<DenseMultilinearExtension<F>>>,
+            Arc<DenseMultilinearExtension<F>>,
+            F,
             Option<PCS::Commitment>,
             PCS::ProverCommitmentAdvice,
         )>,
-        claims: Vec<E::ScalarField>,
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        claims: Vec<F>,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<
         (
-            Option<(Self::PermutationProof, Vec<Vec<E::ScalarField>>)>,
+            Option<(Self::PermutationProof, Vec<Vec<F>>)>,
             Vec<PCS::ProverCommitmentAdvice>,
-            Vec<Arc<DenseMultilinearExtension<E::ScalarField>>>,
+            Vec<Arc<DenseMultilinearExtension<F>>>,
         ),
         PolyIOPErrors,
     >;
@@ -156,25 +156,25 @@ where
 
     fn check_openings(
         subclaim: &Self::PermutationCheckSubClaim,
-        f_openings: &[E::ScalarField],
-        g_openings: &[E::ScalarField],
-        h_openings: &[E::ScalarField],
-        perm_openings: &[E::ScalarField],
+        f_openings: &[F],
+        g_openings: &[F],
+        h_openings: &[F],
+        perm_openings: &[F],
     ) -> Result<(), PolyIOPErrors>;
 }
 
-impl<E, PCS> PermutationCheck<E, PCS> for PolyIOP<E::ScalarField>
+impl<F, PCS> PermutationCheck<F, PCS> for PolyIOP<F>
 where
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E, Polynomial = Arc<DenseMultilinearExtension<E::ScalarField>>>,
+    F: PrimeField,
+    PCS: PolynomialCommitmentScheme<F, Polynomial = Arc<DenseMultilinearExtension<F>>>,
 {
-    type PermutationCheckSubClaim = PermutationCheckSubClaim<E::ScalarField>;
-    type PermutationProof = PermutationCheckProof<E, PCS>;
-    type MultilinearExtension = Arc<DenseMultilinearExtension<E::ScalarField>>;
-    type Transcript = IOPTranscript<E::ScalarField>;
+    type PermutationCheckSubClaim = PermutationCheckSubClaim<F>;
+    type PermutationProof = PermutationCheckProof<F, PCS>;
+    type MultilinearExtension = Arc<DenseMultilinearExtension<F>>;
+    type Transcript = IOPTranscript<F>;
 
     fn init_transcript() -> Self::Transcript {
-        IOPTranscript::<E::ScalarField>::new(b"Initializing PermutationCheck transcript")
+        IOPTranscript::<F>::new(b"Initializing PermutationCheck transcript")
     }
 
     // Strictly speaking the list of points is redundant as it is present in the
@@ -184,13 +184,13 @@ where
         fxs: &[Self::MultilinearExtension],
         gxs: &[Self::MultilinearExtension],
         perms: &[Self::MultilinearExtension],
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<
         (
             Self::PermutationProof,
             Vec<PCS::ProverCommitmentAdvice>,
-            Vec<Vec<E::ScalarField>>,
-            Vec<Arc<DenseMultilinearExtension<E::ScalarField>>>,
+            Vec<Vec<F>>,
+            Vec<Arc<DenseMultilinearExtension<F>>>,
         ),
         PolyIOPErrors,
     > {
@@ -210,7 +210,7 @@ where
         // generate challenge `beta` and `gamma` from current transcript
         let beta = transcript.get_and_append_challenge(b"beta")?;
         let gamma = transcript.get_and_append_challenge(b"gamma")?;
-        let leaves = compute_leaves::<E::ScalarField, false>(&beta, &gamma, fxs, gxs, perms)?;
+        let leaves = compute_leaves::<F, false>(&beta, &gamma, fxs, gxs, perms)?;
 
         let leaves_len = leaves.len();
 
@@ -237,17 +237,17 @@ where
                         inv_evals[..half_len]
                             .iter()
                             .map(|eval| eval[i])
-                            .sum::<E::ScalarField>()
+                            .sum::<F>()
                             - inv_evals[half_len..]
                                 .iter()
                                 .map(|eval| eval[i])
-                                .sum::<E::ScalarField>()
+                                .sum::<F>()
                     })
                     .collect::<Vec<_>>();
                 let claim = if leaves_len == 1 {
-                    E::ScalarField::zero()
+                    F::zero()
                 } else {
-                    h_evals.iter().sum::<E::ScalarField>()
+                    h_evals.iter().sum::<F>()
                 };
 
                 let h_poly = Arc::new(DenseMultilinearExtension::from_evaluations_vec(nv, h_evals));
@@ -261,9 +261,9 @@ where
             to_prove
                 .into_iter()
                 .map(|(g_polys, h_poly, claim, h_comm, h_advice)| {
-                    let mut f_values = vec![E::ScalarField::one(); g_polys.len()];
-                    f_values[g_polys.len() / 2..].fill(-E::ScalarField::one());
-                    let (proof, point) = <Self as MultiRationalSumcheck<E::ScalarField>>::prove(
+                    let mut f_values = vec![F::one(); g_polys.len()];
+                    f_values[g_polys.len() / 2..].fill(-F::one());
+                    let (proof, point) = <Self as MultiRationalSumcheck<F>>::prove(
                         &f_values,
                         g_polys,
                         Arc::new(DenseMultilinearExtension::clone(&h_poly)),
@@ -293,17 +293,17 @@ where
         fxs: &[Self::MultilinearExtension],
         gxs: &[Self::MultilinearExtension],
         perms: &[Self::MultilinearExtension],
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<
         (
             Vec<(
-                Vec<Arc<DenseMultilinearExtension<E::ScalarField>>>,
-                Arc<DenseMultilinearExtension<E::ScalarField>>,
-                E::ScalarField,
+                Vec<Arc<DenseMultilinearExtension<F>>>,
+                Arc<DenseMultilinearExtension<F>>,
+                F,
                 Option<PCS::Commitment>,
                 PCS::ProverCommitmentAdvice,
             )>,
-            Vec<E::ScalarField>,
+            Vec<F>,
         ),
         PolyIOPErrors,
     > {
@@ -328,7 +328,7 @@ where
             Net::recv_from_master_uniform(None)
         };
 
-        let leaves = compute_leaves::<E::ScalarField, true>(&beta, &gamma, fxs, gxs, perms)?;
+        let leaves = compute_leaves::<F, true>(&beta, &gamma, fxs, gxs, perms)?;
 
         let leaves_len = leaves.len();
         let to_prove = leaves
@@ -354,17 +354,17 @@ where
                         inv_evals[..half_len]
                             .iter()
                             .map(|eval| eval[i])
-                            .sum::<E::ScalarField>()
+                            .sum::<F>()
                             - inv_evals[half_len..]
                                 .iter()
                                 .map(|eval| eval[i])
-                                .sum::<E::ScalarField>()
+                                .sum::<F>()
                     })
                     .collect::<Vec<_>>();
                 let claim = if leaves_len == 1 {
-                    E::ScalarField::zero()
+                    F::zero()
                 } else {
-                    h_evals.iter().sum::<E::ScalarField>()
+                    h_evals.iter().sum::<F>()
                 };
                 let h_poly = Arc::new(DenseMultilinearExtension::from_evaluations_vec(nv, h_evals));
                 let (h_comm, h_advice) = PCS::d_commit(prover_param, &h_poly).unwrap();
@@ -385,7 +385,7 @@ where
                     all_claims
                         .iter()
                         .map(|claims| claims[i])
-                        .sum::<E::ScalarField>()
+                        .sum::<F>()
                 })
                 .collect::<Vec<_>>();
         }
@@ -398,19 +398,19 @@ where
     fn d_prove(
         _prover_param: &PCS::ProverParam,
         to_prove: Vec<(
-            Vec<Arc<DenseMultilinearExtension<E::ScalarField>>>,
-            Arc<DenseMultilinearExtension<E::ScalarField>>,
-            E::ScalarField,
+            Vec<Arc<DenseMultilinearExtension<F>>>,
+            Arc<DenseMultilinearExtension<F>>,
+            F,
             Option<PCS::Commitment>,
             PCS::ProverCommitmentAdvice,
         )>,
-        claims: Vec<E::ScalarField>,
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        claims: Vec<F>,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<
         (
-            Option<(Self::PermutationProof, Vec<Vec<E::ScalarField>>)>,
+            Option<(Self::PermutationProof, Vec<Vec<F>>)>,
             Vec<PCS::ProverCommitmentAdvice>,
-            Vec<Arc<DenseMultilinearExtension<E::ScalarField>>>,
+            Vec<Arc<DenseMultilinearExtension<F>>>,
         ),
         PolyIOPErrors,
     > {
@@ -420,14 +420,14 @@ where
             let (advices, polys): (Vec<_>, Vec<_>) = to_prove
                 .into_iter()
                 .map(|(g_polys, h_poly, _, _, h_advice)| {
-                    let mut f_values = vec![E::ScalarField::one(); g_polys.len()];
-                    f_values[g_polys.len() / 2..].fill(-E::ScalarField::one());
+                    let mut f_values = vec![F::one(); g_polys.len()];
+                    f_values[g_polys.len() / 2..].fill(-F::one());
 
-                    <Self as MultiRationalSumcheck<E::ScalarField>>::d_prove(
+                    <Self as MultiRationalSumcheck<F>>::d_prove(
                         &f_values,
                         g_polys,
                         Arc::new(DenseMultilinearExtension::clone(&h_poly)),
-                        E::ScalarField::zero(),
+                        F::zero(),
                         transcript,
                     )
                     .unwrap();
@@ -444,10 +444,10 @@ where
                 .into_iter()
                 .zip(claims)
                 .map(|((g_polys, h_poly, _, h_comm, h_advice), claim)| {
-                    let mut f_values = vec![E::ScalarField::one(); g_polys.len()];
-                    f_values[g_polys.len() / 2..].fill(-E::ScalarField::one());
+                    let mut f_values = vec![F::one(); g_polys.len()];
+                    f_values[g_polys.len() / 2..].fill(-F::one());
 
-                    let (proof, point) = <Self as MultiRationalSumcheck<E::ScalarField>>::d_prove(
+                    let (proof, point) = <Self as MultiRationalSumcheck<F>>::d_prove(
                         &f_values,
                         g_polys,
                         Arc::new(DenseMultilinearExtension::clone(&h_poly)),
@@ -489,15 +489,15 @@ where
         let gamma = transcript.get_and_append_challenge(b"gamma")?;
 
         let mut subclaims = Vec::with_capacity(proof.proofs.len());
-        let mut claimed_sum = E::ScalarField::zero();
+        let mut claimed_sum = F::zero();
         for proof in proof.proofs.iter() {
             claimed_sum += proof.claimed_sum;
             let subclaim =
-                <Self as MultiRationalSumcheck<E::ScalarField>>::verify(proof, transcript)?;
+                <Self as MultiRationalSumcheck<F>>::verify(proof, transcript)?;
             subclaims.push((subclaim, proof.num_polys / 2));
         }
 
-        if claimed_sum != E::ScalarField::zero() {
+        if claimed_sum != F::zero() {
             return Err(PolyIOPErrors::InvalidProof(format!(
                 "Claimed sums do not add to zero",
             )));
@@ -512,10 +512,10 @@ where
 
     fn check_openings(
         subclaim: &Self::PermutationCheckSubClaim,
-        f_openings: &[E::ScalarField],
-        g_openings: &[E::ScalarField],
-        h_openings: &[E::ScalarField],
-        perm_openings: &[E::ScalarField],
+        f_openings: &[F],
+        g_openings: &[F],
+        h_openings: &[F],
+        perm_openings: &[F],
     ) -> Result<(), PolyIOPErrors> {
         let (beta, gamma) = subclaim.challenges;
 
@@ -524,19 +524,19 @@ where
         for (subclaim_idx, (subclaim, len)) in subclaim.subclaims.iter().enumerate() {
             let num_vars = subclaim.sumcheck_point.len();
 
-            let sid: E::ScalarField = (0..num_vars)
+            let sid: F = (0..num_vars)
                 .map(|i| {
-                    E::ScalarField::from_u64(i.pow2() as u64).unwrap() * subclaim.sumcheck_point[i]
+                    F::from_u64(i.pow2() as u64).unwrap() * subclaim.sumcheck_point[i]
                 })
-                .sum::<E::ScalarField>()
-                + E::ScalarField::from_u64(shift as u64).unwrap();
+                .sum::<F>()
+                + F::from_u64(shift as u64).unwrap();
 
             let eq_eval = eq_eval(&subclaim.sumcheck_point, &subclaim.zerocheck_r)?;
             let g_evals = f_openings[offset..offset + len]
                 .iter()
                 .enumerate()
                 .map(|(i, f)| {
-                    *f + beta * (sid + E::ScalarField::from((i * (1 << num_vars)) as u64)) + gamma
+                    *f + beta * (sid + F::from((i * (1 << num_vars)) as u64)) + gamma
                 })
                 .chain(
                     g_openings[offset..offset + len]
@@ -550,8 +550,8 @@ where
                 + subclaim.coeff
                     * eq_eval
                     * (g_products[0] * g_evals[0] * h_openings[subclaim_idx]
-                        - g_products[..*len].iter().sum::<E::ScalarField>()
-                        + g_products[*len..].iter().sum::<E::ScalarField>());
+                        - g_products[..*len].iter().sum::<F>()
+                        + g_products[*len..].iter().sum::<F>());
 
             if sum != subclaim.sumcheck_expected_evaluation {
                 return Err(PolyIOPErrors::InvalidVerifier("wrong subclaim".to_string()));
@@ -562,232 +562,5 @@ where
         }
 
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::PermutationCheck;
-    use crate::{
-        poly_iop::{errors::PolyIOPErrors, PolyIOP},
-        MultilinearKzgPCS, PolynomialCommitmentScheme,
-    };
-    use arithmetic::{
-        evaluate_opt, identity_permutation_mle, identity_permutation_mles, math::Math,
-        random_permutation_u64,
-    };
-    use ark_bn254::{Bn254, Fr};
-    use ark_ec::pairing::Pairing;
-    use ark_ff::PrimeField;
-    use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
-    use ark_std::test_rng;
-    use rand_core::RngCore;
-    use std::sync::Arc;
-
-    fn test_permutation_check_helper<
-        E: Pairing,
-        PCS: PolynomialCommitmentScheme<E, Polynomial = Arc<DenseMultilinearExtension<E::ScalarField>>>,
-    >(
-        fxs: &[Arc<DenseMultilinearExtension<E::ScalarField>>],
-        gxs: &[Arc<DenseMultilinearExtension<E::ScalarField>>],
-        perms: &[Arc<DenseMultilinearExtension<E::ScalarField>>],
-        pcs_param: &PCS::ProverParam,
-    ) -> Result<(), PolyIOPErrors> {
-        // prover
-        let mut transcript =
-            <PolyIOP<E::ScalarField> as PermutationCheck<E, PCS>>::init_transcript();
-        transcript.append_message(b"testing", b"initializing transcript for testing")?;
-        let (proof, _, _, h_polys) =
-            <PolyIOP<E::ScalarField> as PermutationCheck<E, PCS>>::prove(
-                pcs_param,
-                fxs,
-                gxs,
-                perms,
-                &mut transcript,
-            )?;
-
-        // verifier
-        let mut transcript =
-            <PolyIOP<E::ScalarField> as PermutationCheck<E, PCS>>::init_transcript();
-        transcript.append_message(b"testing", b"initializing transcript for testing")?;
-        let perm_check_sub_claim =
-            <PolyIOP<E::ScalarField> as PermutationCheck<E, PCS>>::verify(&proof, &mut transcript)?;
-
-        let mut f_openings = vec![];
-        let mut g_openings = vec![];
-        let mut h_openings = vec![];
-        let mut perm_openings = vec![];
-        let mut offset = 0;
-        for (idx, (subclaim, len)) in perm_check_sub_claim.subclaims.iter().enumerate() {
-            let mut f_evals = fxs[offset..offset + len]
-                .iter()
-                .map(|f| evaluate_opt(f, &subclaim.sumcheck_point))
-                .collect::<Vec<_>>();
-            let mut g_evals = gxs[offset..offset + len]
-                .iter()
-                .map(|g| evaluate_opt(g, &subclaim.sumcheck_point))
-                .collect::<Vec<_>>();
-            let h_eval = evaluate_opt(&h_polys[idx], &subclaim.sumcheck_point);
-            let mut perm_evals = perms[offset..offset + len]
-                .iter()
-                .map(|perm| evaluate_opt(perm, &subclaim.sumcheck_point))
-                .collect::<Vec<_>>();
-
-            f_openings.append(&mut f_evals);
-            g_openings.append(&mut g_evals);
-            h_openings.push(h_eval);
-            perm_openings.append(&mut perm_evals);
-            offset += len;
-        }
-
-        <PolyIOP<E::ScalarField> as PermutationCheck<E, PCS>>::check_openings(
-            &perm_check_sub_claim,
-            &f_openings,
-            &g_openings,
-            &h_openings,
-            &perm_openings,
-        )
-    }
-
-    fn generate_polys<R: RngCore>(
-        nv: &[usize],
-        rng: &mut R,
-    ) -> Vec<Arc<DenseMultilinearExtension<Fr>>> {
-        nv.iter()
-            .map(|x| Arc::new(DenseMultilinearExtension::rand(*x, rng)))
-            .collect()
-    }
-
-    fn test_permutation_check(
-        nv: Vec<usize>,
-        id_perms: Vec<Arc<DenseMultilinearExtension<Fr>>>,
-    ) -> Result<(), PolyIOPErrors> {
-        let mut rng = test_rng();
-
-        let max_nv = nv.iter().max().unwrap();
-        let srs = MultilinearKzgPCS::<Bn254>::gen_srs_for_testing(&mut rng, *max_nv)?;
-        let (pcs_param, _) = MultilinearKzgPCS::<Bn254>::trim(&srs, None, Some(*max_nv))?;
-
-        {
-            // good path: (w1, w2) is a permutation of (w1, w2) itself under the identify
-            // map
-            let ws = generate_polys(&nv, &mut rng);
-            // perms is the identity map
-            test_permutation_check_helper::<Bn254, MultilinearKzgPCS<Bn254>>(
-                &ws, &ws, &id_perms, &pcs_param,
-            )?;
-        }
-
-        {
-            let fs = generate_polys(&nv, &mut rng);
-
-            let size0 = nv[0].pow2();
-
-            let perm = random_permutation_u64(nv[0].pow2() + nv[1].pow2(), &mut rng);
-            let perms = vec![
-                Arc::new(DenseMultilinearExtension::from_evaluations_vec(
-                    nv[0],
-                    perm[..size0]
-                        .iter()
-                        .map(|x| Fr::from_u64(*x).unwrap())
-                        .collect(),
-                )),
-                Arc::new(DenseMultilinearExtension::from_evaluations_vec(
-                    nv[1],
-                    perm[size0..]
-                        .iter()
-                        .map(|x| Fr::from_u64(*x).unwrap())
-                        .collect(),
-                )),
-            ];
-
-            let get_f = |index: usize| {
-                if index < size0 {
-                    fs[0].evaluations[index]
-                } else {
-                    fs[1].evaluations[index - size0]
-                }
-            };
-
-            let g_evals = (
-                (0..size0)
-                    .map(|x| get_f(perm[x] as usize))
-                    .collect::<Vec<_>>(),
-                (size0..size0 + nv[1].pow2())
-                    .map(|x| get_f(perm[x] as usize))
-                    .collect::<Vec<_>>(),
-            );
-            let gs = vec![
-                Arc::new(DenseMultilinearExtension::from_evaluations_vec(
-                    nv[0], g_evals.0,
-                )),
-                Arc::new(DenseMultilinearExtension::from_evaluations_vec(
-                    nv[1], g_evals.1,
-                )),
-            ];
-            test_permutation_check_helper::<Bn254, MultilinearKzgPCS<Bn254>>(
-                &fs, &gs, &perms, &pcs_param,
-            )?;
-        }
-
-        {
-            // bad path 1: w is a not permutation of w itself under a random map
-            let ws = generate_polys(&nv, &mut rng);
-            // perms is a random map
-            let perms = id_perms
-                .iter()
-                .map(|perm| {
-                    let mut evals = perm.evaluations.clone();
-                    evals.reverse();
-                    Arc::new(DenseMultilinearExtension::from_evaluations_vec(
-                        perm.num_vars(),
-                        evals,
-                    ))
-                })
-                .collect::<Vec<_>>();
-
-            assert!(
-                test_permutation_check_helper::<Bn254, MultilinearKzgPCS::<Bn254>>(
-                    &ws, &ws, &perms, &pcs_param
-                )
-                .is_err()
-            );
-        }
-
-        {
-            // bad path 2: f is a not permutation of g under a identity map
-            let fs = generate_polys(&nv, &mut rng);
-            let gs = generate_polys(&nv, &mut rng);
-            // s_perm is the identity map
-
-            assert!(
-                test_permutation_check_helper::<Bn254, MultilinearKzgPCS::<Bn254>>(
-                    &fs, &gs, &id_perms, &pcs_param
-                )
-                .is_err()
-            );
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_trivial_polynomial() -> Result<(), PolyIOPErrors> {
-        let id_perms = identity_permutation_mles(1, 2);
-        test_permutation_check(vec![1, 1], id_perms)
-    }
-    #[test]
-    fn test_normal_polynomial() -> Result<(), PolyIOPErrors> {
-        let id_perms = identity_permutation_mles(5, 2);
-        test_permutation_check(vec![5, 5], id_perms)
-    }
-
-    #[test]
-    fn test_different_lengths() -> Result<(), PolyIOPErrors> {
-        let id_perms = vec![
-            identity_permutation_mle(0, 5),
-            identity_permutation_mle(32, 4),
-        ];
-        test_permutation_check(vec![5, 4], id_perms)
     }
 }

@@ -4,30 +4,24 @@
 // You should have received a copy of the MIT License
 // along with the HyperPlonk library. If not, see <https://mit-license.org/>.
 
-mod dory;
-mod dummy;
 mod errors;
-mod multilinear_kzg;
 mod structs;
-mod univariate_kzg;
-mod deMultilinear_kzg;
-
 mod ligero;
-mod hashpcs;
 
 pub mod prelude;
 
-use ark_ec::pairing::Pairing;
-use ark_ff::Field;
+// use ark_ec::pairing::Pairing;
+use ark_ff::{Field, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::rand::Rng;
+use ark_crypto_primitives::sponge::{Absorb, CryptographicSponge};
 use errors::PCSError;
 use std::{borrow::Borrow, fmt::Debug, hash::Hash};
 use transcript::IOPTranscript;
 
 /// This trait defines APIs for polynomial commitment schemes.
 /// Note that for our usage of PCS, we do not require the hiding property.
-pub trait PolynomialCommitmentScheme<E: Pairing> {
+pub trait PolynomialCommitmentScheme<F: PrimeField> {
     /// Prover parameters
     type ProverParam: Clone + Sync;
     /// Verifier parameters
@@ -134,6 +128,7 @@ pub trait PolynomialCommitmentScheme<E: Pairing> {
         polynomial: &Self::Polynomial,
         prover_advice: &Self::ProverCommitmentAdvice,
         point: &Self::Point,
+        sponge: &mut impl CryptographicSponge,
     ) -> Result<Self::Proof, PCSError>;
 
     /// Input a list of multilinear extensions, and a same number of points, and
@@ -144,7 +139,7 @@ pub trait PolynomialCommitmentScheme<E: Pairing> {
         _advices: &[Self::ProverCommitmentAdvice],
         _points: &[Self::Point],
         _evals: &[Self::Evaluation],
-        _transcript: &mut IOPTranscript<E::ScalarField>,
+        _transcript: &mut IOPTranscript<F>,
     ) -> Result<Self::BatchProof, PCSError> {
         // the reason we use unimplemented!() is to enable developers to implement the
         // trait without always implementing the batching APIs.
@@ -157,7 +152,7 @@ pub trait PolynomialCommitmentScheme<E: Pairing> {
         _advices: &[Self::ProverCommitmentAdvice],
         _points: &[Self::Point],
         _evals: &[Self::Evaluation],
-        _transcript: &mut IOPTranscript<E::ScalarField>,
+        _transcript: &mut IOPTranscript<F>,
     ) -> Result<Option<Self::BatchProof>, PCSError> {
         unimplemented!();
     }
@@ -168,8 +163,9 @@ pub trait PolynomialCommitmentScheme<E: Pairing> {
         verifier_param: &Self::VerifierParam,
         commitment: &Self::Commitment,
         point: &Self::Point,
-        value: &E::ScalarField,
+        value: &F,
         proof: &Self::Proof,
+        sponge: &mut impl CryptographicSponge,
     ) -> Result<bool, PCSError>;
 
     /// Verifies that `value_i` is the evaluation at `x_i` of the polynomial
@@ -179,7 +175,7 @@ pub trait PolynomialCommitmentScheme<E: Pairing> {
         _commitments: &[Self::Commitment],
         _points: &[Self::Point],
         _batch_proof: &Self::BatchProof,
-        _transcript: &mut IOPTranscript<E::ScalarField>,
+        _transcript: &mut IOPTranscript<F>,
     ) -> Result<bool, PCSError> {
         // the reason we use unimplemented!() is to enable developers to implement the
         // trait without always implementing the batching APIs.
@@ -188,7 +184,7 @@ pub trait PolynomialCommitmentScheme<E: Pairing> {
 }
 
 /// API definitions for structured reference string
-pub trait StructuredReferenceString<E: Pairing>: Sized {
+pub trait StructuredReferenceString<F: PrimeField>: Sized {
     /// Prover parameters
     type ProverParam;
     /// Verifier parameters

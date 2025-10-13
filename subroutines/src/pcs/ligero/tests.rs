@@ -36,7 +36,7 @@ pub fn test_sponge<F: PrimeField>() -> PoseidonSponge<F> {
 fn test_ligero_pcs() {
     let mut rng = test_rng();
     let srs = LigeroPCS::<F>::gen_srs_for_testing(&mut rng, 18).unwrap();
-    let (pp, vp) = LigeroPCS::<F>::trim(&srs).unwrap();
+    let (pp, vp) = LigeroPCS::<F>::trim(&srs, 0.into(), 0.into()).unwrap();
     let poly = Arc::new(DenseMultilinearExtension::<F>::rand(18, &mut rng));
 
     let (com, advice) = LigeroPCS::<F>::commit(&pp, &poly).unwrap();

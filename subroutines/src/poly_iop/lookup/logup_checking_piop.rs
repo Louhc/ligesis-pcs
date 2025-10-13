@@ -24,9 +24,9 @@ use super::{
 };
 
 #[derive(Clone, Debug, PartialEq, CanonicalSerialize, CanonicalDeserialize)]
-pub struct LogupCheckingProof<E: Pairing, PCS: PolynomialCommitmentScheme<E>> {
-    pub f_proof: RationalSumcheckProof<E::ScalarField>,
-    pub g_proof: RationalSumcheckProof<E::ScalarField>,
+pub struct LogupCheckingProof<F: PrimeField, PCS: PolynomialCommitmentScheme<F>> {
+    pub f_proof: RationalSumcheckProof<F>,
+    pub g_proof: RationalSumcheckProof<F>,
     pub f_inv_comm: Vec<PCS::Commitment>,
     pub g_inv_comm: Vec<PCS::Commitment>,
 }
@@ -46,11 +46,11 @@ where
     pub challenges: (F, F),
 }
 
-pub(super) trait LogupChecking<E, PCS, Instruction, const C: usize, const M: usize>:
-    RationalSumcheckSlow<E::ScalarField>
+pub(super) trait LogupChecking<F, PCS, Instruction, const C: usize, const M: usize>:
+    RationalSumcheckSlow<F>
 where
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E>,
+    F: PrimeField,
+    PCS: PolynomialCommitmentScheme<F>,
     Instruction: JoltInstruction + Default,
 {
     type LogupCheckingProof: CanonicalSerialize + CanonicalDeserialize;
@@ -61,9 +61,9 @@ where
     fn compute_f_leaves(
         preprocessing: &Self::Preprocessing,
         polynomials: &Self::Polys,
-        beta: &E::ScalarField,
-        gamma: &E::ScalarField,
-        alpha: &E::ScalarField,
+        beta: &F,
+        gamma: &F,
+        alpha: &F,
     ) -> (
         Vec<Self::VirtualPolynomial>,
         Vec<Self::MultilinearExtension>,
@@ -73,9 +73,9 @@ where
     fn d_compute_f_leaves(
         preprocessing: &Self::Preprocessing,
         polynomials: &mut Self::Polys,
-        beta: &E::ScalarField,
-        gamma: &E::ScalarField,
-        alpha: &E::ScalarField,
+        beta: &F,
+        gamma: &F,
+        alpha: &F,
     ) -> (
         Vec<Self::VirtualPolynomial>,
         Vec<Self::MultilinearExtension>,
@@ -84,8 +84,8 @@ where
 
     fn compute_g_leaves(
         polynomials: &Self::Polys,
-        beta: &E::ScalarField,
-        gamma: &E::ScalarField,
+        beta: &F,
+        gamma: &F,
     ) -> (
         Vec<Self::VirtualPolynomial>,
         Vec<Self::MultilinearExtension>,
@@ -96,7 +96,7 @@ where
         pcs_param: &PCS::ProverParam,
         preprocessing: &Self::Preprocessing,
         polynomials_primary: &Self::Polys,
-        alpha: &E::ScalarField,
+        alpha: &F,
         transcript: &mut Self::Transcript,
     ) -> Result<
         (
@@ -112,7 +112,7 @@ where
         pcs_param: &PCS::ProverParam,
         preprocessing: &Self::Preprocessing,
         polynomials_primary: &mut Self::Polys,
-        alpha: &E::ScalarField,
+        alpha: &F,
         transcript: &mut Self::Transcript,
     ) -> Result<
         (
@@ -132,24 +132,24 @@ where
     ) -> Result<Self::LogupCheckingSubclaim, PolyIOPErrors>;
 }
 
-impl<E, PCS, Instruction, const C: usize, const M: usize> LogupChecking<E, PCS, Instruction, C, M>
-    for PolyIOP<E::ScalarField>
+impl<F, PCS, Instruction, const C: usize, const M: usize> LogupChecking<F, PCS, Instruction, C, M>
+    for PolyIOP<F>
 where
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E, Polynomial = Arc<DenseMultilinearExtension<E::ScalarField>>>,
+    F: PrimeField,
+    PCS: PolynomialCommitmentScheme<F, Polynomial = Arc<DenseMultilinearExtension<F>>>,
     Instruction: JoltInstruction + Default,
 {
-    type LogupCheckingProof = LogupCheckingProof<E, PCS>;
-    type LogupCheckingSubclaim = LogupCheckingSubclaim<E::ScalarField>;
-    type Preprocessing = SurgePreprocessing<E::ScalarField>;
-    type Polys = SurgePolysPrimary<E>;
+    type LogupCheckingProof = LogupCheckingProof<F, PCS>;
+    type LogupCheckingSubclaim = LogupCheckingSubclaim<F>;
+    type Preprocessing = SurgePreprocessing<F>;
+    type Polys = SurgePolysPrimary<F>;
 
     fn compute_f_leaves(
-        preprocessing: &SurgePreprocessing<E::ScalarField>,
-        polynomials: &SurgePolysPrimary<E>,
-        beta: &E::ScalarField,
-        gamma: &E::ScalarField,
-        alpha: &E::ScalarField,
+        preprocessing: &SurgePreprocessing<F>,
+        polynomials: &SurgePolysPrimary<F>,
+        beta: &F,
+        gamma: &F,
+        alpha: &F,
     ) -> (
         Vec<Self::VirtualPolynomial>,
         Vec<Self::MultilinearExtension>,
@@ -166,7 +166,7 @@ where
                         .enumerate()
                         .map(|(i, t_eval)| {
                             t_eval.mul_0_optimized(*gamma)
-                                + E::ScalarField::from_u64(i as u64).unwrap()
+                                + F::from_u64(i as u64).unwrap()
                                 + *beta
                         })
                         .collect(),
@@ -185,10 +185,10 @@ where
         for x in 0..sqrtM {
             for y in 0..sqrtM {
                 dechunk_evals.push(
-                    (E::ScalarField::from_u64(x).unwrap()
-                        + E::ScalarField::from_u64(y).unwrap() * *alpha)
+                    (F::from_u64(x).unwrap()
+                        + F::from_u64(y).unwrap() * *alpha)
                         * *gamma
-                        + E::ScalarField::from_u64(((x << bits_per_operand) | y) as u64).unwrap()
+                        + F::from_u64(((x << bits_per_operand) | y) as u64).unwrap()
                         + *beta,
                 )
             }
@@ -215,7 +215,7 @@ where
             .map(|m_poly| {
                 VirtualPolynomial::new_from_mle(
                     &Arc::new(DenseMultilinearExtension::clone(m_poly)),
-                    E::ScalarField::one(),
+                    F::one(),
                 )
             })
             .collect();
@@ -223,11 +223,11 @@ where
     }
 
     fn d_compute_f_leaves(
-        preprocessing: &SurgePreprocessing<E::ScalarField>,
-        polynomials: &mut SurgePolysPrimary<E>,
-        beta: &E::ScalarField,
-        gamma: &E::ScalarField,
-        alpha: &E::ScalarField,
+        preprocessing: &SurgePreprocessing<F>,
+        polynomials: &mut SurgePolysPrimary<F>,
+        beta: &F,
+        gamma: &F,
+        alpha: &F,
     ) -> (
         Vec<Self::VirtualPolynomial>,
         Vec<Self::MultilinearExtension>,
@@ -247,7 +247,7 @@ where
                         .enumerate()
                         .map(|(i, t_eval)| {
                             t_eval.mul_0_optimized(*gamma)
-                                + E::ScalarField::from_u64(
+                                + F::from_u64(
                                     (i + Net::party_id() * len_per_party) as u64,
                                 )
                                 .unwrap()
@@ -272,10 +272,10 @@ where
         for x in party_id * len_per_party..(party_id + 1) * len_per_party {
             for y in 0..sqrtM {
                 dechunk_evals.push(
-                    (E::ScalarField::from_u64(x).unwrap()
-                        + E::ScalarField::from_u64(y).unwrap() * *alpha)
+                    (F::from_u64(x).unwrap()
+                        + F::from_u64(y).unwrap() * *alpha)
                         * *gamma
-                        + E::ScalarField::from_u64(((x << bits_per_operand) | y) as u64).unwrap()
+                        + F::from_u64(((x << bits_per_operand) | y) as u64).unwrap()
                         + *beta,
                 )
             }
@@ -303,7 +303,7 @@ where
             .map(|m_poly| {
                 VirtualPolynomial::new_from_mle(
                     &Arc::new(DenseMultilinearExtension::clone(m_poly)),
-                    E::ScalarField::one(),
+                    F::one(),
                 )
             })
             .collect();
@@ -311,9 +311,9 @@ where
     }
 
     fn compute_g_leaves(
-        polynomials: &SurgePolysPrimary<E>,
-        beta: &E::ScalarField,
-        gamma: &E::ScalarField,
+        polynomials: &SurgePolysPrimary<F>,
+        beta: &F,
+        gamma: &F,
     ) -> (
         Vec<Self::VirtualPolynomial>,
         Vec<Self::MultilinearExtension>,
@@ -322,10 +322,10 @@ where
         let num_vars_g = polynomials.dim[0].num_vars;
         let num_lookups = polynomials.dim[0].evaluations.len();
         let g_leaves_q = (0
-            ..<Self as SurgeCommons<E::ScalarField, Instruction, C, M>>::num_memories())
+            ..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
             .into_par_iter()
             .map(|memory_index| {
-                let dim_index = <Self as SurgeCommons<E::ScalarField,
+                let dim_index = <Self as SurgeCommons<F,
     Instruction, C, M>>::memory_to_dimension_index(memory_index);
 
                 let q = DenseMultilinearExtension::from_evaluations_vec(
@@ -346,7 +346,7 @@ where
             })
             .unzip::<_, _, Vec<_>, Vec<_>>();
         let mut g_leaves_p = VirtualPolynomial::new(num_vars_g);
-        g_leaves_p.add_mle_list([], E::ScalarField::one()).unwrap();
+        g_leaves_p.add_mle_list([], F::one()).unwrap();
 
         (
             vec![g_leaves_p.clone(); g_leaves_q.0.len()],
@@ -359,10 +359,10 @@ where
     // "LogupCheckingProof::prove_logup_checking")]
     fn prove_logup_checking(
         pcs_param: &PCS::ProverParam,
-        preprocessing: &SurgePreprocessing<E::ScalarField>,
-        polynomials_primary: &SurgePolysPrimary<E>,
-        alpha: &E::ScalarField,
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        preprocessing: &SurgePreprocessing<F>,
+        polynomials_primary: &SurgePolysPrimary<F>,
+        alpha: &F,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<
         (
             Self::LogupCheckingProof,
@@ -377,14 +377,14 @@ where
         let gamma = transcript.get_and_append_challenge(b"logup_gamma")?;
 
         let (f_leaves, g_leaves) = (
-            <Self as LogupChecking<E, PCS, Instruction, C, M>>::compute_f_leaves(
+            <Self as LogupChecking<F, PCS, Instruction, C, M>>::compute_f_leaves(
                 preprocessing,
                 polynomials_primary,
                 &beta,
                 &gamma,
                 alpha,
             ),
-            <Self as LogupChecking<E, PCS, Instruction, C, M>>::compute_g_leaves(
+            <Self as LogupChecking<F, PCS, Instruction, C, M>>::compute_g_leaves(
                 polynomials_primary,
                 &beta,
                 &gamma,
@@ -413,7 +413,7 @@ where
         f_advice.append(&mut g_advice);
 
         let claimed_sums = (0
-            ..<Self as SurgeCommons<E::ScalarField, Instruction, C, M>>::num_memories())
+            ..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
             .map(|memory_index| g_leaves.2[memory_index].evaluations.iter().sum())
             .collect::<Vec<_>>();
 
@@ -425,16 +425,16 @@ where
             .iter()
             .map(|x| Arc::new(DenseMultilinearExtension::clone(x)))
             .collect::<Vec<_>>();
-        let f_p = (0..<Self as SurgeCommons<E::ScalarField, Instruction, C, M>>::num_memories())
+        let f_p = (0..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
             .map(|memory_index| {
-                let dim_index = <Self as SurgeCommons<E::ScalarField, Instruction, C, M>>::memory_to_dimension_index(memory_index);
+                let dim_index = <Self as SurgeCommons<F, Instruction, C, M>>::memory_to_dimension_index(memory_index);
                 f_leaves.0[dim_index].clone()
             }).collect::<Vec<_>>();
         let (f_q, f_q_inv) = (0
-            ..<Self as SurgeCommons<E::ScalarField, Instruction, C, M>>::num_memories())
+            ..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
             .map(|memory_index| {
                 let subtable_index = <Self as SurgeCommons<
-                        E::ScalarField,
+                        F,
                         Instruction,
                         C,
                         M,
@@ -449,7 +449,7 @@ where
             .unzip::<_, _, Vec<_>, Vec<_>>();
         drop(f_leaves);
 
-        let f_proof = <Self as RationalSumcheckSlow<E::ScalarField>>::prove(
+        let f_proof = <Self as RationalSumcheckSlow<F>>::prove(
             f_p,
             f_q,
             f_q_inv,
@@ -458,7 +458,7 @@ where
         )?;
 
         let (fx, gx, g_inv) = g_leaves;
-        let g_proof = <Self as RationalSumcheckSlow<E::ScalarField>>::prove(
+        let g_proof = <Self as RationalSumcheckSlow<F>>::prove(
             fx,
             gx,
             g_inv
@@ -484,10 +484,10 @@ where
 
     fn d_prove_logup_checking(
         pcs_param: &PCS::ProverParam,
-        preprocessing: &SurgePreprocessing<E::ScalarField>,
-        polynomials_primary: &mut SurgePolysPrimary<E>,
-        alpha: &E::ScalarField,
-        transcript: &mut IOPTranscript<E::ScalarField>,
+        preprocessing: &SurgePreprocessing<F>,
+        polynomials_primary: &mut SurgePolysPrimary<F>,
+        alpha: &F,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<
         (
             Option<Self::LogupCheckingProof>,
@@ -506,7 +506,7 @@ where
             Net::recv_from_master_uniform(None)
         };
 
-        let f_leaves = <Self as LogupChecking<E, PCS, Instruction, C, M>>::d_compute_f_leaves(
+        let f_leaves = <Self as LogupChecking<F, PCS, Instruction, C, M>>::d_compute_f_leaves(
             preprocessing,
             polynomials_primary,
             &beta,
@@ -525,16 +525,16 @@ where
             .iter()
             .map(|x| Arc::new(DenseMultilinearExtension::clone(x)))
             .collect::<Vec<_>>();
-        let f_p = (0..<Self as SurgeCommons<E::ScalarField, Instruction, C, M>>::num_memories())
+        let f_p = (0..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
                     .map(|memory_index| {
-                        let dim_index = <Self as SurgeCommons<E::ScalarField, Instruction, C, M>>::memory_to_dimension_index(memory_index);
+                        let dim_index = <Self as SurgeCommons<F, Instruction, C, M>>::memory_to_dimension_index(memory_index);
                         f_leaves.0[dim_index].clone()
                     }).collect::<Vec<_>>();
         let (f_q, f_q_inv) = (0
-            ..<Self as SurgeCommons<E::ScalarField, Instruction, C, M>>::num_memories())
+            ..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
             .map(|memory_index| {
                 let subtable_index = <Self as SurgeCommons<
-                                E::ScalarField,
+                                F,
                                 Instruction,
                                 C,
                                 M,
@@ -549,7 +549,7 @@ where
             .unzip::<_, _, Vec<_>, Vec<_>>();
         drop(f_leaves);
 
-        let g_leaves = <Self as LogupChecking<E, PCS, Instruction, C, M>>::compute_g_leaves(
+        let g_leaves = <Self as LogupChecking<F, PCS, Instruction, C, M>>::compute_g_leaves(
             polynomials_primary,
             &beta,
             &gamma,
@@ -564,7 +564,7 @@ where
         f_advice.append(&mut g_advice);
 
         let claimed_sums = (0
-            ..<Self as SurgeCommons<E::ScalarField, Instruction, C, M>>::num_memories())
+            ..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
             .map(|memory_index| g_leaves.2[memory_index].evaluations.iter().sum())
             .collect::<Vec<_>>();
         let all_claimed_sums = Net::send_to_master(&claimed_sums);
@@ -576,7 +576,7 @@ where
                     all_claimed_sums
                         .iter()
                         .map(|claimed_sums| claimed_sums[memory_index])
-                        .sum::<E::ScalarField>()
+                        .sum::<F>()
                 })
                 .collect::<Vec<_>>();
 
@@ -592,7 +592,7 @@ where
             transcript.append_serializable_element(b"f_inv_comm", &f_inv_comm)?;
             transcript.append_serializable_element(b"g_inv_comm", &g_inv_comm)?;
 
-            let f_proof_ret = <Self as RationalSumcheckSlow<E::ScalarField>>::d_prove(
+            let f_proof_ret = <Self as RationalSumcheckSlow<F>>::d_prove(
                 f_p,
                 f_q,
                 f_q_inv,
@@ -602,7 +602,7 @@ where
             let f_proof = f_proof_ret.unwrap();
 
             let (fx, gx, g_inv) = g_leaves;
-            let g_proof_ret = <Self as RationalSumcheckSlow<E::ScalarField>>::d_prove(
+            let g_proof_ret = <Self as RationalSumcheckSlow<F>>::d_prove(
                 fx,
                 gx,
                 g_inv
@@ -627,7 +627,7 @@ where
             ))
         } else {
             // Claimed sums are not correct here but it doesn't matter for non-master
-            <Self as RationalSumcheckSlow<E::ScalarField>>::d_prove(
+            <Self as RationalSumcheckSlow<F>>::d_prove(
                 f_p,
                 f_q,
                 f_q_inv,
@@ -635,7 +635,7 @@ where
                 transcript,
             )?;
             let (fx, gx, g_inv) = g_leaves;
-            <Self as RationalSumcheckSlow<E::ScalarField>>::d_prove(
+            <Self as RationalSumcheckSlow<F>>::d_prove(
                 fx,
                 gx,
                 g_inv
@@ -652,15 +652,15 @@ where
     // #[tracing::instrument(skip_all, name =
     // "LogupCheckingProof::verify_logup_checking")]
     fn verify_logup_checking(
-        proof: &LogupCheckingProof<E, PCS>,
+        proof: &LogupCheckingProof<F, PCS>,
         aux_info_f: &Self::VPAuxInfo,
         aux_info_g: &Self::VPAuxInfo,
-        transcript: &mut IOPTranscript<E::ScalarField>,
-    ) -> Result<LogupCheckingSubclaim<E::ScalarField>, PolyIOPErrors> {
+        transcript: &mut IOPTranscript<F>,
+    ) -> Result<LogupCheckingSubclaim<F>, PolyIOPErrors> {
         // Check that the final claims are equal
         rayon::join(
             || {
-                (0..<Self as SurgeCommons<E::ScalarField, Instruction, C, M>>::num_memories())
+                (0..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
                     .into_par_iter()
                     .for_each(|i| {
                         assert_eq!(
@@ -677,13 +677,13 @@ where
                 transcript.append_serializable_element(b"f_inv_comm", &proof.f_inv_comm)?;
                 transcript.append_serializable_element(b"g_inv_comm", &proof.g_inv_comm)?;
 
-                let f_subclaims = <Self as RationalSumcheckSlow<E::ScalarField>>::verify(
+                let f_subclaims = <Self as RationalSumcheckSlow<F>>::verify(
                     &proof.f_proof,
                     aux_info_f,
                     transcript,
                 )?;
 
-                let g_subclaims = <Self as RationalSumcheckSlow<E::ScalarField>>::verify(
+                let g_subclaims = <Self as RationalSumcheckSlow<F>>::verify(
                     &proof.g_proof,
                     aux_info_g,
                     transcript,

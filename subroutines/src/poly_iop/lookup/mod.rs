@@ -12,7 +12,7 @@ use crate::{
     poly_iop::{
         errors::PolyIOPErrors, sum_check::generic_sumcheck::SumcheckInstanceProof, PolyIOP,
     },
-    split_bits, Commitment,
+    split_bits,// Commitment,
 };
 use arithmetic::{
     bit_decompose, build_eq_x_r, eq_eval, eq_poly::EqPolynomial, math::Math, OptimizedMul,
@@ -49,11 +49,11 @@ mod logup_checking;
 mod subtable;
 mod util;
 
-pub trait LookupCheck<E, PCS, Instruction, const C: usize, const M: usize>:
-    SurgeCommons<E::ScalarField, Instruction, C, M>
+pub trait LookupCheck<F, PCS, Instruction, const C: usize, const M: usize>:
+    SurgeCommons<F, Instruction, C, M>
 where
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E>,
+    F: PrimeField,
+    PCS: PolynomialCommitmentScheme<F>,
     Instruction: JoltInstruction + Default,
 {
     type LookupCheckSubClaim;
@@ -82,7 +82,7 @@ where
     fn construct_polys(
         preprocessing: &Self::Preprocessing,
         ops: &[Instruction],
-        alpha: &E::ScalarField,
+        alpha: &F,
     ) -> Self::Polys;
 
     // Returns (proof, r_f, r_g, r_z, r_primary_sumcheck)
@@ -90,8 +90,8 @@ where
         preprocessing: &Self::Preprocessing,
         pcs_param: &PCS::ProverParam,
         poly: &mut Self::Polys,
-        alpha: &E::ScalarField,
-        tau: &E::ScalarField,
+        alpha: &F,
+        tau: &F,
         transcript: &mut Self::Transcript,
     ) -> Result<Self::ProveResult, PolyIOPErrors>;
 
@@ -99,8 +99,8 @@ where
         preprocessing: &Self::Preprocessing,
         pcs_param: &PCS::ProverParam,
         poly: &mut Self::Polys,
-        alpha: &E::ScalarField,
-        tau: &E::ScalarField,
+        alpha: &F,
+        tau: &F,
         transcript: &mut Self::Transcript,
     ) -> Result<Self::DistProveResult, PolyIOPErrors>;
 
@@ -112,14 +112,14 @@ where
 
     fn check_openings(
         subclaim: &Self::LookupCheckSubClaim,
-        dim_openings: &[E::ScalarField],
-        E_openings: &[E::ScalarField],
-        m_openings: &[E::ScalarField],
-        witness_openings: &[E::ScalarField],
-        #[cfg(feature = "rational_sumcheck_piop")] f_inv_openings: &[E::ScalarField],
-        #[cfg(feature = "rational_sumcheck_piop")] g_inv_openings: &[E::ScalarField],
-        alpha: &E::ScalarField,
-        tau: &E::ScalarField,
+        dim_openings: &[F],
+        E_openings: &[F],
+        m_openings: &[F],
+        witness_openings: &[F],
+        #[cfg(feature = "rational_sumcheck_piop")] f_inv_openings: &[F],
+        #[cfg(feature = "rational_sumcheck_piop")] g_inv_openings: &[F],
+        alpha: &F,
+        tau: &F,
     ) -> Result<(), PolyIOPErrors>;
 }
 
@@ -131,49 +131,49 @@ where
     pub materialized_subtables: Vec<Vec<F>>,
 }
 
-pub struct SurgePolysPrimary<E>
+pub struct SurgePolysPrimary<F>
 where
-    E: Pairing,
+    F: PrimeField,
 {
     // These polynomials are constructed as big-endian
     // Since everything else treats polynomials as little-endian, r_f, r_g, and r_z
     // all have their indices reversed
-    pub dim: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>>, // Size C
-    pub E_polys: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>>, // Size NUM_MEMORIES
-    pub m: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>>,   // Size C
+    pub dim: Vec<Arc<DenseMultilinearExtension<F>>>, // Size C
+    pub E_polys: Vec<Arc<DenseMultilinearExtension<F>>>, // Size NUM_MEMORIES
+    pub m: Vec<Arc<DenseMultilinearExtension<F>>>,   // Size C
 
     // Sparse representation of m
     pub m_indices: Vec<Vec<usize>>,
-    pub m_values: Vec<Vec<E::ScalarField>>,
+    pub m_values: Vec<Vec<F>>,
 }
 
 #[derive(CanonicalSerialize, CanonicalDeserialize)]
-pub struct SurgeCommitmentPrimary<E, PCS>
+pub struct SurgeCommitmentPrimary<F, PCS>
 where
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E>,
+    F: PrimeField,
+    PCS: PolynomialCommitmentScheme<F>,
 {
     pub dim_commitment: Vec<PCS::Commitment>, // Size C
     pub E_commitment: Vec<PCS::Commitment>,   // Size NUM_MEMORIES
     pub m_commitment: Vec<PCS::Commitment>,   // Size C
 }
 
-impl<E> SurgePolysPrimary<E>
+impl<F> SurgePolysPrimary<F>
 where
-    E: Pairing,
+    F: PrimeField,
 {
     // #[tracing::instrument(skip_all, name = "SurgePolysPrimary::commit")]
     fn commit<PCS>(
         &self,
         pcs_params: &PCS::ProverParam,
     ) -> (
-        SurgeCommitmentPrimary<E, PCS>,
+        SurgeCommitmentPrimary<F, PCS>,
         Vec<PCS::ProverCommitmentAdvice>,
     )
     where
         PCS: PolynomialCommitmentScheme<
-            E,
-            Polynomial = Arc<DenseMultilinearExtension<E::ScalarField>>,
+            F,
+            Polynomial = Arc<DenseMultilinearExtension<F>>,
         >,
     {
         let ((E_commitment, E_advice), ((dim_commitment, dim_advice), (m_commitment, m_advice)))
@@ -213,13 +213,13 @@ where
         &self,
         pcs_params: &PCS::ProverParam,
     ) -> (
-        Option<SurgeCommitmentPrimary<E, PCS>>,
+        Option<SurgeCommitmentPrimary<F, PCS>>,
         Vec<PCS::ProverCommitmentAdvice>,
     )
     where
         PCS: PolynomialCommitmentScheme<
-            E,
-            Polynomial = Arc<DenseMultilinearExtension<E::ScalarField>>,
+            F,
+            Polynomial = Arc<DenseMultilinearExtension<F>>,
         >,
     {
         let (mut dim_commitment, dim_advice): (Vec<_>, Vec<_>) = self
@@ -297,7 +297,7 @@ where
                             let mut indices = vec![];
                             let mut values = vec![];
                             for (i, m) in m_evals_single.iter().enumerate() {
-                                if *m != E::ScalarField::zero() {
+                                if *m != F::zero() {
                                     // Do not add party offset here; each party indexes into its own
                                     // sub-m array
                                     indices.push(i);
@@ -341,18 +341,18 @@ where
 
 #[cfg(feature = "rational_sumcheck_piop")]
 #[derive(CanonicalSerialize, CanonicalDeserialize)]
-pub struct LookupCheckProof<E: Pairing, PCS: PolynomialCommitmentScheme<E>> {
-    pub primary_sumcheck: SurgePrimarySumcheck<E::ScalarField>,
-    pub logup_checking: LogupCheckingProof<E, PCS>,
-    pub commitment: SurgeCommitmentPrimary<E, PCS>,
+pub struct LookupCheckProof<F: PrimeField, PCS: PolynomialCommitmentScheme<F>> {
+    pub primary_sumcheck: SurgePrimarySumcheck<F>,
+    pub logup_checking: LogupCheckingProof<F, PCS>,
+    pub commitment: SurgeCommitmentPrimary<F, PCS>,
 }
 
 #[cfg(not(feature = "rational_sumcheck_piop"))]
 #[derive(CanonicalSerialize, CanonicalDeserialize)]
-pub struct LookupCheckProof<E: Pairing, PCS: PolynomialCommitmentScheme<E>> {
-    pub primary_sumcheck: SurgePrimarySumcheck<E::ScalarField>,
-    pub logup_checking: LogupCheckingProof<E::ScalarField>,
-    pub commitment: SurgeCommitmentPrimary<E, PCS>,
+pub struct LookupCheckProof<F: PrimeField, PCS: PolynomialCommitmentScheme<F>> {
+    pub primary_sumcheck: SurgePrimarySumcheck<F>,
+    pub logup_checking: LogupCheckingProof<F>,
+    pub commitment: SurgeCommitmentPrimary<F, PCS>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -367,31 +367,31 @@ pub struct LookupCheckSubClaim<F: PrimeField> {
     pub logup_checking: LogupCheckingSubclaim<F>,
 }
 
-impl<E, PCS, Instruction, const C: usize, const M: usize> LookupCheck<E, PCS, Instruction, C, M>
-    for PolyIOP<E::ScalarField>
+impl<F, PCS, Instruction, const C: usize, const M: usize> LookupCheck<F, PCS, Instruction, C, M>
+    for PolyIOP<F>
 where
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E, Polynomial = Arc<DenseMultilinearExtension<E::ScalarField>>>,
+    F: PrimeField,
+    PCS: PolynomialCommitmentScheme<F, Polynomial = Arc<DenseMultilinearExtension<F>>>,
     PCS::Commitment: Send,
     Instruction: JoltInstruction + Default,
 {
-    type LookupCheckSubClaim = LookupCheckSubClaim<E::ScalarField>;
-    type LookupCheckProof = LookupCheckProof<E, PCS>;
+    type LookupCheckSubClaim = LookupCheckSubClaim<F>;
+    type LookupCheckProof = LookupCheckProof<F, PCS>;
 
-    type Preprocessing = SurgePreprocessing<E::ScalarField>;
-    type WitnessPolys = Vec<Arc<DenseMultilinearExtension<E::ScalarField>>>;
-    type Polys = SurgePolysPrimary<E>;
-    type MultilinearExtension = Arc<DenseMultilinearExtension<E::ScalarField>>;
-    type Transcript = IOPTranscript<E::ScalarField>;
+    type Preprocessing = SurgePreprocessing<F>;
+    type WitnessPolys = Vec<Arc<DenseMultilinearExtension<F>>>;
+    type Polys = SurgePolysPrimary<F>;
+    type MultilinearExtension = Arc<DenseMultilinearExtension<F>>;
+    type Transcript = IOPTranscript<F>;
 
     #[cfg(feature = "rational_sumcheck_piop")]
     type ProveResult = (
         Self::LookupCheckProof,
         Vec<PCS::ProverCommitmentAdvice>,
-        Vec<E::ScalarField>,
-        Vec<E::ScalarField>,
-        Vec<E::ScalarField>,
-        Vec<E::ScalarField>,
+        Vec<F>,
+        Vec<F>,
+        Vec<F>,
+        Vec<F>,
         Vec<Self::MultilinearExtension>,
         Vec<Self::MultilinearExtension>,
     );
@@ -400,10 +400,10 @@ where
     type DistProveResult = (
         Option<Self::LookupCheckProof>,
         Vec<PCS::ProverCommitmentAdvice>,
-        Vec<E::ScalarField>,
-        Vec<E::ScalarField>,
-        Vec<E::ScalarField>,
-        Vec<E::ScalarField>,
+        Vec<F>,
+        Vec<F>,
+        Vec<F>,
+        Vec<F>,
         Vec<Self::MultilinearExtension>,
         Vec<Self::MultilinearExtension>,
     );
@@ -412,24 +412,24 @@ where
     type ProveResult = (
         Self::LookupCheckProof,
         Vec<PCS::ProverCommitmentAdvice>,
-        Vec<E::ScalarField>,
-        Vec<E::ScalarField>,
-        Vec<E::ScalarField>,
-        Vec<E::ScalarField>,
+        Vec<F>,
+        Vec<F>,
+        Vec<F>,
+        Vec<F>,
     );
 
     #[cfg(not(feature = "rational_sumcheck_piop"))]
     type DistProveResult = (
         Option<Self::LookupCheckProof>,
         Vec<PCS::ProverCommitmentAdvice>,
-        Vec<E::ScalarField>,
-        Vec<E::ScalarField>,
-        Vec<E::ScalarField>,
-        Vec<E::ScalarField>,
+        Vec<F>,
+        Vec<F>,
+        Vec<F>,
+        Vec<F>,
     );
 
     fn init_transcript() -> Self::Transcript {
-        IOPTranscript::<E::ScalarField>::new(b"Initializing LookupCheck transcript")
+        IOPTranscript::<F>::new(b"Initializing LookupCheck transcript")
     }
 
     fn preprocess() -> Self::Preprocessing {
@@ -466,10 +466,10 @@ where
     fn construct_polys(
         preprocessing: &Self::Preprocessing,
         ops: &[Instruction],
-        alpha: &E::ScalarField,
+        alpha: &F,
     ) -> Self::Polys {
         let num_memories =
-            <Self as SurgeCommons<E::ScalarField, Instruction, C, M>>::num_memories();
+            <Self as SurgeCommons<F, Instruction, C, M>>::num_memories();
         let num_lookups = ops.len().next_power_of_two();
         let log_m = ark_std::log2(num_lookups) as usize;
 
@@ -518,7 +518,7 @@ where
                         for (i, m) in m_evals_it.iter().enumerate() {
                             if *m != 0 {
                                 indices.push(i);
-                                values.push(E::ScalarField::from_u64(*m as u64).unwrap());
+                                values.push(F::from_u64(*m as u64).unwrap());
                             }
                         }
                         (indices, values)
@@ -538,7 +538,7 @@ where
                     let mut E_evals = Vec::with_capacity(num_lookups);
                     for op_index in 0..num_lookups {
                         let dimension_index = <Self as SurgeCommons<
-                            E::ScalarField,
+                            F,
                             Instruction,
                             C,
                             M,
@@ -546,7 +546,7 @@ where
                             E_index
                         );
                         let subtable_index = <Self as SurgeCommons<
-                            E::ScalarField,
+                            F,
                             Instruction,
                             C,
                             M,
@@ -558,8 +558,8 @@ where
                         let E_eval = if subtable_index >= preprocessing.materialized_subtables.len()
                         {
                             let (x, y) = split_bits(eval_index, bits_per_operand);
-                            E::ScalarField::from_u64(x as u64).unwrap()
-                                + *alpha * E::ScalarField::from_u64(y as u64).unwrap()
+                            F::from_u64(x as u64).unwrap()
+                                + *alpha * F::from_u64(y as u64).unwrap()
                         } else {
                             preprocessing.materialized_subtables[subtable_index][eval_index]
                         };
@@ -584,8 +584,8 @@ where
         preprocessing: &Self::Preprocessing,
         pcs_param: &PCS::ProverParam,
         poly: &mut Self::Polys,
-        alpha: &E::ScalarField,
-        tau: &E::ScalarField,
+        alpha: &F,
+        tau: &F,
         transcript: &mut Self::Transcript,
     ) -> Result<Self::ProveResult, PolyIOPErrors> {
         let start = start_timer!(|| "lookup_check prove");
@@ -625,8 +625,8 @@ where
                     (0..hypercube_size)
                         .into_par_iter()
                         .map(|eval_index| {
-                            let g_operands: Vec<E::ScalarField> = (0..<Self as SurgeCommons<
-                                E::ScalarField,
+                            let g_operands: Vec<F> = (0..<Self as SurgeCommons<
+                                F,
                                 Instruction,
                                 C,
                                 M,
@@ -635,7 +635,7 @@ where
                                 .map(|memory_index| poly.E_polys[memory_index][eval_index])
                                 .collect();
 
-                            let vals: &[E::ScalarField] = &g_operands[0..(g_operands.len() - C)];
+                            let vals: &[F] = &g_operands[0..(g_operands.len() - C)];
                             let fingerprints = &g_operands[g_operands.len() - C..];
                             eq[eval_index]
                                 * (instruction.combine_lookups(vals, C, M)
@@ -656,8 +656,8 @@ where
                     .collect::<Vec<_>>();
                 combined_sumcheck_polys.push(Arc::new(eq));
 
-                let combine_lookups_eq = |vals: &[E::ScalarField]| -> E::ScalarField {
-                    let vals_no_eq: &[E::ScalarField] = &vals[0..(vals.len() - 1 - C)];
+                let combine_lookups_eq = |vals: &[F]| -> F {
+                    let vals_no_eq: &[F] = &vals[0..(vals.len() - 1 - C)];
                     let fingerprints = &vals[vals.len() - 1 - C..vals.len() - 1];
                     let eq = vals[vals.len() - 1];
                     (instruction.combine_lookups(vals_no_eq, C, M)
@@ -668,7 +668,7 @@ where
 
                 let step = start_timer!(|| "primary sumcheck");
                 let (primary_sumcheck_proof, r_z, _) =
-                    SumcheckInstanceProof::<E::ScalarField>::prove_arbitrary::<_>(
+                    SumcheckInstanceProof::<F>::prove_arbitrary::<_>(
                         &sumcheck_claim,
                         num_rounds,
                         &mut combined_sumcheck_polys,
@@ -693,7 +693,7 @@ where
                 let step = start_timer!(|| "logup checking");
                 #[cfg(feature = "rational_sumcheck_piop")]
                 let (logup_checking, mut logup_advices, f_inv, g_inv) =
-                    <Self as LogupChecking<E, PCS, Instruction, C, M>>::prove_logup_checking(
+                    <Self as LogupChecking<F, PCS, Instruction, C, M>>::prove_logup_checking(
                         pcs_param,
                         preprocessing,
                         poly,
@@ -761,8 +761,8 @@ where
         preprocessing: &Self::Preprocessing,
         pcs_param: &PCS::ProverParam,
         poly: &mut Self::Polys,
-        alpha: &E::ScalarField,
-        tau: &E::ScalarField,
+        alpha: &F,
+        tau: &F,
         transcript: &mut Self::Transcript,
     ) -> Result<Self::DistProveResult, PolyIOPErrors> {
         let start = start_timer!(|| "lookup_check prove");
@@ -793,9 +793,9 @@ where
 
         r_primary_sumcheck.reverse();
 
-        let index_vec: Vec<E::ScalarField> = bit_decompose(Net::party_id() as u64, num_party_vars)
+        let index_vec: Vec<F> = bit_decompose(Net::party_id() as u64, num_party_vars)
             .into_iter()
-            .map(|x| E::ScalarField::from(x))
+            .map(|x| F::from(x))
             .collect();
 
         let coeff = eq_eval(&r_primary_sumcheck[num_rounds..], &index_vec)?;
@@ -822,8 +822,8 @@ where
                 (0..hypercube_size)
                     .into_par_iter()
                     .map(|eval_index| {
-                        let g_operands: Vec<E::ScalarField> = (0..<Self as SurgeCommons<
-                            E::ScalarField,
+                        let g_operands: Vec<F> = (0..<Self as SurgeCommons<
+                            F,
                             Instruction,
                             C,
                             M,
@@ -832,7 +832,7 @@ where
                             .map(|memory_index| poly.E_polys[memory_index][eval_index])
                             .collect();
 
-                        let vals: &[E::ScalarField] = &g_operands[0..(g_operands.len() - C)];
+                        let vals: &[F] = &g_operands[0..(g_operands.len() - C)];
                         let fingerprints = &g_operands[g_operands.len() - C..];
                         eq[eval_index]
                             * (instruction.combine_lookups(vals, C, M)
@@ -854,8 +854,8 @@ where
                 .collect::<Vec<_>>();
             combined_sumcheck_polys.push(eq);
 
-            let combine_lookups_eq = |vals: &[E::ScalarField]| -> E::ScalarField {
-                let vals_no_eq: &[E::ScalarField] = &vals[0..(vals.len() - 1 - C)];
+            let combine_lookups_eq = |vals: &[F]| -> F {
+                let vals_no_eq: &[F] = &vals[0..(vals.len() - 1 - C)];
                 let fingerprints = &vals[vals.len() - 1 - C..vals.len() - 1];
                 let eq = vals[vals.len() - 1];
                 (instruction.combine_lookups(vals_no_eq, C, M)
@@ -865,7 +865,7 @@ where
             };
 
             (
-                SumcheckInstanceProof::<E::ScalarField>::d_prove_arbitrary::<_>(
+                SumcheckInstanceProof::<F>::d_prove_arbitrary::<_>(
                     &sumcheck_claim,
                     num_rounds,
                     &mut combined_sumcheck_polys,
@@ -882,7 +882,7 @@ where
 
             #[cfg(feature = "rational_sumcheck_piop")]
             let mut proof_ret =
-                <Self as LogupChecking<E, PCS, Instruction, C, M>>::d_prove_logup_checking(
+                <Self as LogupChecking<F, PCS, Instruction, C, M>>::d_prove_logup_checking(
                     pcs_param,
                     preprocessing,
                     poly,
@@ -1029,7 +1029,7 @@ where
                 let mut transcript = transcript.clone();
                 let step = start_timer!(|| "logup checking verify");
                 let logup_checking =
-                    <Self as LogupChecking<E, PCS, Instruction, C, M>>::verify_logup_checking(
+                    <Self as LogupChecking<F, PCS, Instruction, C, M>>::verify_logup_checking(
                         &proof.logup_checking,
                         #[cfg(feature = "rational_sumcheck_piop")]
                         &VPAuxInfo {
@@ -1068,19 +1068,19 @@ where
     // witness opened to r_primary_sumcheck
     fn check_openings(
         subclaim: &Self::LookupCheckSubClaim,
-        dim_openings: &[E::ScalarField],
-        E_openings: &[E::ScalarField],
-        m_openings: &[E::ScalarField],
-        witness_openings: &[E::ScalarField],
-        #[cfg(feature = "rational_sumcheck_piop")] f_inv_openings: &[E::ScalarField],
-        #[cfg(feature = "rational_sumcheck_piop")] g_inv_openings: &[E::ScalarField],
-        alpha: &E::ScalarField,
-        tau: &E::ScalarField,
+        dim_openings: &[F],
+        E_openings: &[F],
+        m_openings: &[F],
+        witness_openings: &[F],
+        #[cfg(feature = "rational_sumcheck_piop")] f_inv_openings: &[F],
+        #[cfg(feature = "rational_sumcheck_piop")] g_inv_openings: &[F],
+        alpha: &F,
+        tau: &F,
     ) -> Result<(), PolyIOPErrors> {
         let (beta, gamma) = subclaim.logup_checking.challenges;
 
         let num_memories =
-            <Self as SurgeCommons<E::ScalarField, Instruction, C, M>>::num_memories();
+            <Self as SurgeCommons<F, Instruction, C, M>>::num_memories();
 
         let mut f_ok = false;
         let mut g_ok = false;
@@ -1098,9 +1098,9 @@ where
                         .clone();
                     r_f.reverse();
 
-                    let sid: E::ScalarField = (0..r_f.len())
+                    let sid: F = (0..r_f.len())
                         .map(|i| {
-                            E::ScalarField::from_u64((r_f.len() - i - 1).pow2() as u64).unwrap()
+                            F::from_u64((r_f.len() - i - 1).pow2() as u64).unwrap()
                                 * r_f[i]
                         })
                         .sum();
@@ -1125,7 +1125,7 @@ where
                         .into_par_iter()
                         .map(|i| {
                             let dim_idx = <Self as SurgeCommons<
-                                E::ScalarField,
+                                F,
                                 Instruction,
                                 C,
                                 M,
@@ -1133,7 +1133,7 @@ where
                                 i
                             );
                             let subtable_idx = <Self as SurgeCommons<
-                                E::ScalarField,
+                                F,
                                 Instruction,
                                 C,
                                 M,
@@ -1144,13 +1144,13 @@ where
                             subclaim.logup_checking.f_subclaims.coeffs[i]
                                 * ((beta + sid + t[subtable_idx].mul_01_optimized(gamma))
                                     * f_inv_openings[subtable_idx]
-                                    - E::ScalarField::one())
+                                    - F::one())
                                 * eq_eval
                                 + subclaim.logup_checking.f_subclaims.coeffs[num_memories + i]
                                     * m_openings[dim_idx]
                                     * f_inv_openings[subtable_idx]
                         })
-                        .sum::<E::ScalarField>()
+                        .sum::<F>()
                         == subclaim
                             .logup_checking
                             .f_subclaims
@@ -1172,7 +1172,7 @@ where
                         .into_par_iter()
                         .map(|i| {
                             let dim_idx = <Self as SurgeCommons<
-                                E::ScalarField,
+                                F,
                                 Instruction,
                                 C,
                                 M,
@@ -1182,12 +1182,12 @@ where
                             subclaim.logup_checking.g_subclaims.coeffs[i]
                                 * ((beta + dim_openings[dim_idx] + E_openings[i] * gamma)
                                     * g_inv_openings[i]
-                                    - E::ScalarField::one())
+                                    - F::one())
                                 * eq_eval
                                 + subclaim.logup_checking.g_subclaims.coeffs[num_memories + i]
                                     * g_inv_openings[i]
                         })
-                        .sum::<E::ScalarField>()
+                        .sum::<F>()
                         == subclaim
                             .logup_checking
                             .g_subclaims
@@ -1202,9 +1202,9 @@ where
                     let mut r_f = subclaim.logup_checking.point_f.clone();
                     r_f.reverse();
 
-                    let sid: E::ScalarField = (0..r_f.len())
+                    let sid: F = (0..r_f.len())
                         .map(|i| {
-                            E::ScalarField::from_u64((r_f.len() - i - 1).pow2() as u64).unwrap()
+                            F::from_u64((r_f.len() - i - 1).pow2() as u64).unwrap()
                                 * r_f[i]
                         })
                         .sum();
@@ -1222,7 +1222,7 @@ where
                         .enumerate()
                         .all(|(i, claim)| {
                             let dim_idx = <Self as SurgeCommons<
-                                E::ScalarField,
+                                F,
                                 Instruction,
                                 C,
                                 M,
@@ -1230,7 +1230,7 @@ where
                                 i
                             );
                             let subtable_idx = <Self as SurgeCommons<
-                                E::ScalarField,
+                                F,
                                 Instruction,
                                 C,
                                 M,
@@ -1252,7 +1252,7 @@ where
                         .enumerate()
                         .all(|(i, claim)| {
                             let dim_idx = <Self as SurgeCommons<
-                                E::ScalarField,
+                                F,
                                 Instruction,
                                 C,
                                 M,
@@ -1260,7 +1260,7 @@ where
                                 i
                             );
 
-                            claim.p == E::ScalarField::one()
+                            claim.p == F::one()
                                 && claim.q == beta + dim_openings[dim_idx] + E_openings[i] * gamma
                         });
                 });
@@ -1272,7 +1272,7 @@ where
                 let vals = &E_openings[num_memories..];
                 let log_M = ark_std::log2(M) as usize;
 
-                let vals_no_eq: &[E::ScalarField] = &vals[0..(vals.len() - C)];
+                let vals_no_eq: &[F] = &vals[0..(vals.len() - C)];
                 let fingerprints = &vals[vals.len() - C..];
 
                 let eq = eq_eval(&subclaim.r_primary_sumcheck, &subclaim.r_z);
@@ -1300,198 +1300,5 @@ where
                 "wrong subclaim w/ check openings"
             )))
         }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use arithmetic::evaluate_opt;
-    use ark_bls12_381::Bls12_381;
-    use ark_ff::UniformRand;
-    use transcript::IOPTranscript;
-
-    use super::{
-        instruction::{xor::XORInstruction, JoltInstruction},
-        LookupCheck,
-    };
-    use crate::{pcs::PolynomialCommitmentScheme, MultilinearKzgPCS, PolyIOP};
-    use ark_ec::pairing::Pairing;
-    use ark_std::test_rng;
-
-    fn test_helper<
-        E: Pairing,
-        Instruction: JoltInstruction + Default,
-        const C: usize,
-        const M: usize,
-    >(
-        ops: &[Instruction],
-    ) {
-        let mut transcript = IOPTranscript::new(b"test_transcript");
-        let preprocessing = <PolyIOP<E::ScalarField> as LookupCheck<
-            E,
-            MultilinearKzgPCS<E>,
-            Instruction,
-            C,
-            M,
-        >>::preprocess();
-
-        let mut rng = test_rng();
-        let srs = MultilinearKzgPCS::<E>::gen_srs_for_testing(&mut rng, 10).unwrap();
-        let (pcs_param, _) = MultilinearKzgPCS::<E>::trim(&srs, None, Some(10)).unwrap();
-
-        let alpha = E::ScalarField::rand(&mut rng);
-        let tau = E::ScalarField::rand(&mut rng);
-
-        let witnesses = <PolyIOP<E::ScalarField> as LookupCheck<
-            E,
-            MultilinearKzgPCS<E>,
-            Instruction,
-            C,
-            M,
-        >>::construct_witnesses(ops);
-        let mut poly = <PolyIOP<E::ScalarField> as LookupCheck<
-            E,
-            MultilinearKzgPCS<E>,
-            Instruction,
-            C,
-            M,
-        >>::construct_polys(&preprocessing, ops, &alpha);
-
-        #[cfg(feature = "rational_sumcheck_piop")]
-        let (proof, _advices, r_f, r_g, r_z, r_primary_sumcheck, f_inv, g_inv) = <PolyIOP<
-            E::ScalarField,
-        > as LookupCheck<
-            E,
-            MultilinearKzgPCS<E>,
-            Instruction,
-            C,
-            M,
-        >>::prove(
-            &preprocessing,
-            &pcs_param,
-            &mut poly,
-            &alpha,
-            &tau,
-            &mut transcript,
-        )
-        .unwrap();
-
-        #[cfg(not(feature = "rational_sumcheck_piop"))]
-        let (proof, _advices, r_f, r_g, r_z, r_primary_sumcheck) = <PolyIOP<E::ScalarField> as LookupCheck<
-            E,
-            MultilinearKzgPCS<E>,
-            Instruction,
-            C,
-            M,
-        >>::prove(
-            &preprocessing,
-            &pcs_param,
-            &mut poly,
-            &alpha,
-            &tau,
-            &mut transcript,
-        )
-        .unwrap();
-
-        let mut transcript = IOPTranscript::new(b"test_transcript");
-        let subclaim = <PolyIOP<E::ScalarField> as LookupCheck<
-            E,
-            MultilinearKzgPCS<E>,
-            Instruction,
-            C,
-            M,
-        >>::verify(&proof, &mut transcript)
-        .unwrap();
-
-        assert_eq!(subclaim.r_primary_sumcheck, r_primary_sumcheck);
-        assert_eq!(subclaim.r_z, r_z);
-        #[cfg(feature = "rational_sumcheck_piop")]
-        {
-            assert_eq!(
-                subclaim
-                    .logup_checking
-                    .f_subclaims
-                    .sum_check_sub_claim
-                    .point,
-                r_f
-            );
-            assert_eq!(
-                subclaim
-                    .logup_checking
-                    .g_subclaims
-                    .sum_check_sub_claim
-                    .point,
-                r_g
-            );
-        }
-        #[cfg(not(feature = "rational_sumcheck_piop"))]
-        {
-            assert_eq!(subclaim.logup_checking.point_f, r_f);
-            assert_eq!(subclaim.logup_checking.point_g, r_g);
-        }
-
-        let m_openings = poly
-            .m
-            .iter()
-            .map(|poly| evaluate_opt(poly, &r_f))
-            .collect::<Vec<_>>();
-        let dim_openings = poly
-            .dim
-            .iter()
-            .map(|poly| evaluate_opt(poly, &r_g))
-            .collect::<Vec<_>>();
-        let E_openings = poly
-            .E_polys
-            .iter()
-            .map(|poly| evaluate_opt(poly, &r_g))
-            .chain(poly.E_polys.iter().map(|poly| evaluate_opt(poly, &r_z)))
-            .collect::<Vec<_>>();
-        let witness_openings = witnesses
-            .iter()
-            .map(|poly| evaluate_opt(poly, &r_primary_sumcheck))
-            .collect::<Vec<_>>();
-        #[cfg(feature = "rational_sumcheck_piop")]
-        {
-            let f_inv_openings = f_inv
-                .iter()
-                .map(|poly| evaluate_opt(poly, &r_f))
-                .collect::<Vec<_>>();
-            let g_inv_openings = g_inv
-                .iter()
-                .map(|poly| evaluate_opt(poly, &r_g))
-                .collect::<Vec<_>>();
-
-            <PolyIOP<E::ScalarField> as LookupCheck<E, MultilinearKzgPCS<E>, Instruction, C, M>>::check_openings(&subclaim, &dim_openings, &E_openings, &m_openings, &witness_openings, &f_inv_openings, &g_inv_openings, &alpha, &tau).unwrap();
-        }
-
-        #[cfg(not(feature = "rational_sumcheck_piop"))]
-        <PolyIOP<E::ScalarField> as LookupCheck<E, MultilinearKzgPCS<E>, Instruction, C, M>>::check_openings(&subclaim, &dim_openings, &E_openings, &m_openings, &witness_openings, &alpha, &tau).unwrap();
-    }
-
-    #[test]
-    fn e2e() {
-        let ops = vec![
-            XORInstruction(12, 12),
-            XORInstruction(12, 82),
-            XORInstruction(12, 12),
-            XORInstruction(25, 12),
-        ];
-        const C: usize = 8;
-        const M: usize = 1 << 8;
-        test_helper::<Bls12_381, XORInstruction, C, M>(&ops);
-    }
-
-    #[test]
-    fn e2e_non_pow_2() {
-        let ops = vec![
-            XORInstruction(0, 1),
-            XORInstruction(101, 101),
-            XORInstruction(202, 1),
-            XORInstruction(220, 1),
-            XORInstruction(220, 1),
-        ];
-        const C: usize = 2;
-        const M: usize = 1 << 8;
-        test_helper::<Bls12_381, XORInstruction, C, M>(&ops);
     }
 }

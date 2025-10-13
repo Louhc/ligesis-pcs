@@ -1,8 +1,4 @@
-// pub(crate) mod batching;
-pub(crate) mod srs;
-// pub(crate) mod util;
-
-use crate::pcs::{hashpcs::HashBasedPCS, PCSError};
+use crate::pcs::prelude::*;
 use ark_ff::PrimeField;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -46,7 +42,7 @@ impl<F: PrimeField> LigeroPCS<F> {
     }
 }
 
-impl<F: PrimeField + Absorb> HashBasedPCS<F> for LigeroPCS<F> {
+impl<F: PrimeField + Absorb> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
     // Parameters
     type ProverParam = (usize, usize, usize); // (num of variables, num of variables in one side, length of RS code)
     type VerifierParam = (usize, usize, usize);
@@ -61,7 +57,10 @@ impl<F: PrimeField + Absorb> HashBasedPCS<F> for LigeroPCS<F> {
     type Proof = LigeroProof<F>; // merkle tree paths, columes of `E`
     type BatchProof = (); // 
 
-    fn gen_srs_for_testing(rng: &mut impl Rng, log_size: usize) -> Result<Self::SRS, PCSError> {
+    fn gen_srs_for_testing<R: Rng>(
+        rng: &mut R, 
+        log_size: usize
+    ) -> Result<Self::SRS, PCSError> {
         // MultilinearUniversalParams::<E>::gen_srs_for_testing(rng, log_size)
         let log_n = log_size;
         let log_m = log_n / 2;
@@ -70,11 +69,11 @@ impl<F: PrimeField + Absorb> HashBasedPCS<F> for LigeroPCS<F> {
     }
 
     fn trim(
-        srs: &Self::SRS,
-        // supported_degree: Option<usize>,
-        // supported_num_vars: Option<usize>,
+        srs: impl Borrow<Self::SRS>,
+        _supported_degree: Option<usize>,
+        _supported_num_vars: Option<usize>,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError> {
-        Ok((srs.clone(), srs.clone()))
+        Ok((srs.borrow().clone(), srs.borrow().clone()))
     }
 
     fn commit(
