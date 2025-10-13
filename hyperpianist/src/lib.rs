@@ -9,6 +9,7 @@
 #![feature(macro_metavar_expr)]
 
 use ark_ec::pairing::Pairing;
+use ark_ff::PrimeField;
 use errors::HyperPlonkErrors;
 use lookup::{HyperPlonkLookupPlugin, HyperPlonkLookupPluginNull};
 use subroutines::{pcs::prelude::PolynomialCommitmentScheme, poly_iop::prelude::PermutationCheck};
@@ -28,12 +29,12 @@ mod witness;
 
 /// A trait for HyperPlonk SNARKs.
 /// A HyperPlonk is derived from ZeroChecks and PermutationChecks.
-pub trait HyperPlonkSNARK<E, PCS, Lookup = HyperPlonkLookupPluginNull>: PermutationCheck<E, PCS>
+pub trait HyperPlonkSNARK<F, PCS, Lookup = HyperPlonkLookupPluginNull>: PermutationCheck<F, PCS>
 where
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E>,
-    Lookup: HyperPlonkLookupPlugin<E, PCS,
-    Transcript = IOPTranscript<E::ScalarField>>,
+    F: PrimeField,
+    PCS: PolynomialCommitmentScheme<F>,
+    Lookup: HyperPlonkLookupPlugin<F, PCS,
+    Transcript = IOPTranscript<F>>,
 {
     type Index;
     type ProvingKey;
