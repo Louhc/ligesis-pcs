@@ -32,15 +32,10 @@ util = { path = "../util" }
 # name = "poly-iop-benches"
 # path = "benches/iop_bench.rs"
 # harness = false
-deDory = { path = "../deDory" }
+# deDory = { path = "../deDory" }
 sha2 = { version = "0.10.9" }
 
 # Benchmarks
-[[bench]]
-name = "pcs-benches"
-path = "benches/pcs_bench.rs"
-harness = false
-
 [[example]]
 name = "dSumcheck"
 path = "dTests/dSumcheck.rs"
@@ -77,14 +72,6 @@ path = "dTests/dCombinedCheck.rs"
 [[example]]
 name = "lookup_bench"
 path = "dTests/lookup_bench.rs"
-
-[[example]]
-name = "deDory"
-path = "dTests/deDory.rs"
-
-[[example]]
-name = "deMkzg"
-path = "dTests/deMkzg.rs"
 
 [[example]]
 name = "deNetwork"

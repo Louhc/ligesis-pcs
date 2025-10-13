@@ -1,11 +1,9 @@
 [workspace]
 members = [
   "arithmetic",
-  "hyperpianist",
   "subroutines",
   "transcript",
   "util",
-  "deDory",
   "deNetwork"
 ]
 
