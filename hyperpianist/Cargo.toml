@@ -26,6 +26,15 @@ ark-bn254 = { version = "0.4.0", features = ["asm"] }
 structopt = { version = "0.3" }
 rand = "0.8.5"
 
+# Benchmarks
+[[example]]
+name = "hyperpianist-bench"
+path = "dTests/bench.rs"
+
+[[example]]
+name = "e2e"
+path = "dTests/e2e.rs"
+
 [features]
 default = ["parallel", "extensive_sanity_checks", "rational_sumcheck_piop" ]
 bench = ["parallel"]
