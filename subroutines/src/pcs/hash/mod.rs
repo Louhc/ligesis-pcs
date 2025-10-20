@@ -2,6 +2,7 @@ use ark_ff::{Field, PrimeField};
 use ark_std::{
     marker::PhantomData, cfg_into_iter
 };
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use sha2::{digest, Digest, Sha256};
 
 pub type Byte32 = [u8; 32];
@@ -48,7 +49,7 @@ impl Hasher<(Byte32, Byte32), Byte32, ()> for MTSHA256Hasher{
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct MerkleTree {
     n: usize,
     digest_layers: Vec<Vec<Byte32>>,

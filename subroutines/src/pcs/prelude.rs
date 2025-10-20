@@ -10,4 +10,6 @@ pub use crate::pcs::{
     structs::{/*Commitment,*/ BatchProof},
     PolynomialCommitmentScheme, StructuredReferenceString,
     ligero::*,
+    hash::*,
+    rscode::*,
 };

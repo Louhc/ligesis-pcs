@@ -5,6 +5,7 @@ use ark_crypto_primitives::sponge::{
     poseidon::{PoseidonConfig, PoseidonSponge},
     CryptographicSponge,
 };
+use ark_poly::MultilinearExtension;
 
 pub fn test_sponge<F: PrimeField>() -> PoseidonSponge<F> {
     let full_rounds = 8;
@@ -39,12 +40,12 @@ fn test_ligero_pcs() {
     let (pp, vp) = LigeroPCS::<F>::trim(&srs, 0.into(), 0.into()).unwrap();
     let poly = Arc::new(DenseMultilinearExtension::<F>::rand(18, &mut rng));
 
-    let (com, advice) = LigeroPCS::<F>::commit(&pp, &poly).unwrap();
+    let mut transcript = IOPTranscript::<F>::new(b"ligero_pcs_test");
+    let (com, advice) = LigeroPCS::<F>::commit(&pp, &poly, &mut transcript).unwrap();
     let point = (0..18).map(|_| F::rand(&mut rng)).collect::<Vec<_>>();
-    let mut sponge = test_sponge::<F>();
-    let mut sponge_clone = sponge.clone();
-    let proof = LigeroPCS::<F>::open(&pp, &poly, &advice, &point, &mut sponge).unwrap();
+    let mut transcript_clone = transcript.clone();
+    let proof = LigeroPCS::<F>::open(&pp, &poly, &advice, &point, &mut transcript).unwrap();
     let value = LigeroPCS::<F>::compute_value_from_proof(pp.1, &point, &proof);
-    let res = LigeroPCS::<F>::verify(&vp, &com, &point, &value, &proof, &mut sponge_clone).unwrap();
+    let res = LigeroPCS::<F>::verify(&vp, &com, &point, &value, &proof, &mut transcript_clone).unwrap();
     assert!(res);
 }

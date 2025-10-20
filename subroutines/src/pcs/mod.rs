@@ -7,6 +7,12 @@
 mod errors;
 mod structs;
 mod ligero;
+// mod ligesis;
+mod deepfold;
+mod dummy;
+mod trivial;
+mod hash;
+mod rscode;
 
 pub mod prelude;
 
@@ -90,6 +96,7 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
     fn commit(
         _prover_param: impl Borrow<Self::ProverParam>,
         _poly: &Self::Polynomial,
+        _transcript: &mut IOPTranscript<F>,
     ) -> Result<(Self::Commitment, Self::ProverCommitmentAdvice), PCSError> {
         unimplemented!();
     }
@@ -97,6 +104,7 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
     fn d_commit(
         _prover_param: impl Borrow<Self::ProverParam>,
         _poly: &Self::Polynomial,
+        _transcript: &mut IOPTranscript<F>,
     ) -> Result<(Option<Self::Commitment>, Self::ProverCommitmentAdvice), PCSError> {
         unimplemented!();
     }
@@ -104,6 +112,7 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
     fn batch_d_commit(
         prover_param: impl Borrow<Self::ProverParam>,
         polys: &[Self::Polynomial],
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<
         (
             Vec<Option<Self::Commitment>>,
@@ -114,7 +123,7 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
         // By default, simply d_commits everything
         let (comms, advices) = polys
             .iter()
-            .map(|poly| Self::d_commit(prover_param.borrow(), poly))
+            .map(|poly| Self::d_commit(prover_param.borrow(), poly, transcript))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .unzip();
@@ -128,21 +137,19 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
         polynomial: &Self::Polynomial,
         prover_advice: &Self::ProverCommitmentAdvice,
         point: &Self::Point,
-        sponge: &mut impl CryptographicSponge,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<Self::Proof, PCSError>;
 
     /// Input a list of multilinear extensions, and a same number of points, and
     /// a transcript, compute a multi-opening for all the polynomials.
     fn multi_open(
-        _prover_param: impl Borrow<Self::ProverParam>,
-        _polynomials: Vec<Self::Polynomial>,
-        _advices: &[Self::ProverCommitmentAdvice],
-        _points: &[Self::Point],
-        _evals: &[Self::Evaluation],
-        _transcript: &mut IOPTranscript<F>,
+        prover_param: impl Borrow<Self::ProverParam>,
+        polynomials: Vec<Self::Polynomial>,
+        advices: &[Self::ProverCommitmentAdvice],
+        points: &[Self::Point],
+        evals: &[Self::Evaluation],
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<Self::BatchProof, PCSError> {
-        // the reason we use unimplemented!() is to enable developers to implement the
-        // trait without always implementing the batching APIs.
         unimplemented!()
     }
 
@@ -165,7 +172,7 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
         point: &Self::Point,
         value: &F,
         proof: &Self::Proof,
-        sponge: &mut impl CryptographicSponge,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<bool, PCSError>;
 
     /// Verifies that `value_i` is the evaluation at `x_i` of the polynomial

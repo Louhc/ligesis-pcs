@@ -1,5 +1,5 @@
 use crate::pcs::prelude::*;
-use ark_ff::PrimeField;
+use ark_ff::{BigInteger, PrimeField};
 use ark_poly::{DenseMultilinearExtension};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{
@@ -8,25 +8,27 @@ use ark_std::{
 };
 use transcript::IOPTranscript;
 
-pub mod rand;
+mod rscode;
+use rscode::ReedSolomon;
+mod rand;
 use rand::*;
 
-/// Ligero Polynomial Commitment Scheme
-pub struct LigeroPCS<F: PrimeField> {
+/// LigeSIS Polynomial Commitment Scheme
+pub struct LigeSISPCS<F: PrimeField> {
     #[doc(hidden)]
     phantom: PhantomData<F>,
 }
 
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq)]
 /// proof of opening
-pub struct LigeroProof<F: PrimeField> {
+pub struct LigeSISProof<F: PrimeField> {
     pub f0: Vec<F>, // r^T * A
     pub f1: Vec<F>, // u0^T * A
-    pub mt_proofs: Vec<Vec<Byte32>>,
+    // pub mt_proofs: Vec<Vec<Byte32>>,
     pub cols: Vec<Vec<F>>,
 }
 
-impl<F: PrimeField> LigeroPCS<F> {
+impl<F: PrimeField> LigeSISPCS<F> {
     pub fn compute_value_from_proof(
         log_m0: usize,
         point: &Vec<F>,
@@ -37,30 +39,111 @@ impl<F: PrimeField> LigeroPCS<F> {
     }
 }
 
-impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
+fn transposition<F: Copy>( mat: &Vec<Vec<F>> ) -> Vec<Vec<F>> {
+    (0..mat.len()).map(
+        |i| mat.iter().map(|row| row[i]).collect::<Vec<_>>()
+    ).collect::<Vec<_>>()
+}
+
+fn decompose<F: PrimeField>( x: &F ) -> Vec<bool> {
+    x.into_bigint().to_bits_be()
+}
+
+fn decompose_vector<F: PrimeField>( v: &Vec<F> ) -> Vec<bool> {
+    let mut res = Vec::new();
+    for x in v.iter() {
+        res.append(&mut decompose(x));
+    }
+    res
+}
+
+fn mat_mul<F: PrimeField>( a: &Vec<Vec<F>>, b: &Vec<Vec<F>> ) -> Vec<Vec<F>> {
+    let n = a.len();
+    let m = a[0].len();
+    let p = b[0].len();
+    assert!(m == b.len());
+    (0..n).map(
+        |i| (0..p).map(
+            |j| (0..m).map(|k| a[i][k] * b[k][j]).sum::<F>()
+        ).collect::<Vec<_>>()
+    ).collect::<Vec<_>>()
+}
+
+fn field_mat_mul_bool_mat<F: PrimeField>( a: &Vec<Vec<F>>, b: &Vec<Vec<bool>> ) -> Vec<Vec<F>> {
+    let n = a.len();
+    let m = a[0].len();
+    let p = b[0].len();
+    assert!(m == b.len());
+    (0..n).map(
+        |i| (0..p).map(
+            |j| (0..m).map(|k| if b[k][j] { a[i][k] } else { F::ZERO }).sum::<F>()
+        ).collect::<Vec<_>>()
+    ).collect::<Vec<_>>()
+}
+
+#[derive(Clone, Debug)]
+struct LigeSISSRS<F: PrimeField> {
+    mu: usize,
+    log_m: usize,
+    rs_len: usize,
+    eta: usize,
+    c: usize,
+    mat_a: Vec<Vec<F>>,
+}
+
+#[derive(Clone)]
+struct LigeSISProverParam<F: PrimeField> {
+    mu: usize,
+    log_m: usize,
+    log_n: usize,
+    rs_len: usize,
+    eta: usize,
+    c: usize,
+    mat_a: Vec<Vec<F>>,
+}
+
+#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
+struct LigeSISVerifierParam<F: PrimeField> {
+    mu: usize,
+    log_m: usize,
+    log_n: usize,
+    rs_len: usize,
+    eta: usize,
+    c: usize,
+    com_a: F,
+}
+
+impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
     // Parameters
-    type ProverParam = (usize, usize, usize); // (num of variables, num of variables in one side, length of RS code)
-    type VerifierParam = (usize, usize, usize);
-    type SRS = (usize, usize, usize); // (num of variables, length of RS code)
+    type ProverParam = LigeSISProverParam<F>;
+    type VerifierParam = LigeSISVerifierParam<F>;
+    type SRS = LigeSISSRS<F>; // (num of variables, length of RS code)
     // Polynomial and its associated types
     type Polynomial = Arc<DenseMultilinearExtension<F>>;
-    type ProverCommitmentAdvice = MerkleTree; // merkle tree structure
+    type ProverCommitmentAdvice = (); // merkle tree structure
     type Point = Vec<F>;
     type Evaluation = F;
     // Commitments and proofs
-    type Commitment = Byte32; // merkle tree root
+    type Commitment = (); // merkle tree root
     type Proof = LigeroProof<F>; // merkle tree paths, columes of `E`
     type BatchProof = (); // 
 
     fn gen_srs_for_testing<R: Rng>(
-        _rng: &mut R, 
+        rng: &mut R, 
         log_size: usize
     ) -> Result<Self::SRS, PCSError> {
         // MultilinearUniversalParams::<E>::gen_srs_for_testing(rng, log_size)
-        let log_n = log_size;
-        let log_m = log_n / 2;
+        let mu = log_size;
+        let log_m = mu / 2;
         let rs_len = (1 << log_m) * 2;
-        Ok((log_n, log_m, rs_len))
+        let eta = 64;
+        let c = 2;
+        let mat_a = (0..c).map(
+            |_| random_field_vector_from_rng((1 << log_m) * eta, rng)
+        ).collect::<Vec<_>>();
+        Ok(LigeSISSRS{
+            mu, log_m, rs_len, eta, c, mat_a
+        })
     }
 
     fn trim(
@@ -68,36 +151,42 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
         _supported_degree: Option<usize>,
         _supported_num_vars: Option<usize>,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError> {
-        Ok((srs.borrow().clone(), srs.borrow().clone()))
+        let &LigeSISSRS{mu, log_m, rs_len, eta, c, mat_a} = srs.borrow();
+        let log_n = mu - log_m;
+        let com_a = F::ZERO;
+        let prover_param = LigeSISProverParam{
+            mu, log_m, log_n, rs_len, eta, c, mat_a
+        };
+        let verifier_param = LigeSISVerifierParam{
+            mu, log_m, log_n, rs_len, eta, c, com_a
+        };
+        Ok((prover_param, verifier_param))
     }
 
     fn commit(
         prover_param: impl Borrow<Self::ProverParam>,
         poly: &Self::Polynomial,
-        _transcript: &mut IOPTranscript<F>,
     ) -> Result<(Self::Commitment, Self::ProverCommitmentAdvice), PCSError> {
         // trim parameters
-        let &(log_n, log_m0, rs_len) = prover_param.borrow();
-        let log_m1 = log_n - log_m0;
-        let (n, m0, m1) = (1 << log_n, 1 << log_m0, 1 << log_m1);
-        assert!(log_n == log_m0 + log_m1 && poly.num_vars == log_n);
-        let mat_a = reshape(&poly.evaluations, m0, m1);
+        let &LigeSISProverParam{mu, log_m, log_n, rs_len, eta, c, mat_a} = prover_param.borrow();
+        let (m, n) = (1 << log_m, 1 << log_n);
+        let mat_f = reshape(&poly.evaluations, m, n);
 
-        // encode `A`
-        let rs = ReedSolomon::new(m1, rs_len);
-        let mat_e = mat_a.iter().map(
+        // encode `F`
+        let rs = ReedSolomon::new(n, rs_len);
+        let mat_f_prime = mat_f.iter().map(
             |row| rs.encode(row)
         ).collect::<Vec<_>>();
 
-        // build merkle tree on columes
-        let hash_cols = (0..(m1 << 1)).map(
-            |j| compute_sha256_row(
-                &((0..m0).map(|i| mat_e[i][j]).collect::<Vec<_>>())
-            )
-        ).collect::<Vec<_>>();
-        let mt = MerkleTree::new(&hash_cols);
+        let mat_b = transposition(&(transposition(&mat_f_prime)
+            .iter()
+            .map(|col| decompose_vector(col))
+            .collect::<Vec<_>>()));
 
-        Ok((mt.root().clone(), mt))
+        let mat_h = field_mat_mul_bool_mat(&mat_a, &mat_b);
+        let com_h = ();
+
+        Ok((com_h, ()))
     }
 
     fn open(
@@ -108,28 +197,26 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
         transcript: &mut IOPTranscript<F>,
     ) -> Result<Self::Proof, PCSError> {
         // trim parameters
-        let &(log_n, log_m0, rs_len) = prover_param.borrow();
-        let log_m1 = log_n - log_m0;
-        let (n, m0, m1) = (1 << log_n, 1 << log_m0, 1 << log_m1);
-        assert!(log_n == log_m0 + log_m1 && poly.num_vars == log_n);
-        let mat_a = reshape(&poly.evaluations, m0, m1);
+        let &LigeSISProverParam{mu, log_m, log_n, rs_len, eta, c, mat_a} = prover_param.borrow();
+        let (m, n) = (1 << log_m, 1 << log_n);
+        let mat_a = reshape(&poly.evaluations, m, n);
         
         // encode `A`
-        let rs = ReedSolomon::new(m1, rs_len);
+        let rs = ReedSolomon::new(n, rs_len);
         let mat_e = mat_a.iter().map(
             |row| rs.encode(row)
         ).collect::<Vec<_>>();
 
         // generate `r` and compute the tensor vector `u0`
-        let r = transcript.get_and_append_challenge_vectors(b"r", m0)?;
-        let u0 = get_tensor(&point[..log_m0].to_vec());
+        let r = transcript.get_and_append_challenge_vectors(b"r", m)?;
+        let u0 = get_tensor(&point[..log_m].to_vec());
 
         // compute `rA` and `u0A` and compute msg
-        let f0: Vec<F> = (0..m1).map(
-            |j| (0..m0).map(|i| r[i] * mat_a[i][j]).sum()
+        let f0: Vec<F> = (0..n).map(
+            |j| (0..m).map(|i| r[i] * mat_a[i][j]).sum()
         ).collect::<Vec<_>>();
-        let f1: Vec<F> = (0..m1).map(
-            |j| (0..m0).map(|i| u0[i] * mat_a[i][j]).sum()
+        let f1: Vec<F> = (0..n).map(
+            |j| (0..m).map(|i| u0[i] * mat_a[i][j]).sum()
         ).collect::<Vec<_>>();
         // let msg: Vec<F> = { let mut f = f0.clone(); f.append(&mut f1.clone()); f };
         

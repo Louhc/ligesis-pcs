@@ -117,6 +117,31 @@ impl<F: PrimeField> IOPTranscript<F> {
         }
         Ok(res)
     }
+
+    pub fn get_and_append_challenge_indices(
+        &mut self,
+        label: &'static [u8],
+        len: usize,
+        upper_bound: usize,
+    ) -> Result<Vec<usize>, TranscriptError> {
+        let mut res = vec![];
+        let mut mp = vec![false; upper_bound];
+        for _ in 0..len {
+            
+            let mut buf = [0u8; 64];
+            self.transcript.challenge_bytes(label, &mut buf);
+            let mut challenge = usize::from_le_bytes(buf[..8].try_into().unwrap()) % upper_bound;
+            while mp[challenge] {
+                self.transcript.challenge_bytes(label, &mut buf);
+                challenge = usize::from_le_bytes(buf[..8].try_into().unwrap()) % upper_bound;
+            }
+            mp[challenge] = true;
+            
+            self.append_serializable_element(label, &challenge)?;
+            res.push(challenge);
+        }
+        Ok(res)
+    }
 }
 
 /// Takes as input a struct, and converts them to a series of bytes. All traits
