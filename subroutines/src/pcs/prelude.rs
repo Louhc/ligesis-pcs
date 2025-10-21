@@ -7,7 +7,7 @@
 //! Prelude
 pub use crate::pcs::{
     errors::PCSError,
-    structs::{/*Commitment,*/ BatchProof},
+    // structs::{/*Commitment,*/ BatchProof},
     PolynomialCommitmentScheme, StructuredReferenceString,
     ligero::*,
     hash::*,

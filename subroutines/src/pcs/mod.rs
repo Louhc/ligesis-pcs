@@ -5,9 +5,9 @@
 // along with the HyperPlonk library. If not, see <https://mit-license.org/>.
 
 mod errors;
-mod structs;
+// mod structs;
 mod ligero;
-// mod ligesis;
+mod ligesis;
 mod deepfold;
 mod dummy;
 mod trivial;

@@ -9,6 +9,9 @@ use ark_std::{
 };
 use transcript::IOPTranscript;
 
+#[cfg(test)]
+mod tests;
+
 /// DeepFold Polynomial Commitment Scheme
 pub struct DeepFoldPCS<F: PrimeField> {
     #[doc(hidden)]
@@ -17,25 +20,25 @@ pub struct DeepFoldPCS<F: PrimeField> {
 
 
 #[derive(Clone, Debug)]
-struct DeepFoldSRS<F: PrimeField> {
-    mu: usize,
-    l0: GeneralEvaluationDomain<F>,
-    s: usize,
+pub struct DeepFoldSRS<F: PrimeField> {
+    pub mu: usize,
+    pub l0: GeneralEvaluationDomain<F>,
+    pub s: usize,
 }
 
 #[derive(Clone)]
-struct DeepFoldProverParam<F: PrimeField> {
-    mu: usize,
-    l0: GeneralEvaluationDomain<F>,
-    s: usize,
+pub struct DeepFoldProverParam<F: PrimeField> {
+    pub mu: usize,
+    pub l0: GeneralEvaluationDomain<F>,
+    pub s: usize,
 }
 
 #[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
-struct DeepFoldVerifierParam<F: PrimeField> {
-    mu: usize,
-    len_l0: usize,
-    g: F,
-    s: usize,
+pub struct DeepFoldVerifierParam<F: PrimeField> {
+    pub mu: usize,
+    pub len_l0: usize,
+    pub g: F,
+    pub s: usize,
 }
 
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq)]
@@ -44,7 +47,7 @@ pub struct DeepFoldProof<F: PrimeField> {
     pub linear_polys: Vec<Vec<(F, F)>>,
     pub mt_roots: Vec<Byte32>,
     pub f_mu: F,
-    pub mt_proofs: Vec<(F, Vec<Byte32>)>,
+    pub mt_proofs: Vec<Vec<(F, Vec<Byte32>)>>,
 }
 
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq, Default)]
@@ -57,9 +60,8 @@ pub struct DeepFoldProverCommitmentAdvice<F: PrimeField> {
 
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq, Default)]
 pub struct DeepFoldCommitment<F: PrimeField> {
-    rt0: Byte32,
-    alpha0: F,
-    c: F,
+    pub rt0: Byte32,
+    pub c: F,
 }
 
 
@@ -116,11 +118,12 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         transcript: &mut IOPTranscript<F>,
     ) -> Result<(Self::Commitment, Self::ProverCommitmentAdvice), PCSError> {
         let &Self::ProverParam{mu, l0, s} = prover_param.borrow();
-        let v0 = l0.fft(&poly.evaluations);
+        let f0 = evals_to_coeffs(mu, &poly.evaluations);
+        let v0 = l0.fft(&f0);
         let mt0 = MerkleTree::new(&v0.iter().map(|&x| compute_sha256_row(&[x])).collect());
         let rt0 = mt0.root();
         let alpha0 = transcript.get_and_append_challenge(b"alpha")?;
-        let f0 = evals_to_coeffs(mu, &poly.evaluations);
+        
         let mut t = F::ONE;
         let mut c = F::ZERO;
         for i in 0..1 << mu {
@@ -128,7 +131,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
             t *= alpha0;
         }
         Ok((
-            DeepFoldCommitment{rt0, alpha0, c},
+            DeepFoldCommitment{rt0, c},
             DeepFoldProverCommitmentAdvice{f0, alpha0, mt0, v0},
         ))
     }
@@ -156,6 +159,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         let mut mt = vec![mt0];
         let mut mt_proofs = Vec::new();
         let mut f_mu = F::ZERO;
+        let mut r = vec![F::ZERO];
 
         // Step 1
         a[0].push(point.clone());
@@ -189,6 +193,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
             }
             // Step 2.c
             let ri = transcript.get_and_append_challenge(b"r")?;
+            r.push(ri);
             // Step 2.d
             f.push(vector_add(
                 &fe,
@@ -209,15 +214,17 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
             }
         }
         // Step 4
-        for _ in 0..s {
+        for t in 0..s {
             // Step 4.a
             let mut beta = transcript.get_and_append_challenge_indices(b"beta", 1, l[0].size())?[0];
             // Step 4.b
+            mt_proofs.push(Vec::new());
             for i in 0..mu {
                 let offset = l[i + 1].size();
                 let beta0 = if beta >= offset {beta - offset} else {beta + offset};
-                mt_proofs.push((v[i][beta], mt[i].prove(beta)));
-                mt_proofs.push((v[i][beta0], mt[i].prove(beta0)));
+                // assert_eq!(l[i].element(beta) + l[i].element(beta0), F::ZERO);
+                mt_proofs[t].push((v[i][beta], mt[i].prove(beta)));
+                mt_proofs[t].push((v[i][beta0], mt[i].prove(beta0)));
                 if beta >= offset {
                     beta -= offset;
                 }
@@ -240,36 +247,43 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         transcript: &mut IOPTranscript<F>,
     ) -> Result<bool, PCSError> {
         let Self::VerifierParam{mu, len_l0, g, s} = verifier_param.clone();
-        let Self::Commitment{rt0, alpha0, c} = com.clone();
+        let Self::Commitment{rt0, c} = com.clone();
         let Self::Proof{linear_polys, mt_roots, f_mu, mt_proofs} = proof.clone();
         
-        let mut alpha = vec![alpha0];
+        if rt0 != mt_roots[0] {
+            return Ok(false);
+        }
+
+        let mut alpha = vec![transcript.get_and_append_challenge(b"alpha")?];
         let mut r = vec![F::ZERO];
         
-        for i in 1..mu + 1 {
+        for _ in 1..mu + 1 {
             alpha.push(transcript.get_and_append_challenge(b"alpha")?);
             r.push(transcript.get_and_append_challenge(b"r")?);
         }
 
         if eval_linear_poly(&linear_polys[0][0], &point[0]) != *value 
             || eval_linear_poly(&linear_polys[0][1], &alpha[0]) != c
-            || eval_linear_poly(&linear_polys[mu][0], &r[mu]) != f_mu {
+            || eval_linear_poly(&linear_polys[mu - 1][0], &r[mu]) != f_mu {
             return Ok(false);
         }
 
-        for i in 1..mu + 1 {
+        for i in 1..mu {
             for j in 0..linear_polys[i - 1].len() {
-                let k = if i < mu { j } else { 0 };
-                let w1 = if j == 0 { alpha[0].pow([1 << (i - 1) as u64]) } else { alpha[i].pow([1 << (i - j) as u64]) };
+                let k = if i < mu - 1 { j } else { 0 };
+                let w1 = if j == 0 { point[i] } else {
+                    if j == 1 { alpha[0].pow([1 << i as u64]) } 
+                    else { alpha[j - 1].pow([1 << (i + 2 - j) as u64]) }
+                };
                 if eval_linear_poly(&linear_polys[i - 1][j], &r[i])
-                    != eval_linear_poly(&linear_polys[i][k], &w1 ) {
+                    != eval_linear_poly(&linear_polys[i][k], &w1) {
                     return Ok(false);
                 }
             }
         }
 
-        for _ in 0..s {
-            let mut beta = transcript.get_and_append_challenge_indices(b"beta", 1, 1 << mu)?[0];
+        for t in 0..s {
+            let mut beta = transcript.get_and_append_challenge_indices(b"beta", 1, len_l0)?[0];
             let mut beta_point = g.pow([beta as u64]);
             for i in 0..mu {
                 let offset = len_l0 >> (i + 1);
@@ -277,25 +291,26 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
                 if !MerkleTree::verify(
                     &mt_roots[i],
                     beta,
-                    &compute_sha256_row(&[mt_proofs[i * 2].0]),
-                    &mt_proofs[i * 2].1,
+                    &compute_sha256_row(&[mt_proofs[t][i * 2].0]),
+                    &mt_proofs[t][i * 2].1,
                 ) {
                     return Ok(false);
                 }
                 if !MerkleTree::verify(
                     &mt_roots[i],
                     beta0,
-                    &compute_sha256_row(&[mt_proofs[i * 2 + 1].0]),
-                    &mt_proofs[i * 2 + 1].1,
+                    &compute_sha256_row(&[mt_proofs[t][i * 2 + 1].0]),
+                    &mt_proofs[t][i * 2 + 1].1,
                 ) {
                     return Ok(false);
                 }
 
                 let next_beta = if beta >= offset {beta - offset} else {beta};
-
-                if !is_collinear( (beta_point, mt_proofs[i * 2].0), 
-                                  (-beta_point, mt_proofs[i * 2 + 1].0),
-                                  (beta_point * beta_point, mt_proofs[i * 2 + 2].0) ) {
+                let val = if i < mu - 1 {mt_proofs[t][i * 2 + 2].0} else {f_mu};
+                
+                if !is_collinear( (beta_point, mt_proofs[t][i * 2].0), 
+                                  (-beta_point, mt_proofs[t][i * 2 + 1].0),
+                                  (r[i + 1], val) ) {
                     return Ok(false);
                 }
 
@@ -323,7 +338,9 @@ fn get_tensor<F: PrimeField>( r: &Vec<F> ) -> Vec<F> {
     for i in 0..r.len() {
         let mut new_res = Vec::new();
         for &x in res.iter() {
-            new_res.push(x);
+            new_res.push(x * (F::ONE - r[i]));
+        }
+        for &x in res.iter() {
             new_res.push(x * r[i]);
         }
         res = new_res;
@@ -381,4 +398,14 @@ fn is_collinear<F: PrimeField>( p0: (F, F), p1: (F, F), p2: (F, F) ) -> bool {
     let (x1, y1) = p1;
     let (x2, y2) = p2;
     return (y1 - y0) * (x2 - x1) == (y2 - y1) * (x1 - x0);
+}
+
+fn eval_univar_poly<F: PrimeField>( f: &Vec<F>, alpha: &F ) -> F {
+    (0..f.len()).map(
+        |i| f[i] * alpha.pow([i as u64])
+    ).sum()
+}
+
+fn eval_mle_poly<F: PrimeField>( f: &Vec<F>, point: &Vec<F> ) -> F {
+    inner_product(&f, &get_tensor(&point))
 }

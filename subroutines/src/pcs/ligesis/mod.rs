@@ -1,6 +1,7 @@
-use crate::pcs::prelude::*;
+use crate::pcs::{deepfold::{self, DeepFoldCommitment, DeepFoldPCS, DeepFoldProverCommitmentAdvice, DeepFoldProverParam, DeepFoldSRS, DeepFoldVerifierParam}, prelude::*};
+use arithmetic::math::Math;
 use ark_ff::{BigInteger, PrimeField};
-use ark_poly::{DenseMultilinearExtension};
+use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{
     borrow::Borrow, marker::PhantomData, rand::Rng,
@@ -8,8 +9,9 @@ use ark_std::{
 };
 use transcript::IOPTranscript;
 
-mod rscode;
-use rscode::ReedSolomon;
+#[cfg(test)]
+mod tests;
+
 mod rand;
 use rand::*;
 
@@ -17,15 +19,6 @@ use rand::*;
 pub struct LigeSISPCS<F: PrimeField> {
     #[doc(hidden)]
     phantom: PhantomData<F>,
-}
-
-#[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq)]
-/// proof of opening
-pub struct LigeSISProof<F: PrimeField> {
-    pub f0: Vec<F>, // r^T * A
-    pub f1: Vec<F>, // u0^T * A
-    // pub mt_proofs: Vec<Vec<Byte32>>,
-    pub cols: Vec<Vec<F>>,
 }
 
 impl<F: PrimeField> LigeSISPCS<F> {
@@ -39,60 +32,19 @@ impl<F: PrimeField> LigeSISPCS<F> {
     }
 }
 
-fn transposition<F: Copy>( mat: &Vec<Vec<F>> ) -> Vec<Vec<F>> {
-    (0..mat.len()).map(
-        |i| mat.iter().map(|row| row[i]).collect::<Vec<_>>()
-    ).collect::<Vec<_>>()
-}
-
-fn decompose<F: PrimeField>( x: &F ) -> Vec<bool> {
-    x.into_bigint().to_bits_be()
-}
-
-fn decompose_vector<F: PrimeField>( v: &Vec<F> ) -> Vec<bool> {
-    let mut res = Vec::new();
-    for x in v.iter() {
-        res.append(&mut decompose(x));
-    }
-    res
-}
-
-fn mat_mul<F: PrimeField>( a: &Vec<Vec<F>>, b: &Vec<Vec<F>> ) -> Vec<Vec<F>> {
-    let n = a.len();
-    let m = a[0].len();
-    let p = b[0].len();
-    assert!(m == b.len());
-    (0..n).map(
-        |i| (0..p).map(
-            |j| (0..m).map(|k| a[i][k] * b[k][j]).sum::<F>()
-        ).collect::<Vec<_>>()
-    ).collect::<Vec<_>>()
-}
-
-fn field_mat_mul_bool_mat<F: PrimeField>( a: &Vec<Vec<F>>, b: &Vec<Vec<bool>> ) -> Vec<Vec<F>> {
-    let n = a.len();
-    let m = a[0].len();
-    let p = b[0].len();
-    assert!(m == b.len());
-    (0..n).map(
-        |i| (0..p).map(
-            |j| (0..m).map(|k| if b[k][j] { a[i][k] } else { F::ZERO }).sum::<F>()
-        ).collect::<Vec<_>>()
-    ).collect::<Vec<_>>()
-}
-
 #[derive(Clone, Debug)]
-struct LigeSISSRS<F: PrimeField> {
+pub struct LigeSISSRS<F: PrimeField> {
     mu: usize,
     log_m: usize,
     rs_len: usize,
     eta: usize,
     c: usize,
     mat_a: Vec<Vec<F>>,
+    deepfold_srs: DeepFoldSRS<F>,
 }
 
 #[derive(Clone)]
-struct LigeSISProverParam<F: PrimeField> {
+pub struct LigeSISProverParam<F: PrimeField> {
     mu: usize,
     log_m: usize,
     log_n: usize,
@@ -100,10 +52,11 @@ struct LigeSISProverParam<F: PrimeField> {
     eta: usize,
     c: usize,
     mat_a: Vec<Vec<F>>,
+    deepfold_prover_param: DeepFoldProverParam<F>,
 }
 
 #[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
-struct LigeSISVerifierParam<F: PrimeField> {
+pub struct LigeSISVerifierParam<F: PrimeField> {
     mu: usize,
     log_m: usize,
     log_n: usize,
@@ -111,22 +64,42 @@ struct LigeSISVerifierParam<F: PrimeField> {
     eta: usize,
     c: usize,
     com_a: F,
+    deepfold_verifier_param: DeepFoldVerifierParam<F>,
+}
+
+#[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq)]
+/// proof of opening
+pub struct LigeSISProof<F: PrimeField> {
+    pub f0: Vec<F>, // r^T * A
+    pub f1: Vec<F>, // u0^T * A
+    // pub mt_proofs: Vec<Vec<Byte32>>,
+    pub cols: Vec<Vec<F>>,
+}
+
+#[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq, Default)]
+struct LigeSISProverCommitmentAdvice<F: PrimeField> {
+    com_h_advice: DeepFoldProverCommitmentAdvice<F>
+}
+
+#[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq, Default)]
+struct LigeSISCommitment<F: PrimeField> {
+    com_h: DeepFoldCommitment<F>,
 }
 
 impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
     // Parameters
     type ProverParam = LigeSISProverParam<F>;
     type VerifierParam = LigeSISVerifierParam<F>;
-    type SRS = LigeSISSRS<F>; // (num of variables, length of RS code)
+    type SRS = LigeSISSRS<F>;
     // Polynomial and its associated types
     type Polynomial = Arc<DenseMultilinearExtension<F>>;
-    type ProverCommitmentAdvice = (); // merkle tree structure
+    type ProverCommitmentAdvice = LigeSISProverCommitmentAdvice<F>;
     type Point = Vec<F>;
     type Evaluation = F;
     // Commitments and proofs
-    type Commitment = (); // merkle tree root
-    type Proof = LigeroProof<F>; // merkle tree paths, columes of `E`
-    type BatchProof = (); // 
+    type Commitment = LigeSISCommitment<F>;
+    type Proof = LigeSISProof<F>;
+    type BatchProof = ();
 
     fn gen_srs_for_testing<R: Rng>(
         rng: &mut R, 
@@ -137,12 +110,14 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let log_m = mu / 2;
         let rs_len = (1 << log_m) * 2;
         let eta = 64;
-        let c = 2;
+        let log_c = 4;
+        let c = 1 << log_c;
         let mat_a = (0..c).map(
             |_| random_field_vector_from_rng((1 << log_m) * eta, rng)
         ).collect::<Vec<_>>();
+        let deepfold_srs = DeepFoldPCS::<F>::gen_srs_for_testing(rng, log_c + mu - log_m + 1)?;
         Ok(LigeSISSRS{
-            mu, log_m, rs_len, eta, c, mat_a
+            mu, log_m, rs_len, eta, c, mat_a, deepfold_srs,
         })
     }
 
@@ -151,14 +126,15 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         _supported_degree: Option<usize>,
         _supported_num_vars: Option<usize>,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError> {
-        let &LigeSISSRS{mu, log_m, rs_len, eta, c, mat_a} = srs.borrow();
+        let LigeSISSRS{mu, log_m, rs_len, eta, c, mat_a, deepfold_srs} = srs.borrow().clone();
         let log_n = mu - log_m;
         let com_a = F::ZERO;
+        let (deepfold_prover_param, deepfold_verifier_param) = DeepFoldPCS::<F>::trim(deepfold_srs, Some(deepfold_srs.mu), Some(deepfold_srs.mu))?;
         let prover_param = LigeSISProverParam{
-            mu, log_m, log_n, rs_len, eta, c, mat_a
+            mu, log_m, log_n, rs_len, eta, c, mat_a, deepfold_prover_param,
         };
         let verifier_param = LigeSISVerifierParam{
-            mu, log_m, log_n, rs_len, eta, c, com_a
+            mu, log_m, log_n, rs_len, eta, c, com_a, deepfold_verifier_param, 
         };
         Ok((prover_param, verifier_param))
     }
@@ -166,9 +142,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
     fn commit(
         prover_param: impl Borrow<Self::ProverParam>,
         poly: &Self::Polynomial,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<(Self::Commitment, Self::ProverCommitmentAdvice), PCSError> {
         // trim parameters
-        let &LigeSISProverParam{mu, log_m, log_n, rs_len, eta, c, mat_a} = prover_param.borrow();
+        let LigeSISProverParam{mu, log_m, log_n, rs_len, eta, c, mat_a, deepfold_prover_param} = prover_param.borrow().clone();
         let (m, n) = (1 << log_m, 1 << log_n);
         let mat_f = reshape(&poly.evaluations, m, n);
 
@@ -184,9 +161,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             .collect::<Vec<_>>()));
 
         let mat_h = field_mat_mul_bool_mat(&mat_a, &mat_b);
-        let com_h = ();
+        let (com_h, com_h_advice) = DeepFoldPCS::<F>::commit(deepfold_prover_param, &evals_to_arcpoly(&mat_h.concat()), transcript)?;
 
-        Ok((com_h, ()))
+        Ok((LigeSISCommitment{com_h}, LigeSISProverCommitmentAdvice{com_h_advice}))
     }
 
     fn open(
@@ -196,46 +173,37 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         point: &Self::Point,
         transcript: &mut IOPTranscript<F>,
     ) -> Result<Self::Proof, PCSError> {
-        // trim parameters
-        let &LigeSISProverParam{mu, log_m, log_n, rs_len, eta, c, mat_a} = prover_param.borrow();
+        let eta = F::MODULUS_BIT_SIZE;
+        let s_lambda = 128;
+        let &LigeSISProverParam{mu, log_m, log_n, rs_len, eta, c, mat_a, deepfold_prover_param} = prover_param.borrow();
         let (m, n) = (1 << log_m, 1 << log_n);
-        let mat_a = reshape(&poly.evaluations, m, n);
-        
-        // encode `A`
+        let mat_f = reshape(&poly.evaluations, m, n);
         let rs = ReedSolomon::new(n, rs_len);
-        let mat_e = mat_a.iter().map(
+        let mat_f_prime = mat_a.iter().map(
             |row| rs.encode(row)
         ).collect::<Vec<_>>();
+        let mat_b = transposition(&(transposition(&mat_f_prime)
+            .iter()
+            .map(|col| decompose_vector(col))
+            .collect::<Vec<_>>()));
 
-        // generate `r` and compute the tensor vector `u0`
-        let r = transcript.get_and_append_challenge_vectors(b"r", m)?;
-        let u0 = get_tensor(&point[..log_m].to_vec());
+        let (z1, z2) = (point[..log_m].to_vec(), point[log_m..].to_vec());
+        let eq_z1 = get_tensor(&z1);
+        let a = (0..m).map(
+            |i| (0..n).map(|j| eq_z1[i] * mat_f[i][j]).sum()
+        ).collect::<Vec<F>>();
 
-        // compute `rA` and `u0A` and compute msg
-        let f0: Vec<F> = (0..n).map(
-            |j| (0..m).map(|i| r[i] * mat_a[i][j]).sum()
-        ).collect::<Vec<_>>();
-        let f1: Vec<F> = (0..n).map(
-            |j| (0..m).map(|i| u0[i] * mat_a[i][j]).sum()
-        ).collect::<Vec<_>>();
-        // let msg: Vec<F> = { let mut f = f0.clone(); f.append(&mut f1.clone()); f };
-        
-        // get merkle tree on columes
-        let mt = advice;
-        
-        // generate lambda indices and alpha
-        let idx: Vec<usize> = transcript.get_and_append_challenge_indices(b"idx", min(128, m1 << 1), m1 << 1)?;        
-        let _alpha: F = transcript.get_and_append_challenge(b"alpha")?;
+        let I = transcript.get_and_append_challenge_indices(b"I", 128, 2 * n)?;
+        let mat_b_trans = transposition(&mat_b);
+        let mat_b_I = transposition(&I.iter().map(|&i| mat_b_trans[i]).collect::<Vec<_>>());
 
-        // trim all needed columes and compute merkle paths
-        let cols = idx.iter().map(
-            |&i| mat_e.iter().map(|row| row[i]).collect::<Vec<_>>()
-        ).collect::<Vec<_>>();
-        let mt_proofs = idx.iter().map(
-            |&i| mt.prove(i)
-        ).collect::<Vec<_>>();
+        let (com_b_I, com_b_I_advice) = DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&bool_vec_to_field_vec(&mat_b_I.concat())), transcript)?;
         
-        Ok(LigeroProof{f0, f1, cols, mt_proofs})
+        let alpha1 = transcript.get_and_append_challenge_vectors(b"alpha1", (m * mu * s_lambda).ilog2() as usize)?;
+        let alpha2 = transcript.get_and_append_challenge_vectors(b"alpha2", c.ilog2() as usize)?;
+
+
+        Ok(LigeSISProof { f0: (), f1: (), cols: () })
     }
 
     fn verify(
@@ -314,5 +282,62 @@ pub fn get_tensor<F: PrimeField>( r: &Vec<F> ) -> Vec<F> {
     res
 }
 
-#[cfg(test)]
-mod tests;
+fn transposition<F: Copy>( mat: &Vec<Vec<F>> ) -> Vec<Vec<F>> {
+    (0..mat.len()).map(
+        |i| mat.iter().map(|row| row[i]).collect::<Vec<_>>()
+    ).collect::<Vec<_>>()
+}
+
+fn decompose<F: PrimeField>( x: &F ) -> Vec<bool> {
+    x.into_bigint().to_bits_be()
+}
+
+fn decompose_vector<F: PrimeField>( v: &Vec<F> ) -> Vec<bool> {
+    let mut res = Vec::new();
+    for x in v.iter() {
+        res.append(&mut decompose(x));
+    }
+    res
+}
+
+fn mat_mul<F: PrimeField>( a: &Vec<Vec<F>>, b: &Vec<Vec<F>> ) -> Vec<Vec<F>> {
+    let n = a.len();
+    let m = a[0].len();
+    let p = b[0].len();
+    assert!(m == b.len());
+    (0..n).map(
+        |i| (0..p).map(
+            |j| (0..m).map(|k| a[i][k] * b[k][j]).sum::<F>()
+        ).collect::<Vec<_>>()
+    ).collect::<Vec<_>>()
+}
+
+fn field_mat_mul_bool_mat<F: PrimeField>( a: &Vec<Vec<F>>, b: &Vec<Vec<bool>> ) -> Vec<Vec<F>> {
+    let n = a.len();
+    let m = a[0].len();
+    let p = b[0].len();
+    assert!(m == b.len());
+    (0..n).map(
+        |i| (0..p).map(
+            |j| (0..m).map(|k| if b[k][j] { a[i][k] } else { F::ZERO }).sum::<F>()
+        ).collect::<Vec<_>>()
+    ).collect::<Vec<_>>()
+}
+
+fn evals_to_arcpoly<F: PrimeField>( a: &Vec<F> ) -> Arc<DenseMultilinearExtension<F>> {
+    Arc::new(DenseMultilinearExtension::<F>::from_evaluations_vec(a.len().ilog2() as usize, a.clone()))
+}
+
+fn otimes<F: PrimeField>( a: &Vec<F>, b: &Vec<F> ) -> Vec<F> {
+    a.iter().map(
+        |x| b.iter().map(
+            |y| x * y
+        ).collect::<Vec<_>>()
+    ).collect::<Vec<_>>()
+}
+
+fn bool_vec_to_field_vec<F: PrimeField>( a: &Vec<bool> ) -> Vec<F> {
+    (0..a.len()).map(
+        |i| if a[i] {F::ONE} else {F::ZERO}
+    ).collect::<Vec<_>>()
+}
