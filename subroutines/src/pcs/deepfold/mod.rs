@@ -19,7 +19,7 @@ pub struct DeepFoldPCS<F: PrimeField> {
 }
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct DeepFoldSRS<F: PrimeField> {
     pub mu: usize,
     pub l0: GeneralEvaluationDomain<F>,
@@ -100,10 +100,11 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         Ok(DeepFoldSRS{mu, l0, s})
     }
 
-    fn trim(
+    fn setup(
         srs: impl Borrow<Self::SRS>,
         _supported_degree: Option<usize>,
         _supported_num_vars: Option<usize>,
+        _transcript: &mut IOPTranscript<F>,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError> {
         let srs = srs.borrow();
         Ok((

@@ -391,25 +391,36 @@ where
             ),
         );
 
-        let ((f_inv_comm, mut f_advice), (g_inv_comm, mut g_advice)): (
-            (Vec<_>, Vec<_>),
-            (Vec<_>, Vec<_>),
-        ) = rayon::join(
-            || {
-                f_leaves
+        let (f_inv_comm, mut f_advice): (Vec<_>, Vec<_>) = f_leaves
                     .2
                     .iter()
-                    .map(|inv| PCS::commit(pcs_param, inv).unwrap())
-                    .unzip()
-            },
-            || {
-                g_leaves
+                    .map(|inv| PCS::commit(pcs_param, inv, transcript).unwrap())
+                    .unzip();
+        let (g_inv_comm, mut g_advice): (Vec<_>, Vec<_>) = g_leaves
                     .2
                     .iter()
-                    .map(|inv| PCS::commit(pcs_param, inv).unwrap())
-                    .unzip()
-            },
-        );
+                    .map(|inv| PCS::commit(pcs_param, inv, transcript).unwrap())
+                    .unzip();
+
+        // let ((f_inv_comm, mut f_advice), (g_inv_comm, mut g_advice)): (
+        //     (Vec<_>, Vec<_>),
+        //     (Vec<_>, Vec<_>),
+        // ) = rayon::join(
+        //     || {
+        //         f_leaves
+        //             .2
+        //             .iter()
+        //             .map(|inv| PCS::commit(pcs_param, inv, transcript).unwrap())
+        //             .unzip()
+        //     },
+        //     || {
+        //         g_leaves
+        //             .2
+        //             .iter()
+        //             .map(|inv| PCS::commit(pcs_param, inv, transcript).unwrap())
+        //             .unzip()
+        //     },
+        // );
         f_advice.append(&mut g_advice);
 
         let claimed_sums = (0
@@ -517,7 +528,7 @@ where
         let (mut f_inv_comm, mut f_advice): (Vec<_>, Vec<_>) = f_leaves
             .2
             .iter()
-            .map(|inv| PCS::d_commit(pcs_param, inv).unwrap())
+            .map(|inv| PCS::d_commit(pcs_param, inv, transcript).unwrap())
             .unzip();
 
         let f_inv_copy = f_leaves
@@ -558,7 +569,7 @@ where
         let (mut g_inv_comm, mut g_advice): (Vec<_>, Vec<_>) = g_leaves
             .2
             .iter()
-            .map(|inv| PCS::d_commit(pcs_param, inv).unwrap())
+            .map(|inv| PCS::d_commit(pcs_param, inv, transcript).unwrap())
             .unzip();
 
         f_advice.append(&mut g_advice);

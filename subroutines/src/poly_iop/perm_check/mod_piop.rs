@@ -215,7 +215,8 @@ where
         let leaves_len = leaves.len();
 
         let to_prove = leaves
-            .into_par_iter()
+            .into_iter()
+            // .into_par_iter()
             .map(|leave| {
                 let half_len = leave.len() / 2;
                 let nv = leave[0].len().log_2();
@@ -251,7 +252,7 @@ where
                 };
 
                 let h_poly = Arc::new(DenseMultilinearExtension::from_evaluations_vec(nv, h_evals));
-                let (h_comm, h_advice) = PCS::commit(prover_param, &h_poly).unwrap();
+                let (h_comm, h_advice) = PCS::commit(prover_param, &h_poly, transcript).unwrap();
 
                 (g_polys, h_poly, claim, h_comm, h_advice)
             })
@@ -367,7 +368,7 @@ where
                     h_evals.iter().sum::<F>()
                 };
                 let h_poly = Arc::new(DenseMultilinearExtension::from_evaluations_vec(nv, h_evals));
-                let (h_comm, h_advice) = PCS::d_commit(prover_param, &h_poly).unwrap();
+                let (h_comm, h_advice) = PCS::d_commit(prover_param, &h_poly, transcript).unwrap();
 
                 (g_polys, h_poly, claim, h_comm, h_advice)
             })

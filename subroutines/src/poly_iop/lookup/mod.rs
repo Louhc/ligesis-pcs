@@ -166,6 +166,7 @@ where
     fn commit<PCS>(
         &self,
         pcs_params: &PCS::ProverParam,
+        transcript: &mut IOPTranscript<F>
     ) -> (
         SurgeCommitmentPrimary<F, PCS>,
         Vec<PCS::ProverCommitmentAdvice>,
@@ -176,28 +177,40 @@ where
             Polynomial = Arc<DenseMultilinearExtension<F>>,
         >,
     {
-        let ((E_commitment, E_advice), ((dim_commitment, dim_advice), (m_commitment, m_advice)))
-        :  ((Vec<_>, Vec<_>), ((Vec<_>, Vec<_>), (Vec<_>, Vec<_>))) =
-            rayon::join(|| 
-                self.E_polys
-                    .par_iter()
-                    .map(|poly| PCS::commit(pcs_params, poly).unwrap())
-                    .unzip(),
-                    || rayon::join(
-                        || {
-                            self.dim
-                                .par_iter()
-                                .map(|poly| PCS::commit(pcs_params, poly).unwrap())
-                                .unzip()
-                        },
-                        || {
-                            self.m
-                                .par_iter()
-                                .map(|poly| PCS::commit(pcs_params, poly).unwrap())
-                                .unzip()
-                        },
-                    )
-            );
+        let (E_commitment, E_advice): (Vec<_>, Vec<_>) = self.E_polys
+                    .iter()
+                    .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
+                    .unzip();
+        let (dim_commitment, dim_advice): (Vec<_>, Vec<_>) = self.dim
+                    .iter()
+                    .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
+                    .unzip();
+        let (m_commitment, m_advice): (Vec<_>, Vec<_>) = self.m
+                    .iter()
+                    .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
+                    .unzip();
+        // let ((E_commitment, E_advice), ((dim_commitment, dim_advice), (m_commitment, m_advice)))
+        // :  ((Vec<_>, Vec<_>), ((Vec<_>, Vec<_>), (Vec<_>, Vec<_>))) =
+        //     rayon::join(|| 
+        //         self.E_polys
+        //             .par_iter()
+        //             .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
+        //             .unzip(),
+        //             || rayon::join(
+        //                 || {
+        //                     self.dim
+        //                         .par_iter()
+        //                         .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
+        //                         .unzip()
+        //                 },
+        //                 || {
+        //                     self.m
+        //                         .par_iter()
+        //                         .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
+        //                         .unzip()
+        //                 },
+        //             )
+        //     );
 
         (
             SurgeCommitmentPrimary {
@@ -212,6 +225,7 @@ where
     fn d_commit<PCS>(
         &self,
         pcs_params: &PCS::ProverParam,
+        transcript: &mut IOPTranscript<F>,
     ) -> (
         Option<SurgeCommitmentPrimary<F, PCS>>,
         Vec<PCS::ProverCommitmentAdvice>,
@@ -225,19 +239,19 @@ where
         let (mut dim_commitment, dim_advice): (Vec<_>, Vec<_>) = self
             .dim
             .iter()
-            .map(|poly| PCS::d_commit(pcs_params, poly).unwrap())
+            .map(|poly| PCS::d_commit(pcs_params, poly, transcript).unwrap())
             .unzip();
 
         let (mut E_commitment, E_advice): (Vec<_>, Vec<_>) = self
             .E_polys
             .iter()
-            .map(|poly| PCS::d_commit(pcs_params, poly).unwrap())
+            .map(|poly| PCS::d_commit(pcs_params, poly, transcript).unwrap())
             .unzip();
 
         let (mut m_commitment, m_advice): (Vec<_>, Vec<_>) = self
             .m
             .iter()
-            .map(|poly| PCS::d_commit(pcs_params, poly).unwrap())
+            .map(|poly| PCS::d_commit(pcs_params, poly, transcript).unwrap())
             .unzip();
 
         if Net::am_master() {
@@ -590,7 +604,7 @@ where
     ) -> Result<Self::ProveResult, PolyIOPErrors> {
         let start = start_timer!(|| "lookup_check prove");
 
-        let (commitment, mut advices) = poly.commit(pcs_param);
+        let (commitment, mut advices) = poly.commit(pcs_param, transcript);
         transcript.append_serializable_element(b"primary_commitment", &commitment)?;
 
         let num_rounds = poly.dim[0].num_vars;
@@ -767,7 +781,7 @@ where
     ) -> Result<Self::DistProveResult, PolyIOPErrors> {
         let start = start_timer!(|| "lookup_check prove");
 
-        let (commitment, mut advices) = poly.d_commit(pcs_param);
+        let (commitment, mut advices) = poly.d_commit(pcs_param, transcript);
         if Net::am_master() {
             transcript
                 .append_serializable_element(b"primary_commitment", commitment.as_ref().unwrap())?;

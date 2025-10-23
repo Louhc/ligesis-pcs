@@ -195,8 +195,8 @@ where
         let prod_x = compute_product_poly(&frac_poly)?;
 
         // generate challenge
-        let (frac_comm, _) = PCS::commit(pcs_param, &frac_poly)?;
-        let (prod_x_comm, _) = PCS::commit(pcs_param, &prod_x)?;
+        let (frac_comm, _) = PCS::commit(pcs_param, &frac_poly, transcript)?;
+        let (prod_x_comm, _) = PCS::commit(pcs_param, &prod_x, transcript)?;
         transcript.append_serializable_element(b"frac(x)", &frac_comm)?;
         transcript.append_serializable_element(b"prod(x)", &prod_x_comm)?;
         let alpha = transcript.get_and_append_challenge(b"alpha")?;

@@ -8,13 +8,14 @@ use ark_bls12_381::Fr as F;
 fn test_deepfold_pcs(){
     let mut rng = test_rng();
     let mu = 10;
+    let mut transcript = IOPTranscript::new(b"test");
+    let mut transcript_clone = transcript.clone();
+    
     let srs = DeepFoldPCS::<F>::gen_srs_for_testing(&mut rng, mu).unwrap();
-    let (pp, vp) = DeepFoldPCS::<F>::trim(srs, Some(mu), Some(mu)).unwrap();
+    let (pp, vp) = DeepFoldPCS::<F>::setup(srs, Some(mu), Some(mu), &mut transcript).unwrap();
     let poly = random_field_vector_from_rng::<F>(1 << mu, &mut rng);
     let poly = DenseMultilinearExtension::<F>::from_evaluations_vec(mu, poly);
     let poly_arc = Arc::new(poly);
-    let mut transcript = IOPTranscript::new(b"test");
-    let mut transcript_clone = transcript.clone();
     
     let (com, advice) = DeepFoldPCS::<F>::commit(&pp, &poly_arc, &mut transcript).unwrap();
     

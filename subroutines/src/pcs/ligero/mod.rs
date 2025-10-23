@@ -63,10 +63,11 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
         Ok((log_n, log_m, rs_len))
     }
 
-    fn trim(
+    fn setup(
         srs: impl Borrow<Self::SRS>,
         _supported_degree: Option<usize>,
         _supported_num_vars: Option<usize>,
+        _transcript: &mut IOPTranscript<F>,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError> {
         Ok((srs.borrow().clone(), srs.borrow().clone()))
     }

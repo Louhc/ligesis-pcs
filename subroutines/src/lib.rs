@@ -5,7 +5,7 @@
 // along with the HyperPlonk library. If not, see <https://mit-license.org/>.
 
 pub mod pcs;
-// pub mod poly_iop;
+pub mod poly_iop;
 
 pub use pcs::prelude::*;
-// pub use poly_iop::prelude::*;
+pub use poly_iop::prelude::*;

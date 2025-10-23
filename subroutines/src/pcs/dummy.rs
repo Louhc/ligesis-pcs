@@ -38,10 +38,11 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DummyPCS<F> {
     /// Trim the universal parameters to specialize the public parameters.
     /// Input both `supported_log_degree` for univariate and
     /// `supported_num_vars` for multilinear.
-    fn trim(
+    fn setup(
         _srs: impl Borrow<Self::SRS>,
         _supported_degree: Option<usize>,
         _supported_num_vars: Option<usize>,
+        _transcript: &mut IOPTranscript<F>,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError> {
         Ok(((), ()))
     }

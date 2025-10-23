@@ -78,10 +78,11 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
     /// allows for passing in any pointer type, e.g.: `trim(srs: &Self::SRS,
     /// ..)` or `trim(srs: Box<Self::SRS>, ..)` or `trim(srs: Arc<Self::SRS>,
     /// ..)` etc.
-    fn trim(
+    fn setup(
         srs: impl Borrow<Self::SRS>,
         supported_degree: Option<usize>,
         supported_num_vars: Option<usize>,
+        transcript: &mut IOPTranscript<F>,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError>;
 
     /// Generate a commitment for a polynomial
