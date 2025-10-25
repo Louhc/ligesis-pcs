@@ -51,6 +51,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
     type Commitment = Byte32; // merkle tree root
     type Proof = LigeroProof<F>; // merkle tree paths, columes of `E`
     type BatchProof = (); // 
+    type VerifierCommitmentAdvice = ();
 
     fn gen_srs_for_testing<R: Rng>(
         _rng: &mut R, 
@@ -67,7 +68,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
         srs: impl Borrow<Self::SRS>,
         _supported_degree: Option<usize>,
         _supported_num_vars: Option<usize>,
-        _transcript: &mut IOPTranscript<F>,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError> {
         Ok((srs.borrow().clone(), srs.borrow().clone()))
     }
@@ -157,6 +157,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
         com: &Self::Commitment,
         point: &Self::Point,
         value: &F,
+        advice: &Self::VerifierCommitmentAdvice,
         proof: &Self::Proof,
         transcript: &mut IOPTranscript<F>,
     ) -> Result<bool, PCSError> {

@@ -7,6 +7,7 @@ use ark_std::{
     sync::Arc, vec, vec::Vec, cmp::min,
     collections::HashSet,
 };
+use itertools::concat;
 use transcript::IOPTranscript;
 
 #[cfg(test)]
@@ -59,6 +60,11 @@ pub struct DeepFoldProverCommitmentAdvice<F: PrimeField> {
 }
 
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq, Default)]
+pub struct DeepFoldVerifierCommitmentAdvice<F: PrimeField> {
+    pub alpha0: F,
+}
+
+#[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq, Default)]
 pub struct DeepFoldCommitment<F: PrimeField> {
     pub rt0: Byte32,
     pub c: F,
@@ -88,6 +94,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
     type Commitment = DeepFoldCommitment<F>; // merkle tree root
     type Proof = DeepFoldProof<F>; // merkle tree paths, columes of `E`
     type BatchProof = (); // 
+    type VerifierCommitmentAdvice = DeepFoldVerifierCommitmentAdvice<F>;
 
     fn gen_srs_for_testing<R: Rng>(
         _rng: &mut R, 
@@ -104,7 +111,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         srs: impl Borrow<Self::SRS>,
         _supported_degree: Option<usize>,
         _supported_num_vars: Option<usize>,
-        _transcript: &mut IOPTranscript<F>,
+        // _transcript: &mut IOPTranscript<F>,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError> {
         let srs = srs.borrow();
         Ok((
@@ -123,7 +130,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         let v0 = l0.fft(&f0);
         let mt0 = MerkleTree::new(&v0.iter().map(|&x| compute_sha256_row(&[x])).collect());
         let rt0 = mt0.root();
-        let alpha0 = transcript.get_and_append_challenge(b"alpha")?;
+        transcript.append_message(b"merkle tree root", &rt0);
+        let alpha0 = transcript.get_and_append_challenge(b"alpha0")?;
         
         let mut t = F::ONE;
         let mut c = F::ZERO;
@@ -131,10 +139,22 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
             c += f0[i] * t;
             t *= alpha0;
         }
+        transcript.append_field_element(b"f^{(0)}(a)", &c);
         Ok((
             DeepFoldCommitment{rt0, c},
             DeepFoldProverCommitmentAdvice{f0, alpha0, mt0, v0},
         ))
+    }
+
+    fn verifier_receive_commit(
+        _verifier_param: &Self::VerifierParam,
+        commitment: &Self::Commitment,
+        transcript: &mut IOPTranscript<F>,
+    ) -> Result<Self::VerifierCommitmentAdvice, PCSError> {
+        transcript.append_message(b"merkle tree root", &commitment.rt0);
+        let alpha0 = transcript.get_and_append_challenge(b"alpha0")?;
+        transcript.append_field_element(b"f^{(0)}(a)", &commitment.c);
+        Ok(DeepFoldVerifierCommitmentAdvice { alpha0 })
     }
 
     fn open(
@@ -244,6 +264,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         com: &Self::Commitment,
         point: &Self::Point,
         value: &F,
+        advice: &Self::VerifierCommitmentAdvice,
         proof: &Self::Proof,
         transcript: &mut IOPTranscript<F>,
     ) -> Result<bool, PCSError> {
@@ -255,7 +276,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
             return Ok(false);
         }
 
-        let mut alpha = vec![transcript.get_and_append_challenge(b"alpha")?];
+        let mut alpha = vec![advice.alpha0];
         let mut r = vec![F::ZERO];
         
         for _ in 1..mu + 1 {

@@ -54,6 +54,7 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
     type Proof: Clone + CanonicalSerialize + CanonicalDeserialize + Debug + PartialEq + Eq;
     /// Batch proofs
     type BatchProof: CanonicalSerialize + CanonicalDeserialize;
+    type VerifierCommitmentAdvice: Clone + Send + Sync + Default + Debug;
 
     /// Build SRS for testing.
     ///
@@ -82,7 +83,6 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
         srs: impl Borrow<Self::SRS>,
         supported_degree: Option<usize>,
         supported_num_vars: Option<usize>,
-        transcript: &mut IOPTranscript<F>,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError>;
 
     /// Generate a commitment for a polynomial
@@ -100,6 +100,14 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
         _transcript: &mut IOPTranscript<F>,
     ) -> Result<(Self::Commitment, Self::ProverCommitmentAdvice), PCSError> {
         unimplemented!();
+    }
+
+    fn verifier_receive_commit(
+        _verifier_param: &Self::VerifierParam,
+        _commitment: &Self::Commitment,
+        _transcript: &mut IOPTranscript<F>,
+    ) -> Result<Self::VerifierCommitmentAdvice, PCSError> {
+        Ok(Self::VerifierCommitmentAdvice::default())
     }
 
     fn d_commit(
@@ -172,6 +180,7 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
         commitment: &Self::Commitment,
         point: &Self::Point,
         value: &F,
+        advice: &Self::VerifierCommitmentAdvice,
         proof: &Self::Proof,
         transcript: &mut IOPTranscript<F>,
     ) -> Result<bool, PCSError>;
@@ -182,6 +191,7 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
         _verifier_param: &Self::VerifierParam,
         _commitments: &[Self::Commitment],
         _points: &[Self::Point],
+        _advice: &[Self::VerifierCommitmentAdvice],
         _batch_proof: &Self::BatchProof,
         _transcript: &mut IOPTranscript<F>,
     ) -> Result<bool, PCSError> {

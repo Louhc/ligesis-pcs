@@ -32,6 +32,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for TrivialPCS<F> {
     type Commitment = ();
     type Proof = Arc<DenseMultilinearExtension<F>>;
     type BatchProof = ();
+    type VerifierCommitmentAdvice = ();
 
     /// Build SRS for testing.
     ///
@@ -51,7 +52,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for TrivialPCS<F> {
         srs: impl Borrow<Self::SRS>,
         _supported_degree: Option<usize>,
         _supported_num_vars: Option<usize>,
-        _transcript: &mut IOPTranscript<F>,
+        // _transcript: &mut IOPTranscript<F>,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError> {
         Ok((srs.borrow().clone(), srs.borrow().clone()))
     }
@@ -130,6 +131,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for TrivialPCS<F> {
         _commitment: &Self::Commitment,
         point: &Self::Point,
         value: &F,
+        _advice: &Self::ProverCommitmentAdvice,
         proof: &Self::Proof,
         _transcript: &mut IOPTranscript<F>,
     ) -> Result<bool, PCSError> {
@@ -142,6 +144,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for TrivialPCS<F> {
         _verifier_param: &Self::VerifierParam,
         _commitments: &[Self::Commitment],
         _points: &[Self::Point],
+        _advices: &[Self::VerifierCommitmentAdvice],
         _batch_proof: &Self::BatchProof,
         _transcript: &mut IOPTranscript<F>,
     ) -> Result<bool, PCSError> {

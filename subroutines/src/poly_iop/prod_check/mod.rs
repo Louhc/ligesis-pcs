@@ -226,6 +226,7 @@ where
         let start = start_timer!(|| "prod_check verify");
 
         // update transcript and generate challenge
+        // PCS::
         transcript.append_serializable_element(b"frac(x)", &proof.frac_comm)?;
         transcript.append_serializable_element(b"prod(x)", &proof.prod_x_comm)?;
         let alpha = transcript.get_and_append_challenge(b"alpha")?;

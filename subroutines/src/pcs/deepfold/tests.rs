@@ -10,9 +10,9 @@ fn test_deepfold_pcs(){
     let mu = 10;
     let mut transcript = IOPTranscript::new(b"test");
     let mut transcript_clone = transcript.clone();
-    
+
     let srs = DeepFoldPCS::<F>::gen_srs_for_testing(&mut rng, mu).unwrap();
-    let (pp, vp) = DeepFoldPCS::<F>::setup(srs, Some(mu), Some(mu), &mut transcript).unwrap();
+    let (pp, vp) = DeepFoldPCS::<F>::setup(srs, Some(mu), Some(mu)).unwrap();
     let poly = random_field_vector_from_rng::<F>(1 << mu, &mut rng);
     let poly = DenseMultilinearExtension::<F>::from_evaluations_vec(mu, poly);
     let poly_arc = Arc::new(poly);
@@ -23,7 +23,9 @@ fn test_deepfold_pcs(){
     let proof = DeepFoldPCS::<F>::open(&pp, &poly_arc, &advice, &point, &mut transcript).unwrap();
     
     let value = DeepFoldPCS::compute_value_from_proof(&point, &proof);
-    let result = DeepFoldPCS::<F>::verify(&vp, &com, &point, &value, &proof, &mut transcript_clone).unwrap();
+    
+    let v_advice = DeepFoldPCS::verifier_receive_commit(&vp, &com, &mut transcript_clone).unwrap();
+    let result = DeepFoldPCS::verify(&vp, &com, &point, &value, &v_advice, &proof, &mut transcript_clone).unwrap();
 
     assert!(result);
     assert_eq!(eval_mle_poly(&poly_arc.evaluations, &point), value);
