@@ -380,12 +380,12 @@ impl<F: PrimeField> VirtualPolynomial<F> {
         Ok(poly)
     }
 
-    // Input poly f(x) and a random vector r, output
-    //      \hat f(x) = \sum_{x_i \in eval_x} f(x_i) eq(x, r)
-    // where
-    //      eq(x,y) = \prod_i=1^num_var (x_i * y_i + (1-x_i)*(1-y_i))
-    //
-    // This function is used in ZeroCheck.
+    /// Input poly f(x) and a random vector r, output
+    ///      \hat f(x) = \sum_{x_i \in eval_x} f(x_i) eq(x, r)
+    /// where
+    ///      eq(x,y) = \prod_i=1^num_var (x_i * y_i + (1-x_i)*(1-y_i))
+    ///
+    /// This function is used in ZeroCheck.
     pub fn build_f_hat(&self, r: &[F]) -> Result<Self, ArithErrors> {
         let start = start_timer!(|| "zero check build hat f");
 

@@ -252,7 +252,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         // Step 6
         let mut bI_check = VirtualPolynomial::new_from_mle(&evals_to_arcpoly(&bI_field), F::ONE);
         bI_check.mul_by_mle(evals_to_arcpoly(&bI_field.iter().map(|&x| x - F::ONE).collect::<Vec<F>>()), F::ONE).unwrap();
-        bI_check.mul_by_mle(evals_to_arcpoly(&alpha1), F::ONE).unwrap();
+        bI_check.build_f_hat(&alpha1).unwrap();
         let bI_check_proof = <PolyIOP<F> as SumCheck<F>>::prove(bI_check, transcript).unwrap();
         let r1 = bI_check_proof.point.clone();
         let com_bI_proof0 = DeepFoldPCS::open(&deepfold_prover_param, &evals_to_arcpoly(&bI_field), &com_bI_advice, &r1, transcript)?;
