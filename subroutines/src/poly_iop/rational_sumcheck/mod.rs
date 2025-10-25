@@ -14,6 +14,8 @@ use std::iter::zip;
 use transcript::IOPTranscript;
 use ark_serialize::{CanonicalSerialize, CanonicalDeserialize};
 
+use std::sync::Arc;
+
 use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 
 use super::sum_check::SumCheckSubClaim;
@@ -132,7 +134,7 @@ where
         let mut sum_poly = VirtualPolynomial::new(gx[0].num_vars);
         let mut coeff_sum = F::zero();
         for (g_poly, g_inv_poly, coeff) in izip!(gx, g_inv.iter(), coeffs.iter()) {
-            sum_poly.add_mle_list([g_poly, g_inv_poly.clone()], *coeff)?;
+            sum_poly.add_mle_list([g_poly, Arc::new((**g_inv_poly).clone())], *coeff)?;
             coeff_sum += *coeff;
         }
         sum_poly.add_mle_list([], -coeff_sum)?;
@@ -140,10 +142,12 @@ where
         sum_poly = sum_poly.build_f_hat(&r)?;
 
         // Sumcheck
+
         let num_polys = fx.len();
         for (f_poly, g_inv_poly, coeff) in izip!(fx, g_inv, coeffs[num_polys..].iter())
         {
             let mut item = f_poly;
+
             if should_mix_sums {
                 item.mul_by_mle(g_inv_poly, *coeff)?;
             } else {

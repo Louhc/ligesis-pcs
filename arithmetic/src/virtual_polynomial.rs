@@ -87,7 +87,7 @@ impl<F: PrimeField> AddAssign<&VirtualPolynomial<F>> for VirtualPolynomial<F> {
             let cur: Vec<Arc<DenseMultilinearExtension<F>>> = products
                 .1
                 .iter()
-                .map(|&x| other.flattened_ml_extensions[x].clone())
+                .map(|&x| Arc::new((*other.flattened_ml_extensions[x]).clone()))
                 .collect();
 
             self.add_mle_list(cur, products.0)

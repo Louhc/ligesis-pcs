@@ -28,6 +28,7 @@ pub fn bind_poly_var_top<F: PrimeField>(poly: &mut DenseMultilinearExtension<F>,
     poly.evaluations.truncate(n);
 }
 
+/// fold a polynomial with `r`
 pub fn bind_poly_var_bot<F: PrimeField>(poly: &mut DenseMultilinearExtension<F>, r: &F) {
     let n = poly.evaluations.len() / 2;
     for i in 0..n {
