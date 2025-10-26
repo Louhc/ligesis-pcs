@@ -1,4 +1,4 @@
-use crate::rand::random_field_vector_from_rng;
+use crate::pcs::prelude;
 
 use super::*;
 use ark_std::test_rng;
@@ -7,15 +7,22 @@ use ark_bls12_381::Fr as F;
 #[test]
 fn test_deepfold_pcs(){
     let mut rng = test_rng();
-    let mu = 10;
+    let mu = 22;
     let mut transcript = IOPTranscript::new(b"test");
     let mut transcript_clone = transcript.clone();
 
-    let srs = DeepFoldPCS::<F>::gen_srs_for_testing(&mut rng, mu).unwrap();
+    let srs = DeepFoldPCS::<F>::gen_srs_for_testing(&mut rng, mu).unwrap();    
     let (pp, vp) = DeepFoldPCS::<F>::setup(srs, Some(mu), Some(mu)).unwrap();
+    
+    // let start = std::time::Instant::now();
     let poly = random_field_vector_from_rng::<F>(1 << mu, &mut rng);
+    // let duration = start.elapsed();
+    // println!("{} ms", duration.as_millis());
+    // assert!(false);
+
     let poly = DenseMultilinearExtension::<F>::from_evaluations_vec(mu, poly);
     let poly_arc = Arc::new(poly);
+    
     
     let (com, advice) = DeepFoldPCS::<F>::commit(&pp, &poly_arc, &mut transcript).unwrap();
     

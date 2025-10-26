@@ -1,3 +1,4 @@
+use ark_ff::PrimeField;
 use ark_std::{
     cmp::min,
     collections::BTreeSet,
@@ -5,7 +6,7 @@ use ark_std::{
 };
 use rand_chacha::ChaCha20Rng;
 
-pub fn random_field_vector<F: UniformRand>( n: usize, seed: [u8; 32] ) -> Vec<F> {
+pub fn random_field_vector<F: PrimeField>( n: usize, seed: [u8; 32] ) -> Vec<F> {
     let mut rng = ChaCha20Rng::from_seed(seed);
     random_field_vector_from_rng(n, &mut rng)
 }
@@ -15,7 +16,7 @@ pub fn random_indices_vector( n: usize, t: usize, seed: [u8; 32] ) -> Vec<usize>
     random_indices_vector_from_rng(n, t, &mut rng)
 }
 
-pub fn random_field_vector_from_rng<F: UniformRand>( n: usize, rng: &mut impl Rng ) -> Vec<F> {
+pub fn random_field_vector_from_rng<F: PrimeField>( n: usize, rng: &mut impl Rng ) -> Vec<F> {
     (0..n).map(|_| F::rand(rng)).collect::<Vec<_>>()
 }
 

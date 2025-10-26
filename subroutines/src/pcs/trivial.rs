@@ -1,4 +1,4 @@
-use crate::{get_tensor, pcs::{PCSError, PolynomialCommitmentScheme}};
+use crate::pcs::prelude::*;
 use ark_ff::PrimeField;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_std::{borrow::Borrow, marker::PhantomData, rand::Rng, vec::Vec, sync::Arc};

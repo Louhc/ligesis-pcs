@@ -12,7 +12,9 @@ mod deepfold;
 mod dummy;
 mod trivial;
 mod hash;
+mod rand;
 mod rscode;
+mod utils;
 
 pub mod prelude;
 

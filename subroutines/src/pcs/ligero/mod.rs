@@ -8,7 +8,7 @@ use ark_std::{
 };
 use transcript::IOPTranscript;
 
-pub mod rand;
+mod rand;
 use rand::*;
 
 /// Ligero Polynomial Commitment Scheme
@@ -209,24 +209,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
 
         return Ok(true);
     }
-}
-
-pub fn reshape<F: PrimeField>( a: &Vec<F>, n: usize, m: usize ) -> Vec<Vec<F>> {
-    (0..n).map(
-        |i| (0..m).map(
-            |j| if i * m + j < a.len() { a[i * m + j] } else { F::ZERO }
-        ).collect::<Vec<_>>()
-    ).collect::<Vec<_>>()
-}
-
-pub fn get_tensor<F: PrimeField>( r: &Vec<F> ) -> Vec<F> {
-    let mut res = vec![F::ONE];
-    for i in 0..r.len() {
-        let mut tmp = res.iter().map(|&x| x * r[i]).collect::<Vec<_>>();
-        res = res.iter().map(|&x| x * (F::ONE - r[i])).collect::<Vec<_>>();
-        res.append(&mut tmp);
-    }
-    res
 }
 
 #[cfg(test)]

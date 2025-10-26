@@ -22,21 +22,21 @@ pub struct DeepFoldPCS<F: PrimeField> {
 
 #[derive(Clone, Debug, Copy)]
 pub struct DeepFoldSRS<F: PrimeField> {
-    pub mu: usize,
+    pub max_mu: usize,
     pub l0: GeneralEvaluationDomain<F>,
     pub s: usize,
 }
 
 #[derive(Clone)]
 pub struct DeepFoldProverParam<F: PrimeField> {
-    pub mu: usize,
+    pub max_mu: usize,
     pub l0: GeneralEvaluationDomain<F>,
     pub s: usize,
 }
 
 #[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct DeepFoldVerifierParam<F: PrimeField> {
-    pub mu: usize,
+    pub max_mu: usize,
     pub len_l0: usize,
     pub g: F,
     pub s: usize,
@@ -66,6 +66,7 @@ pub struct DeepFoldVerifierCommitmentAdvice<F: PrimeField> {
 
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq, Default)]
 pub struct DeepFoldCommitment<F: PrimeField> {
+    pub mu: usize,
     pub rt0: Byte32,
     pub c: F,
 }
@@ -100,11 +101,11 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         _rng: &mut R, 
         log_size: usize
     ) -> Result<Self::SRS, PCSError> {
-        let mu = log_size;
-        let len_l0 = (1 << mu) * 2;
+        let max_mu = log_size;
+        let len_l0 = (1 << max_mu) * 2;
         let l0 = GeneralEvaluationDomain::<F>::new(len_l0).unwrap();
         let s = 10;
-        Ok(DeepFoldSRS{mu, l0, s})
+        Ok(DeepFoldSRS{max_mu, l0, s})
     }
 
     fn setup(
@@ -115,8 +116,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
     ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError> {
         let srs = srs.borrow();
         Ok((
-            DeepFoldProverParam{mu: srs.mu, l0: srs.l0, s: srs.s},
-            DeepFoldVerifierParam{mu: srs.mu, len_l0: srs.l0.size(), g: srs.l0.element(1), s: srs.s},
+            DeepFoldProverParam{max_mu: srs.max_mu, l0: srs.l0, s: srs.s},
+            DeepFoldVerifierParam{max_mu: srs.max_mu, len_l0: srs.l0.size(), g: srs.l0.element(1), s: srs.s},
         ))
     }
 
@@ -125,7 +126,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         poly: &Self::Polynomial,
         transcript: &mut IOPTranscript<F>,
     ) -> Result<(Self::Commitment, Self::ProverCommitmentAdvice), PCSError> {
-        let &Self::ProverParam{mu, l0, s} = prover_param.borrow();
+        let &Self::ProverParam{max_mu, l0, s} = prover_param.borrow();
+        let mu = poly.num_vars;
+        assert!(mu <= max_mu);
+
         let f0 = evals_to_coeffs(mu, &poly.evaluations);
         let v0 = l0.fft(&f0);
         let mt0 = MerkleTree::new(&v0.iter().map(|&x| compute_sha256_row(&[x])).collect());
@@ -141,7 +145,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         }
         transcript.append_field_element(b"f^{(0)}(a)", &c);
         Ok((
-            DeepFoldCommitment{rt0, c},
+            DeepFoldCommitment{mu, rt0, c},
             DeepFoldProverCommitmentAdvice{f0, alpha0, mt0, v0},
         ))
     }
@@ -154,7 +158,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         transcript.append_message(b"merkle tree root", &commitment.rt0);
         let alpha0 = transcript.get_and_append_challenge(b"alpha0")?;
         transcript.append_field_element(b"f^{(0)}(a)", &commitment.c);
-        Ok(DeepFoldVerifierCommitmentAdvice { alpha0 })
+        Ok(DeepFoldVerifierCommitmentAdvice{alpha0})
     }
 
     fn open(
@@ -164,7 +168,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         point: &Self::Point,
         transcript: &mut IOPTranscript<F>,
     ) -> Result<Self::Proof, PCSError> {
-        let &Self::ProverParam{mu, l0, s} = prover_param.borrow();
+        let &Self::ProverParam{max_mu, l0, s} = prover_param.borrow();
+        let mu = poly.num_vars;
+        assert!(mu <= max_mu);
+
         let Self::ProverCommitmentAdvice{f0, alpha0, mt0, v0} = advice.clone();
         let mut a = vec![Vec::new()];
         let mut f_tilde = vec![poly.evaluations.clone()];
@@ -200,6 +207,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
                 linear_polys.push(
                     a[i - 1].iter().map(
                         |w| {
+                            assert!(!w.is_empty());
                             let w_tensor = get_tensor(&w[1..].to_vec());
                             (inner_product(&w_tensor, &f0), inner_product(&w_tensor, &f1))
                         }
@@ -268,8 +276,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         proof: &Self::Proof,
         transcript: &mut IOPTranscript<F>,
     ) -> Result<bool, PCSError> {
-        let Self::VerifierParam{mu, len_l0, g, s} = verifier_param.clone();
-        let Self::Commitment{rt0, c} = com.clone();
+        let Self::VerifierParam{max_mu, len_l0, g, s} = verifier_param.clone();
+        let Self::Commitment{mu, rt0, c} = com.clone();
+        assert!(mu <= max_mu);
         let Self::Proof{linear_polys, mt_roots, f_mu, mt_proofs} = proof.clone();
         
         if rt0 != mt_roots[0] {
@@ -343,91 +352,4 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
 
         Ok(true)
     }
-}
-
-fn get_alpha_powers<F: PrimeField>( alpha: F, mu: usize ) -> Vec<F> {
-    let mut res = Vec::new();
-    let mut t = alpha;
-    for _ in 0..mu {
-        res.push(t);
-        t = t * t;
-    }
-    res
-}
-
-fn get_tensor<F: PrimeField>( r: &Vec<F> ) -> Vec<F> {
-    let mut res = vec![F::ONE];
-    for i in 0..r.len() {
-        let mut new_res = Vec::new();
-        for &x in res.iter() {
-            new_res.push(x * (F::ONE - r[i]));
-        }
-        for &x in res.iter() {
-            new_res.push(x * r[i]);
-        }
-        res = new_res;
-    }
-    res
-}
-
-fn split_even_odd<F: PrimeField>( v: &Vec<F> ) -> (Vec<F>, Vec<F>) {
-    let mut even = Vec::new();
-    let mut odd = Vec::new();
-    for i in 0..v.len() {
-        if i % 2 == 0 {
-            even.push(v[i]);
-        } else {
-            odd.push(v[i]);
-        }
-    }
-    (even, odd)
-}
-
-fn hadamard_product<F: PrimeField>( a: &Vec<F>, b: &Vec<F> ) -> Vec<F> {
-    a.iter().zip(b.iter()).map(|(&x, &y)| x * y).collect()
-}
-
-fn inner_product<F: PrimeField>( a: &Vec<F>, b: &Vec<F> ) -> F {
-    a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum()
-}
-
-fn scalar_vector_product<F: PrimeField>( scalar: F, v: &Vec<F> ) -> Vec<F> {
-    v.iter().map(|&x| scalar * x).collect()
-}
-
-fn vector_add<F: PrimeField>( a: &Vec<F>, b: &Vec<F> ) -> Vec<F> {
-    a.iter().zip(b.iter()).map(|(&x, &y)| x + y).collect()
-}
-
-fn evals_to_coeffs<F: PrimeField>( mu: usize, v: &Vec<F> ) -> Vec<F> {
-    let mut u = v.clone();
-    for j in 0..mu {
-        for i in 0..(1 << mu) {
-            if i & (1 << j) != 0 {
-                u[i] = u[i] - u[i ^ (1 << j)];
-            }
-        }
-    }
-    u
-}
-
-fn eval_linear_poly<F: PrimeField>( f: &(F, F), point: &F ) -> F {
-    f.0 * (F::ONE - *point) + f.1 * *point
-}
-
-fn is_collinear<F: PrimeField>( p0: (F, F), p1: (F, F), p2: (F, F) ) -> bool {
-    let (x0, y0) = p0;
-    let (x1, y1) = p1;
-    let (x2, y2) = p2;
-    return (y1 - y0) * (x2 - x1) == (y2 - y1) * (x1 - x0);
-}
-
-fn eval_univar_poly<F: PrimeField>( f: &Vec<F>, alpha: &F ) -> F {
-    (0..f.len()).map(
-        |i| f[i] * alpha.pow([i as u64])
-    ).sum()
-}
-
-fn eval_mle_poly<F: PrimeField>( f: &Vec<F>, point: &Vec<F> ) -> F {
-    inner_product(&f, &get_tensor(&point))
 }

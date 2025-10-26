@@ -6,10 +6,14 @@
 
 //! Prelude
 pub use crate::pcs::{
+    PolynomialCommitmentScheme, StructuredReferenceString,
     errors::PCSError,
     // structs::{/*Commitment,*/ BatchProof},
-    PolynomialCommitmentScheme, StructuredReferenceString,
     ligero::*,
+    deepfold::*,
+    ligesis::*,
     hash::*,
     rscode::*,
+    rand::*,
+    utils::*,
 };
