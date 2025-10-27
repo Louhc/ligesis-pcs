@@ -96,6 +96,7 @@ pub struct LigeSISProof<F: PrimeField> {
 
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq, Default)]
 pub struct LigeSISProverCommitmentAdvice<F: PrimeField> {
+    pub mat_b_trans: Vec<Vec<bool>>,
     pub mat_h: Vec<Vec<F>>,
     pub com_mat_h_advice: DeepFoldProverCommitmentAdvice<F>,
 }
@@ -196,12 +197,15 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
 
         // decompose `F`
         let start = std::time::Instant::now();
-        let mat_b = decompose_mat_by_col(&mat_f_prime);
+        let mat_b_trans = transposition(&mat_f_prime)
+            .iter()
+            .map(|col| decompose_vector(col))
+            .collect::<Vec<_>>();
         println!("Decompose(F): {} s", start.elapsed().as_secs_f64());
 
         // compute `H`
         let start = std::time::Instant::now();
-        let mat_h = field_mat_mul_bool_mat(&mat_a, &mat_b);
+        let mat_h = field_mat_mul_trans_bool_mat(&mat_a, &mat_b_trans);
         println!("SIS_Hash(B): {} s", start.elapsed().as_secs_f64());
 
         // compute com(H)         
@@ -209,7 +213,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let (com_mat_h, com_mat_h_advice) = DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&mat_h.concat()), transcript)?;
         println!("DeepFold.Commit(H): {} s", start.elapsed().as_secs_f64());
         
-        Ok((LigeSISCommitment{com_mat_h}, LigeSISProverCommitmentAdvice{mat_h, com_mat_h_advice}))
+        Ok((LigeSISCommitment{com_mat_h}, LigeSISProverCommitmentAdvice{mat_b_trans, mat_h, com_mat_h_advice}))
     }
 
     fn verifier_receive_commit(
@@ -243,11 +247,11 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let mat_f_prime = mat_f.iter().map(
             |row| rs.encode(row)
         ).collect::<Vec<_>>();
-        let mat_b = transposition(&(transposition(&mat_f_prime)
-            .iter()
-            .map(|col| decompose_vector(col))
-            .collect::<Vec<_>>()));
-        let LigeSISProverCommitmentAdvice{mat_h, com_mat_h_advice} = advice.clone();
+        // let mat_b = transposition(&(transposition(&mat_f_prime)
+        //     .iter()
+        //     .map(|col| decompose_vector(col))
+        //     .collect::<Vec<_>>()));
+        let LigeSISProverCommitmentAdvice{mat_b_trans, mat_h, com_mat_h_advice} = advice.clone();
 
         // Step 1
         let (z1, z2): (Vec<F>, Vec<F>) = (point[log_n..].to_vec(), point[..log_n].to_vec());
@@ -263,7 +267,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let I = transcript.get_and_append_challenge_indices(b"I", s_lambda, 2 * n)?;
         
         // Step 4
-        let mat_b_trans = transposition(&mat_b);
+        // let mat_b_trans = transposition(&mat_b);
         let mat_bI = transposition(&I.iter().map(|&i| mat_b_trans[i].clone()).collect::<Vec<_>>());
         let bI_field = bool_vec_to_field_vec(&mat_bI.concat());
         let (com_bI, com_bI_advice) = DeepFoldPCS::commit(&deepfold_prover_param, &evals_to_arcpoly(&bI_field), transcript)?;

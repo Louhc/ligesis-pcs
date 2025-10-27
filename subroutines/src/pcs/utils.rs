@@ -144,7 +144,6 @@ pub fn field_mat_mul_bool_mat<F: PrimeField>( a: &Vec<Vec<F>>, b: &Vec<Vec<bool>
         ).collect::<Vec<_>>()
     ).collect::<Vec<_>>();
 
-
     let mut res = (0..n).map(|_| vec![0u128; p]).collect::<Vec<_>>();
 
     for j in 0..m {
@@ -162,13 +161,37 @@ pub fn field_mat_mul_bool_mat<F: PrimeField>( a: &Vec<Vec<F>>, b: &Vec<Vec<bool>
             |k| F::from(res[i][k])
         ).collect::<Vec<_>>()
     ).collect::<Vec<_>>()
+}
 
+pub fn field_mat_mul_trans_bool_mat<F: PrimeField>( a: &Vec<Vec<F>>, b: &Vec<Vec<bool>> ) -> Vec<Vec<F>> {
+    let n = a.len();
+    let m = a[0].len();
+    let p = b.len();
+    assert_eq!(m, b[0].len());
     
-    // (0..n).map(
-    //     |i| (0..p).map(
-    //         |j| (0..m).map(|k| if b[k][j] { a[i][k] } else { F::ZERO }).sum::<F>()
-    //     ).collect::<Vec<_>>()
-    // ).collect::<Vec<_>>()
+    let c: Vec<Vec<u128>> = (0..n).map(
+        |i| (0..m).map(
+            |j| u64::from_le_bytes(a[i][j].into_bigint().to_bytes_le().try_into().unwrap()) as u128
+        ).collect::<Vec<_>>()
+    ).collect::<Vec<_>>();
+
+    let mut res = (0..n).map(|_| vec![0u128; p]).collect::<Vec<_>>();
+
+    for k in 0..p {
+        for j in 0..m {
+            if b[k][j] {
+                for i in 0..n {
+                    res[i][k] = res[i][k] + c[i][j];
+                }
+            }
+        }
+    }
+
+    (0..n).map(
+        |i| (0..p).map(
+            |k| F::from(res[i][k])
+        ).collect::<Vec<_>>()
+    ).collect::<Vec<_>>()
 }
 
 pub fn bool_mat_mul_field_mat<F: PrimeField>( a: &Vec<Vec<bool>>, b: &Vec<Vec<F>> ) -> Vec<Vec<F>> {
