@@ -114,30 +114,10 @@ pub fn decompose_vector<F: PrimeField>( v: &Vec<F> ) -> Vec<bool> {
 }
 
 pub fn decompose_mat_by_col<F: PrimeField>( mat: &Vec<Vec<F>> ) -> Vec<Vec<bool>> {
-    // let mut res = Vec::new();
-    // let eta = decompose(&F::ONE).len();
-
-    // let start = std::time::Instant::now();
-    // for i in 0..mat.len() {
-    //     decompose(&mat[i][0]);
-    //     // .iter().for_each(|&x| {
-    //     //     res.push(vec![x]);
-    //     // });
-    // }
-    // for j in 1..mat[0].len() {
-    //     for i in 0..mat.len() {
-    //         decompose(&mat[i][j]);
-    //         // .iter().enumerate().for_each(|(k, &x)| {
-    //         //     res[i * eta + k].push(x);
-    //         // });
-    //     }
-    // }
-    // println!("Decompose: {} s", start.elapsed().as_secs_f64());
-    // res
-    transposition(&transposition(&mat
+    transposition(&transposition(&mat)
         .iter()
         .map(|col| decompose_vector(col))
-        .collect::<Vec<_>>()))
+        .collect::<Vec<_>>())
 }
 
 pub fn mat_mul<F: PrimeField>( a: &Vec<Vec<F>>, b: &Vec<Vec<F>> ) -> Vec<Vec<F>> {

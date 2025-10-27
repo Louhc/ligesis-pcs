@@ -199,7 +199,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let mat_b = decompose_mat_by_col(&mat_f_prime);
         println!("Decompose(F): {} s", start.elapsed().as_secs_f64());
 
-
         // compute `H`
         let start = std::time::Instant::now();
         let mat_h = field_mat_mul_bool_mat(&mat_a, &mat_b);
