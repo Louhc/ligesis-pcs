@@ -1,4 +1,4 @@
-use ark_ff::{PrimeField, BigInteger};
+use ark_ff::{PrimeField, BigInteger, BigInt};
 use ark_poly::DenseMultilinearExtension;
 use std::sync::Arc;
 
@@ -113,6 +113,33 @@ pub fn decompose_vector<F: PrimeField>( v: &Vec<F> ) -> Vec<bool> {
     v.iter().map(|x| decompose(x)).collect::<Vec<_>>().concat()
 }
 
+pub fn decompose_mat_by_col<F: PrimeField>( mat: &Vec<Vec<F>> ) -> Vec<Vec<bool>> {
+    // let mut res = Vec::new();
+    // let eta = decompose(&F::ONE).len();
+
+    // let start = std::time::Instant::now();
+    // for i in 0..mat.len() {
+    //     decompose(&mat[i][0]);
+    //     // .iter().for_each(|&x| {
+    //     //     res.push(vec![x]);
+    //     // });
+    // }
+    // for j in 1..mat[0].len() {
+    //     for i in 0..mat.len() {
+    //         decompose(&mat[i][j]);
+    //         // .iter().enumerate().for_each(|(k, &x)| {
+    //         //     res[i * eta + k].push(x);
+    //         // });
+    //     }
+    // }
+    // println!("Decompose: {} s", start.elapsed().as_secs_f64());
+    // res
+    transposition(&transposition(&mat
+        .iter()
+        .map(|col| decompose_vector(col))
+        .collect::<Vec<_>>()))
+}
+
 pub fn mat_mul<F: PrimeField>( a: &Vec<Vec<F>>, b: &Vec<Vec<F>> ) -> Vec<Vec<F>> {
     let n = a.len();
     let m = a[0].len();
@@ -130,11 +157,38 @@ pub fn field_mat_mul_bool_mat<F: PrimeField>( a: &Vec<Vec<F>>, b: &Vec<Vec<bool>
     let m = a[0].len();
     let p = b[0].len();
     assert_eq!(m, b.len());
+    
+    let c: Vec<Vec<u128>> = (0..n).map(
+        |i| (0..m).map(
+            |j| u64::from_le_bytes(a[i][j].into_bigint().to_bytes_le().try_into().unwrap()) as u128
+        ).collect::<Vec<_>>()
+    ).collect::<Vec<_>>();
+
+
+    let mut res = (0..n).map(|_| vec![0u128; p]).collect::<Vec<_>>();
+
+    for j in 0..m {
+        for k in 0..p {
+            if b[j][k] {
+                for i in 0..n {
+                    res[i][k] = res[i][k] + c[i][j];
+                }
+            }
+        }
+    }
+
     (0..n).map(
         |i| (0..p).map(
-            |j| (0..m).map(|k| if b[k][j] { a[i][k] } else { F::ZERO }).sum::<F>()
+            |k| F::from(res[i][k])
         ).collect::<Vec<_>>()
     ).collect::<Vec<_>>()
+
+    
+    // (0..n).map(
+    //     |i| (0..p).map(
+    //         |j| (0..m).map(|k| if b[k][j] { a[i][k] } else { F::ZERO }).sum::<F>()
+    //     ).collect::<Vec<_>>()
+    // ).collect::<Vec<_>>()
 }
 
 pub fn bool_mat_mul_field_mat<F: PrimeField>( a: &Vec<Vec<bool>>, b: &Vec<Vec<F>> ) -> Vec<Vec<F>> {
@@ -142,11 +196,42 @@ pub fn bool_mat_mul_field_mat<F: PrimeField>( a: &Vec<Vec<bool>>, b: &Vec<Vec<F>
     let m = a[0].len();
     let p = b[0].len();
     assert_eq!(m, b.len());
+
+    let n = a.len();
+    let m = a[0].len();
+    let p = b[0].len();
+    assert_eq!(m, b.len());
+    
+    let c: Vec<Vec<u128>> = (0..n).map(
+        |i| (0..m).map(
+            |j| u64::from_le_bytes(b[i][j].into_bigint().to_bytes_le().try_into().unwrap()) as u128
+        ).collect::<Vec<_>>()
+    ).collect::<Vec<_>>();
+
+
+    let mut res = (0..n).map(|_| vec![0u128; p]).collect::<Vec<_>>();
+
+    for i in 0..n {
+        for j in 0..m {
+            if a[i][j] {
+                for k in 0..p {
+                    res[i][k] = res[i][k] + c[j][k];
+                }
+            }
+        }
+    }
+
     (0..n).map(
         |i| (0..p).map(
-            |j| (0..m).map(|k| if a[i][k] { b[k][j] } else { F::ZERO }).sum::<F>()
+            |k| F::from(res[i][k])
         ).collect::<Vec<_>>()
     ).collect::<Vec<_>>()
+
+    // (0..n).map(
+    //     |i| (0..p).map(
+    //         |j| (0..m).map(|k| if a[i][k] { b[k][j] } else { F::ZERO }).sum::<F>()
+    //     ).collect::<Vec<_>>()
+    // ).collect::<Vec<_>>()
 }
 
 pub fn evals_to_arcpoly<F: PrimeField>( a: &Vec<F> ) -> Arc<DenseMultilinearExtension<F>> {
