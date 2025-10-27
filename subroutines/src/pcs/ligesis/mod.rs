@@ -10,6 +10,9 @@ use ark_std::{
 use serde::Serialize;
 use transcript::IOPTranscript;
 
+mod types;
+use types::*;
+
 #[cfg(test)]
 mod tests;
 

@@ -1,6 +1,7 @@
 use super::*;
 use ark_std::{test_rng, UniformRand};
-use ark_bls12_381::Fr as F;
+// use ark_bls12_381::Fr as F;
+use FGoldilocks as F;
 use ark_poly::MultilinearExtension;
 
 fn inner_product<F: PrimeField>( a: &Vec<F>, b: &Vec<F> ) -> F {
@@ -14,7 +15,7 @@ fn eval_mle_poly<F: PrimeField>( f: &Vec<F>, point: &Vec<F> ) -> F {
 #[test]
 fn test_ligesis_pcs() {
     let mut rng = test_rng();
-    let mu = 14;
+    let mu = 24;
 
     let srs = LigeSISPCS::<F>::gen_srs_for_testing(&mut rng, mu).unwrap();
     
