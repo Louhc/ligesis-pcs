@@ -1,6 +1,9 @@
+use arithmetic::VirtualPolynomial;
 use ark_ff::{PrimeField, BigInteger, BigInt};
 use ark_poly::DenseMultilinearExtension;
 use std::sync::Arc;
+
+use crate::IOPProof;
 
 pub fn get_alpha_powers<F: PrimeField>( alpha: F, mu: usize ) -> Vec<F> {
     let mut res = Vec::new();
@@ -253,4 +256,72 @@ pub fn bool_vec_to_field_vec<F: PrimeField>( a: &Vec<bool> ) -> Vec<F> {
     (0..a.len()).map(
         |i| if a[i] {F::ONE} else {F::ZERO}
     ).collect::<Vec<_>>()
+}
+
+pub fn eval_mle_eq<F: PrimeField>( a: &Vec<F>, b: &Vec<F> ) -> F {
+    a.iter().zip(b.iter()).map(
+        |(&x, &y)| x * y + (F::ONE - x) * (F::ONE - y)
+    ).product()
+}
+
+pub fn eval_mat_g_mle<F: PrimeField>( log_m: usize, log_n: usize, g: F, a: &Vec<F>, b: &Vec<F> ) -> F {
+    let (m, n) = (1 << log_m, 1 << log_n);
+    let ta = get_tensor(&a);
+    let tb = get_tensor(&b);
+    let mut res = F::ZERO;
+    for i in 0..m {
+        for j in 0..n {
+            res += ta[i] * g.pow([(i * j) as u64]) * tb[j];
+        }
+    }
+    res
+}
+
+pub fn compute_alpha_mat_g<F: PrimeField>( log_m: usize, log_n: usize, g: &F, alpha: &Vec<F> ) -> Vec<Vec<F>> {
+    let mut alpha_mat_g = vec![vec![F::ONE]];
+    for i in 0..log_m {
+        let gi = g.pow([1u64 << (log_m - i - 1)]);
+        let mut x = F::ONE;
+        alpha_mat_g.push(Vec::new());
+        for j in 0..(1 << (i + 1)) {
+            let v = alpha_mat_g[i][j % (1 << i)] * (F::ONE - alpha[log_m - i - 1] + alpha[log_m - i - 1] * x);
+            alpha_mat_g[i + 1].push(v);
+            x *= gi;
+        }
+    }
+    alpha_mat_g
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{random_field_vector_from_rng, ReedSolomon};
+
+    use super::*;
+    use ark_bls12_381::Fr as F;
+    use ark_ff::Field;
+    use ark_std::test_rng;
+
+    #[test]
+    fn test_compute_alpha_mat_g(){
+        let mut rng = test_rng();
+        let (log_m, log_n) = (6, 5);
+        let (m, n) = (1 << log_m, 1 << log_n);
+        let rs = ReedSolomon::<F>::new(n, m);
+        let g = rs.get_generator();
+        assert_eq!(g.pow([1u64 << log_m]), F::ONE);
+        let mut alpha = random_field_vector_from_rng(log_m, &mut rng);
+        let alpha_mat_g = compute_alpha_mat_g(log_m, log_n, &g, &alpha);
+
+        let mat_g = (0..m).map(
+            |i| (0..n).map(
+                |j| g.pow([(i*j) as u64])
+            ).collect::<Vec<_>>()
+        ).collect::<Vec<_>>();
+
+        let a = mat_mul(
+            &vec![get_tensor(&alpha)], 
+            &mat_g)[0].clone();
+
+        assert_eq!(alpha_mat_g[log_m][..n].to_vec(), a);
+    }
 }

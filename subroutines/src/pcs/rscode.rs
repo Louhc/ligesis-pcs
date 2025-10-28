@@ -1,6 +1,7 @@
 use ark_ff::FftField;
 use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
 
+#[derive(Clone)]
 pub struct ReedSolomon<F: FftField> {
     n: usize,
     domain: GeneralEvaluationDomain<F>,
@@ -22,5 +23,9 @@ impl<F: FftField> ReedSolomon<F> {
 
     pub fn get_k(&self) -> usize {
         self.domain.size()
+    }
+
+    pub fn get_generator(&self) -> F {
+        self.domain.element(1)
     }
 }
