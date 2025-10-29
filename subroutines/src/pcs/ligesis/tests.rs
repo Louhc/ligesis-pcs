@@ -15,7 +15,7 @@ fn eval_mle_poly<F: PrimeField>( f: &Vec<F>, point: &Vec<F> ) -> F {
 #[test]
 fn test_ligesis_pcs() {
     let mut rng = test_rng();
-    let mu = 14;
+    let mu = 22;
 
     let mut srs = LigeSISPCS::<F>::gen_srs_for_testing(&mut rng, mu).unwrap();
     
@@ -46,16 +46,3 @@ fn test_ligesis_pcs() {
     assert_eq!(eval_mle_poly(&poly.evaluations, &point), value);
     // assert!(false);
 }
-
-// fn test_sis() {
-//     let mut rng = test_rng();
-//     let (log_n, log_m) = (15, 7);
-//     let (n, m) = (1 << log_n, 1 << log_m);
-//     let c = 8;
-//     let eta = 64;
-    
-//     let B = (0..n * m * eta * 2).map(
-//         |_| rng.gen_bool(0.5)
-//     );
-//     let B = reshape(&B, m, n);
-// }

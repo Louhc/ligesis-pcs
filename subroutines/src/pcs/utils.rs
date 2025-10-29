@@ -279,13 +279,13 @@ pub fn eval_mat_g_mle<F: PrimeField>( log_m: usize, log_n: usize, g: F, a: &Vec<
 
 pub fn compute_alpha_mat_g<F: PrimeField>( log_m: usize, log_n: usize, g: &F, alpha: &Vec<F> ) -> Vec<Vec<F>> {
     let mut alpha_mat_g = vec![vec![F::ONE]];
-    for i in 0..log_m {
-        let gi = g.pow([1u64 << (log_m - i - 1)]);
+    for i in 1..=log_m {
+        let gi = g.pow([1u64 << (log_m - i)]);
         let mut x = F::ONE;
         alpha_mat_g.push(Vec::new());
-        for j in 0..(1 << (i + 1)) {
-            let v = alpha_mat_g[i][j % (1 << i)] * (F::ONE - alpha[log_m - i - 1] + alpha[log_m - i - 1] * x);
-            alpha_mat_g[i + 1].push(v);
+        for j in 0..(1 << i) {
+            let v = alpha_mat_g[i - 1][j % (1 << (i - 1))] * (F::ONE - alpha[log_m - i] + alpha[log_m - i] * x);
+            alpha_mat_g[i].push(v);
             x *= gi;
         }
     }
@@ -312,15 +312,12 @@ mod tests {
         let mut alpha = random_field_vector_from_rng(log_m, &mut rng);
         let alpha_mat_g = compute_alpha_mat_g(log_m, log_n, &g, &alpha);
 
-        let mat_g = (0..m).map(
-            |i| (0..n).map(
-                |j| g.pow([(i*j) as u64])
-            ).collect::<Vec<_>>()
+        let t_alpha = get_tensor(&alpha);
+        let a = (0..n).map(
+            |i| (0..m).map(
+                |j| g.pow([(i*j) as u64]) * t_alpha[j]
+            ).sum::<F>()
         ).collect::<Vec<_>>();
-
-        let a = mat_mul(
-            &vec![get_tensor(&alpha)], 
-            &mat_g)[0].clone();
 
         assert_eq!(alpha_mat_g[log_m][..n].to_vec(), a);
     }
