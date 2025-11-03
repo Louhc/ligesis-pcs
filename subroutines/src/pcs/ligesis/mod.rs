@@ -226,42 +226,50 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         Ok((LigeSISCommitment{com_mat_h}, LigeSISProverCommitmentAdvice{mat_b_trans, mat_h, com_mat_h_advice}))
     }
 
-    // fn d_commit(
-    //     prover_param: impl Borrow<Self::ProverParam>,
-    //     poly: &Self::Polynomial,
-    //     transcript: &mut IOPTranscript<F>,
-    // ) -> Result<(Option<Self::Commitment>, Self::ProverCommitmentAdvice), PCSError> {
-    //     // trim parameters
-    //     let &LigeSISProverParam{eta, s_lambda, mu, log_m, log_n, rs_len, c, 
-    //         ref rs, ref mat_a, ref com_mat_a_advice, 
-    //         ref deepfold_prover_param} = prover_param.borrow();
-    //     let (m, n) = (1 << log_m, 1 << log_n);
-    //     let mat_f = reshape(&poly.evaluations, m, n);
-    //     // encode `F`
-    //     let start = std::time::Instant::now();
-    //     let mat_f_prime = mat_f.iter().map(
-    //         |row| rs.encode(row)
-    //     ).collect::<Vec<_>>();
-    //     println!("RS(F): {} s", start.elapsed().as_secs_f64());
-
-    //     // decompose `F`
-    //     let start = std::time::Instant::now();
-    //     let mat_b_trans = transposition(&mat_f_prime)
-    //         .iter()
-    //         .map(|col| decompose_vector(col))
-    //         .collect::<Vec<_>>();
-    //     println!("Decompose(F): {} s", start.elapsed().as_secs_f64());
-
-    //     // compute `H`
-    //     let start = std::time::Instant::now();
-    //     let mat_h = field_mat_mul_trans_bool_mat(&mat_a, &mat_b_trans);
-    //     println!("SIS_Hash(B): {} s", start.elapsed().as_secs_f64());
-
-    //     // compute com(H)         
-    //     let (com_mat_h, com_mat_h_advice) = DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&mat_h.concat()), transcript)?;
+    fn d_commit(
+        prover_param: impl Borrow<Self::ProverParam>,
+        poly: &Self::Polynomial,
+        transcript: &mut IOPTranscript<F>,
+    ) -> Result<(Option<Self::Commitment>, Self::ProverCommitmentAdvice), PCSError> {
+        // trim parameters
+        let num_party = Net::n_parties();
+        let num_party_vars = Net::n_parties().log_2() as usize;
         
-    //     Ok((LigeSISCommitment{com_mat_h}, LigeSISProverCommitmentAdvice{mat_b_trans, mat_h, com_mat_h_advice}))
-    // }
+        let &LigeSISProverParam{eta, s_lambda, mu, log_m, log_n, rs_len, c, 
+            ref rs, ref mat_a, ref com_mat_a_advice, 
+            ref deepfold_prover_param} = prover_param.borrow();
+        let log_m = log_m - num_party_vars;
+        let (m, n) = (1 << log_m, 1 << log_n);
+        let mat_f = reshape(&poly.evaluations, m, n);
+        // encode `F`
+        let mat_f_prime = mat_f.iter().map(
+            |row| rs.encode(row)
+        ).collect::<Vec<_>>();
+
+        // decompose `F`
+        let mat_b_trans = transposition(&mat_f_prime)
+            .iter()
+            .map(|col| decompose_vector(col))
+            .collect::<Vec<_>>();
+        let mat_h_i = field_mat_mul_trans_bool_mat(&mat_a, &mat_b_trans);
+
+        let all_mat_h = Net::send_to_master(&mat_h_i);
+
+        if Net::am_master() {
+            let all_mat_h = all_mat_h.unwrap();
+            let mat_h = (0..c).map(
+                |i| (0..2 * n).map(
+                    |j| (0..num_party).map(
+                        |k| all_mat_h[k][i][j]
+                    ).sum::<F>()
+                ).collect::<Vec<_>>()
+            ).collect::<Vec<_>>();
+            let (com_mat_h, com_mat_h_advice) = DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&mat_h.concat()), transcript)?;
+            Ok((Some(LigeSISCommitment{com_mat_h}), LigeSISProverCommitmentAdvice{mat_b_trans, mat_h, com_mat_h_advice}))
+        } else {
+            Ok((None, LigeSISProverCommitmentAdvice{mat_b_trans, mat_h: mat_h_i, com_mat_h_advice: DeepFoldProverCommitmentAdvice::default()}))
+        }
+    }
 
     fn verifier_receive_commit(
         verifier_param: &Self::VerifierParam,
