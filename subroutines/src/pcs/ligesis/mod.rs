@@ -104,7 +104,7 @@ pub struct LigeSISProof<F: PrimeField> {
 
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq, Default)]
 pub struct LigeSISProverCommitmentAdvice<F: PrimeField> {
-    pub mat_b_trans: Vec<Vec<bool>>,
+    pub mat_f_prime: Vec<Vec<F>>,
     pub mat_h: Vec<Vec<F>>,
     pub com_mat_h_advice: DeepFoldProverCommitmentAdvice<F>,
 }
@@ -200,6 +200,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             ref deepfold_prover_param} = prover_param.borrow();
         let (m, n) = (1 << log_m, 1 << log_n);
         let mat_f = reshape(&poly.evaluations, m, n);
+
         // encode `F`
         let start = std::time::Instant::now();
         let mat_f_prime = mat_f.iter().map(
@@ -207,69 +208,74 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         ).collect::<Vec<_>>();
         println!("RS(F): {} s", start.elapsed().as_secs_f64());
 
-        // decompose `F`
-        let start = std::time::Instant::now();
-        let mat_b_trans = transposition(&mat_f_prime)
-            .iter()
-            .map(|col| decompose_vector(col))
-            .collect::<Vec<_>>();
-        println!("Decompose(F): {} s", start.elapsed().as_secs_f64());
-
         // compute `H`
         let start = std::time::Instant::now();
-        let mat_h = field_mat_mul_trans_bool_mat(&mat_a, &mat_b_trans);
+        let mat_a_prime = mat_a.iter().map(
+            |row| (0..eta * m / 8).map(
+                |i| get_mat_a_byte_bucket(&row[i * 8..(i + 1) * 8].to_vec())
+            ).collect::<Vec<_>>()
+        ).collect::<Vec<_>>();
+        let mat_h = mat_a_prime.iter().map(
+            |row| (0..n * 2).map(
+                |j| (0..m).map(
+                    |i| mat_f_prime[i][j].into_bigint().to_bytes_le().iter().enumerate().map(
+                        |(k, x)| row[eta * i / 8 + k][*x as usize]
+                    ).sum::<F>()
+                ).sum::<F>()
+            ).collect::<Vec<_>>()
+        ).collect::<Vec<_>>();
         println!("SIS_Hash(B): {} s", start.elapsed().as_secs_f64());
 
         // compute com(H)         
         let (com_mat_h, com_mat_h_advice) = DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&mat_h.concat()), transcript)?;
         
-        Ok((LigeSISCommitment{com_mat_h}, LigeSISProverCommitmentAdvice{mat_b_trans, mat_h, com_mat_h_advice}))
+        Ok((LigeSISCommitment{com_mat_h}, LigeSISProverCommitmentAdvice{mat_f_prime, mat_h, com_mat_h_advice}))
     }
 
-    fn d_commit(
-        prover_param: impl Borrow<Self::ProverParam>,
-        poly: &Self::Polynomial,
-        transcript: &mut IOPTranscript<F>,
-    ) -> Result<(Option<Self::Commitment>, Self::ProverCommitmentAdvice), PCSError> {
-        // trim parameters
-        let num_party = Net::n_parties();
-        let num_party_vars = Net::n_parties().log_2() as usize;
+    // fn d_commit(
+    //     prover_param: impl Borrow<Self::ProverParam>,
+    //     poly: &Self::Polynomial,
+    //     transcript: &mut IOPTranscript<F>,
+    // ) -> Result<(Option<Self::Commitment>, Self::ProverCommitmentAdvice), PCSError> {
+    //     // trim parameters
+    //     let num_party = Net::n_parties();
+    //     let num_party_vars = Net::n_parties().log_2() as usize;
         
-        let &LigeSISProverParam{eta, s_lambda, mu, log_m, log_n, rs_len, c, 
-            ref rs, ref mat_a, ref com_mat_a_advice, 
-            ref deepfold_prover_param} = prover_param.borrow();
-        let log_m = log_m - num_party_vars;
-        let (m, n) = (1 << log_m, 1 << log_n);
-        let mat_f = reshape(&poly.evaluations, m, n);
-        // encode `F`
-        let mat_f_prime = mat_f.iter().map(
-            |row| rs.encode(row)
-        ).collect::<Vec<_>>();
+    //     let &LigeSISProverParam{eta, s_lambda, mu, log_m, log_n, rs_len, c, 
+    //         ref rs, ref mat_a, ref com_mat_a_advice, 
+    //         ref deepfold_prover_param} = prover_param.borrow();
+    //     let log_m = log_m - num_party_vars;
+    //     let (m, n) = (1 << log_m, 1 << log_n);
+    //     let mat_f = reshape(&poly.evaluations, m, n);
+    //     // encode `F`
+    //     let mat_f_prime = mat_f.iter().map(
+    //         |row| rs.encode(row)
+    //     ).collect::<Vec<_>>();
 
-        // decompose `F`
-        let mat_b_trans = transposition(&mat_f_prime)
-            .iter()
-            .map(|col| decompose_vector(col))
-            .collect::<Vec<_>>();
-        let mat_h_i = field_mat_mul_trans_bool_mat(&mat_a, &mat_b_trans);
+    //     // decompose `F`
+    //     let mat_b_trans = transposition(&mat_f_prime)
+    //         .iter()
+    //         .map(|col| decompose_vector(col))
+    //         .collect::<Vec<_>>();
+    //     let mat_h_i = field_mat_mul_trans_bool_mat(&mat_a, &mat_b_trans);
 
-        let all_mat_h = Net::send_to_master(&mat_h_i);
+    //     let all_mat_h = Net::send_to_master(&mat_h_i);
 
-        if Net::am_master() {
-            let all_mat_h = all_mat_h.unwrap();
-            let mat_h = (0..c).map(
-                |i| (0..2 * n).map(
-                    |j| (0..num_party).map(
-                        |k| all_mat_h[k][i][j]
-                    ).sum::<F>()
-                ).collect::<Vec<_>>()
-            ).collect::<Vec<_>>();
-            let (com_mat_h, com_mat_h_advice) = DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&mat_h.concat()), transcript)?;
-            Ok((Some(LigeSISCommitment{com_mat_h}), LigeSISProverCommitmentAdvice{mat_b_trans, mat_h, com_mat_h_advice}))
-        } else {
-            Ok((None, LigeSISProverCommitmentAdvice{mat_b_trans, mat_h: mat_h_i, com_mat_h_advice: DeepFoldProverCommitmentAdvice::default()}))
-        }
-    }
+    //     if Net::am_master() {
+    //         let all_mat_h = all_mat_h.unwrap();
+    //         let mat_h = (0..c).map(
+    //             |i| (0..2 * n).map(
+    //                 |j| (0..num_party).map(
+    //                     |k| all_mat_h[k][i][j]
+    //                 ).sum::<F>()
+    //             ).collect::<Vec<_>>()
+    //         ).collect::<Vec<_>>();
+    //         let (com_mat_h, com_mat_h_advice) = DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&mat_h.concat()), transcript)?;
+    //         Ok((Some(LigeSISCommitment{com_mat_h}), LigeSISProverCommitmentAdvice{mat_b_trans, mat_h, com_mat_h_advice}))
+    //     } else {
+    //         Ok((None, LigeSISProverCommitmentAdvice{mat_b_trans, mat_h: mat_h_i, com_mat_h_advice: DeepFoldProverCommitmentAdvice::default()}))
+    //     }
+    // }
 
     fn verifier_receive_commit(
         verifier_param: &Self::VerifierParam,
@@ -301,7 +307,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
 
         let mat_f = reshape(&poly.evaluations, m, n);
 
-        let LigeSISProverCommitmentAdvice{mat_b_trans, mat_h, com_mat_h_advice} = advice;
+        let LigeSISProverCommitmentAdvice{mat_f_prime, mat_h, com_mat_h_advice} = advice;
 
         // Step 1
         let (z1, z2): (Vec<F>, Vec<F>) = (point[log_n..].to_vec(), point[..log_n].to_vec());
@@ -321,7 +327,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         // Step 4
         // let mat_b_trans = transposition(&mat_b);
         let start = std::time::Instant::now();
-        let mat_bI = transposition(&I.iter().map(|&i| mat_b_trans[i].clone()).collect::<Vec<_>>());
+        let mat_f_prime_trans = transposition(&mat_f_prime);
+        let mat_bI = transposition(&I.iter().map(|&i| decompose_vector(&mat_f_prime_trans[i])).collect::<Vec<_>>());
         let bI_field = bool_vec_to_field_vec(&mat_bI.concat());
         let (com_bI, com_bI_advice) = DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&bI_field), transcript)?;
         println!("DeepFold.Commit(B_I): {} s", start.elapsed().as_secs_f64());
@@ -383,17 +390,22 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         }
 
         // Step 8 Lookup Argument
-        let eq_alpha2_a_bI = mat_mul(&vec![get_tensor(&alpha2)], &field_mat_mul_bool_mat(&mat_a, &mat_bI));
+        let eq_alpha2_a_bI = mat_mul(&vec![get_tensor(&alpha2)], &field_mat_mul_bool_mat(&mat_a, &mat_bI)).concat();
         let v = otimes(&get_tensor(&z1), &(0..eta).map(|i| F::from(2u64).pow([i as u64])).collect::<Vec<_>>());
-        let v_bI = field_mat_mul_bool_mat(&vec![v.clone()], &mat_bI);
-        let eq_alpha2_h = mat_mul(&vec![get_tensor(&alpha2)], &mat_h);
+        let v_bI = field_mat_mul_bool_mat(&vec![v.clone()], &mat_bI).concat();
+        let eq_alpha2_h = mat_mul(&vec![get_tensor(&alpha2)], &mat_h).concat();
 
         /*
         Lookup Argument for (I, eq_alpha2_a_bI, v_bI) in ([2n], eq_alpha2_h, rs_a)
         */
+        assert!(
+            (0..s_lambda).all(
+                |k| eq_alpha2_a_bI[k] == eq_alpha2_h[I[k]] && v_bI[k] == rs_a[I[k]]
+            )
+        );
         let lookup_proof = ();
-        let r2 = vec![F::ZERO; s_lambda.ilog2() as usize];
-        let r3 = vec![F::ZERO; 1 + log_n];
+        let r2 = vec![F::ONE; s_lambda.ilog2() as usize];
+        let r3 = vec![F::ONE; 1 + log_n];
 
         // Step 9
         let alpha2_a = mat_mul(&vec![get_tensor(&alpha2)], &mat_a)[0].clone();
@@ -565,8 +577,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         }
         
         // Step 8
-        let r2 = vec![F::ZERO; s_lambda.ilog2() as usize];
-        let r3 = vec![F::ZERO; 1 + log_n];
+        let r2 = vec![F::ONE; s_lambda.ilog2() as usize];
+        let r3 = vec![F::ONE; 1 + log_n];
 
         // Step 9
         let alpha2_a_bI_r2_check_sum = <PolyIOP<F> as SumCheck<F>>::extract_sum(&alpha2_a_bI_r2_check_proof);

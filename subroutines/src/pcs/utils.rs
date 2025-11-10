@@ -109,7 +109,7 @@ pub fn transposition<F: Copy>( mat: &Vec<Vec<F>> ) -> Vec<Vec<F>> {
 }
 
 pub fn decompose<F: PrimeField>( x: &F ) -> Vec<bool> {
-    x.into_bigint().to_bits_be()
+    x.into_bigint().to_bits_le()
 }
 
 pub fn decompose_vector<F: PrimeField>( v: &Vec<F> ) -> Vec<bool> {
@@ -273,6 +273,15 @@ pub fn eval_mat_g_mle<F: PrimeField>( log_m: usize, log_n: usize, g: F, a: &Vec<
         for j in 0..n {
             res += ta[i] * g.pow([(i * j) as u64]) * tb[j];
         }
+    }
+    res
+}
+
+pub fn get_mat_a_byte_bucket<F: PrimeField>( a: &Vec<F> ) -> Vec<F> {
+    let mut res = vec![F::ZERO];
+    for x in a {
+        let mut nxt = res.iter().map(|t| *x + *t).collect::<Vec<_>>();
+        res.append(&mut nxt);
     }
     res
 }
