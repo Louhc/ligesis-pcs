@@ -1,7 +1,7 @@
 use core::num;
 
 use crate::{pcs::{deepfold, prelude::*}, IOPProof, PolyIOP, SumCheck};
-use arithmetic::VirtualPolynomial;
+use arithmetic::{VirtualPolynomial, VPAuxInfo};
 use ark_ff::PrimeField;
 use ark_poly::{DenseMultilinearExtension, EvaluationDomain, GeneralEvaluationDomain};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -51,7 +51,16 @@ pub struct DeepFoldProof<F: PrimeField> {
     pub linear_polys: Vec<Vec<(F, F)>>,
     pub mt_roots: Vec<Byte32>,
     pub f_mu: F,
-    pub mt_proofs: Vec<Vec<(F, Vec<Byte32>)>>,
+    pub mt_proofs: Vec<Vec<(F, Vec<Byte32>, usize)>>,
+}
+
+#[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct DeepFoldBatchedProof<F: PrimeField> {
+    pub deepfold_proof: DeepFoldProof<F>,
+    pub sum_check_proof: IOPProof<F>,
+    pub mt_proofs_for_mt0: Vec<Vec<(F, Vec<Byte32>, usize)>>,
+    pub evals: Vec<F>,
+    pub sum_check_evals: Vec<F>,
 }
 
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq, Default)]
@@ -143,7 +152,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
     // Commitments and proofs
     type Commitment = DeepFoldCommitment<F>; // merkle tree root
     type Proof = DeepFoldProof<F>; // merkle tree paths, columes of `E`
-    type BatchProof = (); // 
+    type BatchProof = DeepFoldBatchedProof<F>; // 
     type VerifierCommitmentAdvice = DeepFoldVerifierCommitmentAdvice<F>;
 
     fn gen_srs_for_testing<R: Rng>(
@@ -307,9 +316,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
             for i in 0..mu {
                 let offset = l[i + 1].size();
                 let beta0 = if beta >= offset {beta - offset} else {beta + offset};
-                // assert_eq!(l[i].element(beta) + l[i].element(beta0), F::ZERO);
-                mt_proofs[t].push((v[i][beta], mt[i].prove(beta)));
-                mt_proofs[t].push((v[i][beta0], mt[i].prove(beta0)));
+                mt_proofs[t].push((v[i][beta], mt[i].prove(beta), beta));
+                mt_proofs[t].push((v[i][beta0], mt[i].prove(beta0), beta0));
                 if beta >= offset {
                     beta -= offset;
                 }
@@ -328,7 +336,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
             polynomials: Vec<Self::Polynomial>,
             advices: &[Self::ProverCommitmentAdvice],
             points: &[Self::Point],
-            evals: &[Self::Evaluation],
+            _evals: &[Self::Evaluation],
             transcript: &mut IOPTranscript<F>,
         ) -> Result<Self::BatchProof, PCSError> {
         let &Self::ProverParam{max_mu, l0, s} = prover_param.borrow();
@@ -342,12 +350,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
 
         // SumCheck Phase
         let r = transcript.get_and_append_challenge(b"batched_sumcheck")?;
-        let gamma = transcript.get_and_append_challenge_vectors(b"gamma", num_poly)?;
-        let poly = evals_to_arcpoly(&(0..1 << max_mu).map(
-            |i| (0..num_poly).map(
-                |j| gamma[j] * polynomials[j].evaluations[i]
-            ).sum::<F>()
-        ).collect::<Vec<_>>());
         let mut sum_check = VirtualPolynomial::new(max_mu);
         for i in 0..num_poly {
             let mut eval = polynomials[i].evaluations.clone();
@@ -360,10 +362,45 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         let point = sum_check_proof.point.clone();
         
         // Batched Open Phase
-        
+        let gamma = transcript.get_and_append_challenge_vectors(b"gamma", num_poly)?;
+        let poly = evals_to_arcpoly(&(0..1 << max_mu).map(
+            |i| (0..num_poly).map(
+                |j| gamma[j] * polynomials[j].evaluations[i]
+            ).sum::<F>()
+        ).collect::<Vec<_>>());
+        let f0 = evals_to_coeffs(mu, &poly.evaluations);
+        let v0 = l0.fft(&f0);
+        let mt0 = MerkleTree::new(&v0.iter().map(|&x| compute_sha256_row(&[x])).collect());
+        let deepfold_prover_advice = DeepFoldProverCommitmentAdvice{f0, alpha0, mt0, v0};
+        let deepfold_proof = Self::open(prover_param, &poly, &deepfold_prover_advice, &point, transcript)?;
 
+        // Additional checks for mt0
+        let mut mt_proofs_for_mt0 = Vec::new();
+        for t in 0..s {
+            mt_proofs_for_mt0.push(Vec::new());
+            for k in 0..num_poly {
+                mt_proofs_for_mt0[t].push((
+                    advices[k].v0[deepfold_proof.mt_proofs[t][0].2], 
+                    mt0_list[k].prove(deepfold_proof.mt_proofs[t][0].2), 
+                    deepfold_proof.mt_proofs[t][0].2,
+                ));
+            }
+        }
 
-        Ok(())
+        let evals = polynomials.iter().zip(points.iter()).map(
+            |(poly, point)| eval_mle_poly(&poly.evaluations, point)
+        ).collect::<Vec<_>>();
+        let sum_check_evals = polynomials.iter().map(
+            |poly| eval_mle_poly(&poly.evaluations, &point)
+        ).collect::<Vec<_>>();
+
+        Ok(Self::BatchProof{
+            deepfold_proof,
+            sum_check_proof,
+            mt_proofs_for_mt0,
+            evals,
+            sum_check_evals,
+        })
     }
 
     fn verify(
@@ -448,6 +485,71 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
 
                 beta = next_beta;
                 beta_point *= beta_point;
+            }
+        }
+
+        Ok(true)
+    }
+
+    fn batch_verify(
+            verifier_param: &Self::VerifierParam,
+            commitments: &[Self::Commitment],
+            points: &[Self::Point],
+            advice: &[Self::VerifierCommitmentAdvice],
+            batch_proof: &Self::BatchProof,
+            transcript: &mut IOPTranscript<F>,
+        ) -> Result<bool, PCSError> {
+        let Self::VerifierParam{max_mu, len_l0, g, s} = verifier_param.clone();
+        let mu = max_mu;
+        let num_poly = commitments.len();
+        assert!(points.len() == num_poly && advice.len() == num_poly);
+        let Self::BatchProof{deepfold_proof, sum_check_proof, mt_proofs_for_mt0, evals, sum_check_evals} = batch_proof.clone();
+
+        // Sumcheck Phase
+        let r = transcript.get_and_append_challenge(b"batched_sumcheck")?;
+        let sum_check_sum = <PolyIOP<F> as SumCheck<F>>::extract_sum(&sum_check_proof);
+        let sum_check_claim = <PolyIOP<F> as SumCheck<F>>::verify(
+            sum_check_sum, 
+            &sum_check_proof, 
+            &VPAuxInfo{max_degree: 2, num_variables: mu, phantom: PhantomData::<F>::default()}, 
+            transcript).unwrap();
+        let point = sum_check_proof.point.clone();
+        if sum_check_claim.expected_evaluation != 
+            (0..num_poly).map(|k| r.pow([k as u64]) * eval_mle_eq(&point, &points[k])).sum::<F>() {
+            return Ok(false);
+        }
+        
+        // Batched Open Phase
+        let gamma = transcript.get_and_append_challenge_vectors(b"gamma", num_poly)?;
+        let com = DeepFoldCommitment{
+            mu,
+            rt0: deepfold_proof.mt_roots[0].clone(),
+            c: (0..num_poly).map(
+                |j| gamma[j] * commitments[j].c
+            ).sum::<F>(),
+        };
+        let value = DeepFoldPCS::compute_value_from_proof(&point, &deepfold_proof);
+        let advice = DeepFoldVerifierCommitmentAdvice{alpha0: advice[0].alpha0};
+        if !Self::verify(verifier_param, &com, &point, &value, &advice, &deepfold_proof, transcript)? {
+            return Ok(false);
+        }
+
+        // Additional checks for mt0
+        for t in 0..s {
+            let mut sum = F::ZERO;
+            for k in 0..num_poly {
+                if !MerkleTree::verify(
+                    &commitments[k].rt0,
+                    deepfold_proof.mt_proofs[t][0].2,
+                    &compute_sha256_row(&[mt_proofs_for_mt0[t][k].0]),
+                    &mt_proofs_for_mt0[t][k].1,
+                ) {
+                    return Ok(false);
+                }
+                sum += gamma[k] * mt_proofs_for_mt0[t][k].0;
+            }
+            if sum != deepfold_proof.mt_proofs[t][0].0 {
+                return Ok(false);
             }
         }
 
