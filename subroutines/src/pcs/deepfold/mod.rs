@@ -510,6 +510,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         // Sumcheck Phase
         let r = transcript.get_and_append_challenge(b"batched_sumcheck")?;
         let sum_check_sum = <PolyIOP<F> as SumCheck<F>>::extract_sum(&sum_check_proof);
+        if sum_check_sum != (0..num_poly).map(|k| r.pow([k as u64]) * evals[k]).sum::<F>() {
+            return Ok(false);
+        }
         let sum_check_claim = <PolyIOP<F> as SumCheck<F>>::verify(
             sum_check_sum, 
             &sum_check_proof, 
@@ -531,6 +534,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
             ).sum::<F>(),
         };
         let value = DeepFoldPCS::compute_value_from_proof(&point, &deepfold_proof);
+        if value != (0..num_poly).map(|k| gamma[k] * sum_check_evals[k]).sum::<F>() {
+            return Ok(false);
+        }
         let advice = DeepFoldVerifierCommitmentAdvice{alpha0: advice[0].alpha0};
         if !Self::verify(verifier_param, &com, &point, &value, &advice, &deepfold_proof, transcript)? {
             return Ok(false);
