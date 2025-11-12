@@ -352,14 +352,17 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         let r = transcript.get_and_append_challenge(b"batched_sumcheck")?;
         let mut sum_check = VirtualPolynomial::new(max_mu);
         for i in 0..num_poly {
-            let mut eval = polynomials[i].evaluations.clone();
             sum_check.add_mle_list([
-                evals_to_arcpoly(&eval),
+                evals_to_arcpoly(&polynomials[i].evaluations),
                 evals_to_arcpoly(&get_tensor(&points[i])),
             ], r.pow([i as u64])).unwrap();
         }
         let sum_check_proof = <PolyIOP<F> as SumCheck<F>>::prove(sum_check, transcript).unwrap();
         let point = sum_check_proof.point.clone();
+        let sum_check_evals = polynomials.iter().map(
+            |poly| eval_mle_poly(&poly.evaluations, &point)
+        ).collect::<Vec<_>>();
+        // println!(" {}", sum_check_proof.proofs[0].);
         
         // Batched Open Phase
         let gamma = transcript.get_and_append_challenge_vectors(b"gamma", num_poly)?;
@@ -390,9 +393,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         let evals = polynomials.iter().zip(points.iter()).map(
             |(poly, point)| eval_mle_poly(&poly.evaluations, point)
         ).collect::<Vec<_>>();
-        let sum_check_evals = polynomials.iter().map(
-            |poly| eval_mle_poly(&poly.evaluations, &point)
-        ).collect::<Vec<_>>();
+        
 
         Ok(Self::BatchProof{
             deepfold_proof,
@@ -502,6 +503,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         let Self::VerifierParam{max_mu, len_l0, g, s} = verifier_param.clone();
         let mu = max_mu;
         let num_poly = commitments.len();
+        let points = points.iter().map(|point| resize_point(&point, mu)).collect::<Vec<_>>();
         assert!(points.len() == num_poly && advice.len() == num_poly);
         let Self::BatchProof{deepfold_proof, sum_check_proof, mt_proofs_for_mt0, evals, sum_check_evals} = batch_proof.clone();
 
@@ -515,7 +517,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
             transcript).unwrap();
         let point = sum_check_proof.point.clone();
         if sum_check_claim.expected_evaluation != 
-            (0..num_poly).map(|k| r.pow([k as u64]) * eval_mle_eq(&point, &points[k])).sum::<F>() {
+            (0..num_poly).map(|k| r.pow([k as u64]) * eval_mle_eq(&point, &points[k]) * sum_check_evals[k]).sum::<F>() {
             return Ok(false);
         }
         

@@ -259,6 +259,7 @@ pub fn bool_vec_to_field_vec<F: PrimeField>( a: &Vec<bool> ) -> Vec<F> {
 }
 
 pub fn eval_mle_eq<F: PrimeField>( a: &Vec<F>, b: &Vec<F> ) -> F {
+    assert_eq!(a.len(), b.len());
     a.iter().zip(b.iter()).map(
         |(&x, &y)| x * y + (F::ONE - x) * (F::ONE - y)
     ).product()

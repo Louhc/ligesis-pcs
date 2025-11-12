@@ -619,7 +619,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         if values[0] != *value {
             return Ok(false);
         }
-        if DeepFoldPCS::batch_verify(&deepfold_verifier_param, &coms, &points, &advices, &deepfold_batched_proof, transcript)? {
+        if !DeepFoldPCS::batch_verify(&deepfold_verifier_param, &coms, &points, &advices, &deepfold_batched_proof, transcript)? {
             return Ok(false);
         }
         
