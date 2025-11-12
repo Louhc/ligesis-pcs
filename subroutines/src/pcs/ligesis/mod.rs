@@ -301,6 +301,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             ref deepfold_prover_param} = prover_param.borrow();
         let (m, n) = (1 << log_m, 1 << log_n);
         let log_rs_len = rs_len.ilog2() as usize;
+        let deepfold_alpha0 = com_mat_a_advice.alpha0;
 
         assert_eq!(mu, log_m + log_n);
         assert_eq!(poly.num_vars, mu);
@@ -318,7 +319,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let a = (0..n).map(
             |j| (0..m).map(|i| eq_z1[i] * mat_f[i][j]).sum()
         ).collect::<Vec<F>>();
-        let (com_a, com_a_advice) = DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&a), transcript)?;
+        let (com_a, com_a_advice) = DeepFoldPCS::commit_given_alpha(deepfold_prover_param, &evals_to_arcpoly(&a), &deepfold_alpha0, transcript)?;
         println!("DeepFold.Commit(a): {} s", start.elapsed().as_secs_f64());
 
         // Step 3
@@ -330,10 +331,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let mat_f_prime_trans = transposition(&mat_f_prime);
         let mat_bI = transposition(&I.iter().map(|&i| decompose_vector(&mat_f_prime_trans[i])).collect::<Vec<_>>());
         let bI_field = bool_vec_to_field_vec(&mat_bI.concat());
-        let (com_bI, com_bI_advice) = DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&bI_field), transcript)?;
+        let (com_bI, com_bI_advice) = DeepFoldPCS::commit_given_alpha(deepfold_prover_param, &evals_to_arcpoly(&bI_field), &deepfold_alpha0, transcript)?;
         println!("DeepFold.Commit(B_I): {} s", start.elapsed().as_secs_f64());
         
-
         // Step 5
         let alpha1 = transcript.get_and_append_challenge_vectors(b"alpha1", (m * eta * s_lambda).ilog2() as usize)?;
         let alpha2 = transcript.get_and_append_challenge_vectors(b"alpha2", c.ilog2() as usize)?;
@@ -353,7 +353,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         // Step 7 Check rs_a
         let rs_a = rs.encode(&a);
         let g = rs.get_generator();
-        let (com_rs_a, com_rs_a_advice) = DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&rs_a), transcript)?;
+        let (com_rs_a, com_rs_a_advice) = DeepFoldPCS::commit_given_alpha(deepfold_prover_param, &evals_to_arcpoly(&rs_a), &deepfold_alpha0, transcript)?;
 
         // Step 7.1 check eq_alpha3^T * G * a = eq_alpha3^T * rs_a
         //  \sum_i alpha3_mat_g(i) * a(i) = eq_alpha3^T * rs_a
@@ -483,6 +483,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let LigeSISVerifierCommitmentAdvice{com_mat_h_v_advice} = advice.clone();
         let (m, n) = (1 << log_m, 1 << log_n);
         let log_rs_len = rs_len.ilog2() as usize;
+        let deepfold_alpha0 = com_mat_a_v_advice.alpha0;
         let LigeSISProof {
             com_a,
             com_bI,
@@ -508,13 +509,13 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let (z1, z2): (Vec<F>, Vec<F>) = (point[log_n..].to_vec(), point[..log_n].to_vec());
 
         // Step 2
-        let com_a_v_advice = DeepFoldPCS::verifier_receive_commit(&deepfold_verifier_param, &com_a, transcript)?;
+        let com_a_v_advice = DeepFoldPCS::verifier_receive_commit_given_alpha(&deepfold_verifier_param, &com_a, &deepfold_alpha0, transcript)?;
 
         // Step 3
         let I = transcript.get_and_append_challenge_indices(b"I", s_lambda, 2 * n)?;
 
         // Step 4
-        let com_bI_v_advice = DeepFoldPCS::verifier_receive_commit(&deepfold_verifier_param, &com_bI, transcript)?;
+        let com_bI_v_advice = DeepFoldPCS::verifier_receive_commit_given_alpha(&deepfold_verifier_param, &com_bI, &deepfold_alpha0, transcript)?;
 
         // Step 5
         let alpha1 = transcript.get_and_append_challenge_vectors(b"alpha1", (m * eta * s_lambda).ilog2() as usize)?;
@@ -537,7 +538,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             }
 
         // Step 7
-        let com_rs_a_v_advice = DeepFoldPCS::verifier_receive_commit(&deepfold_verifier_param, &com_rs_a, transcript)?;
+        let com_rs_a_v_advice = DeepFoldPCS::verifier_receive_commit_given_alpha(&deepfold_verifier_param, &com_rs_a, &deepfold_alpha0, transcript)?;
         
         //Step 7.1 
         let rs_a_check_sum = <PolyIOP<F> as SumCheck<F>>::extract_sum(&rs_a_check_proof);
