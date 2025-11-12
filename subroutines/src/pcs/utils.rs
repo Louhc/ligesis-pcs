@@ -301,6 +301,24 @@ pub fn compute_alpha_mat_g<F: PrimeField>( log_m: usize, log_n: usize, g: &F, al
     alpha_mat_g
 }
 
+pub fn resize_poly<F: PrimeField>( poly: &Arc<DenseMultilinearExtension<F>>, new_mu: usize ) -> Arc<DenseMultilinearExtension<F>> {
+    let mut new_evals = poly.evaluations.clone();
+    new_evals.resize(1 << new_mu, F::ZERO);
+    evals_to_arcpoly(&new_evals)
+}
+
+pub fn resize_eval<F: PrimeField>( eval: &Vec<F>, new_mu: usize ) -> Vec<F> {
+    let mut new_eval = eval.clone();
+    new_eval.resize(1 << new_mu, F::ZERO);
+    new_eval
+}
+
+pub fn resize_point<F: PrimeField>( point: &Vec<F>, new_mu: usize ) -> Vec<F> {
+    let mut new_point = point.clone();
+    new_point.resize(new_mu, F::ZERO);
+    new_point
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{random_field_vector_from_rng, ReedSolomon};

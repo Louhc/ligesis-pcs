@@ -1,6 +1,6 @@
 use core::num;
 
-use crate::{pcs::prelude::*, IOPProof, PolyIOP, SumCheck};
+use crate::{pcs::{deepfold, prelude::*}, IOPProof, PolyIOP, SumCheck};
 use arithmetic::VirtualPolynomial;
 use ark_ff::PrimeField;
 use ark_poly::{DenseMultilinearExtension, EvaluationDomain, GeneralEvaluationDomain};
@@ -90,9 +90,9 @@ impl<F: PrimeField> DeepFoldPCS<F> {
         transcript: &mut IOPTranscript<F>,
     ) -> Result<(DeepFoldCommitment<F>, DeepFoldProverCommitmentAdvice<F>), PCSError> {
         let &DeepFoldProverParam{max_mu, l0, s} = prover_param.borrow();
-        let mu = poly.num_vars;
-        // let mu = max_mu;
-        // let poly = { let mut e = poly.evaluations.clone(); e.resize(1 << max_mu, F::ZERO); evals_to_arcpoly(&e)};
+        // let mu = poly.num_vars;
+        let mu = max_mu;
+        let poly = resize_poly(&poly, mu);
         assert!(mu <= max_mu);
 
         let f0 = evals_to_coeffs(mu, &poly.evaluations);
@@ -176,9 +176,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         transcript: &mut IOPTranscript<F>,
     ) -> Result<(Self::Commitment, Self::ProverCommitmentAdvice), PCSError> {
         let &Self::ProverParam{max_mu, l0, s} = prover_param.borrow();
-        let mu = poly.num_vars;
-        // let mu = max_mu;
-        // let poly = { let mut e = poly.evaluations.clone(); e.resize(1 << max_mu, F::ZERO); evals_to_arcpoly(&e)};
+        // let mu = poly.num_vars;
+        let mu = max_mu;
+        let poly = resize_poly(&poly, mu);
         assert!(mu <= max_mu);
 
         let f0 = evals_to_coeffs(mu, &poly.evaluations);
@@ -220,9 +220,12 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         transcript: &mut IOPTranscript<F>,
     ) -> Result<Self::Proof, PCSError> {
         let &Self::ProverParam{max_mu, l0, s} = prover_param.borrow();
-        let mu = poly.num_vars;
-        // let mu = max_mu;
-        // let poly = { let mut e = poly.evaluations.clone(); e.resize(1 << max_mu, F::ZERO); evals_to_arcpoly(&e)};
+        
+        // let mu = poly.num_vars;
+        let mu = max_mu;
+        let poly = resize_poly(&poly, mu);
+        let point = resize_point(&point, mu);
+        
         assert!(mu <= max_mu);
 
         let Self::ProverCommitmentAdvice{f0, alpha0, mt0, v0} = advice.clone();
@@ -320,64 +323,48 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         })
     }
 
-    // fn multi_open(
-    //         prover_param: impl Borrow<Self::ProverParam>,
-    //         polynomials: Vec<Self::Polynomial>,
-    //         advices: &[Self::ProverCommitmentAdvice],
-    //         points: &[Self::Point],
-    //         evals: &[Self::Evaluation],
-    //         transcript: &mut IOPTranscript<F>,
-    //     ) -> Result<Self::BatchProof, PCSError> {
-    //     let &Self::ProverParam{max_mu, l0, s} = prover_param.borrow();
-    //     let r = transcript.get_and_append_challenge(b"batched_sumcheck")?;
-    //     let num_poly = polynomials.len();
-    //     let gamma = transcript.get_and_append_challenge_vectors(b"gamma", num_poly)?;
+    fn multi_open(
+            prover_param: impl Borrow<Self::ProverParam>,
+            polynomials: Vec<Self::Polynomial>,
+            advices: &[Self::ProverCommitmentAdvice],
+            points: &[Self::Point],
+            evals: &[Self::Evaluation],
+            transcript: &mut IOPTranscript<F>,
+        ) -> Result<Self::BatchProof, PCSError> {
+        let &Self::ProverParam{max_mu, l0, s} = prover_param.borrow();
+        let num_poly = polynomials.len();
+        let mu = max_mu;
+        let polynomials = polynomials.iter().map(|poly| resize_poly(&poly, mu)).collect::<Vec<_>>();
+        let points = points.iter().map(|point| resize_point(&point, mu)).collect::<Vec<_>>();
+        let alpha0 = advices[0].alpha0;
+        assert!(advices.iter().all(|advice| advice.alpha0 == alpha0));
+        let mt0_list = advices.iter().map(|advice| advice.mt0.clone()).collect::<Vec<_>>();
 
-    //     let mut f0 = vec![F::ZERO; 1 << max_mu];
+        // SumCheck Phase
+        let r = transcript.get_and_append_challenge(b"batched_sumcheck")?;
+        let gamma = transcript.get_and_append_challenge_vectors(b"gamma", num_poly)?;
+        let poly = evals_to_arcpoly(&(0..1 << max_mu).map(
+            |i| (0..num_poly).map(
+                |j| gamma[j] * polynomials[j].evaluations[i]
+            ).sum::<F>()
+        ).collect::<Vec<_>>());
+        let mut sum_check = VirtualPolynomial::new(max_mu);
+        for i in 0..num_poly {
+            let mut eval = polynomials[i].evaluations.clone();
+            sum_check.add_mle_list([
+                evals_to_arcpoly(&eval),
+                evals_to_arcpoly(&get_tensor(&points[i])),
+            ], r.pow([i as u64])).unwrap();
+        }
+        let sum_check_proof = <PolyIOP<F> as SumCheck<F>>::prove(sum_check, transcript).unwrap();
+        let point = sum_check_proof.point.clone();
         
-    //     let poly = vec![F::ZERO; 1 << max_mu];
+        // Batched Open Phase
         
-    //     (0..1 << max_mu).map(
-    //         |i| (0..num_poly).map(
-    //             |j| gamma[j] * polynomials[j].evaluations[i]
-    //         ).sum::<F>()
-    //     ).collect::<Vec<_>>();
-    //     let alpha0 = advices[0].alpha0;
-    //     let mt0 = advices.iter().map(|advice| advice.mt0.clone()).collect::<Vec<_>>();
-
-    //     // SumCheck Phase
-    //     let mut sum_check = VirtualPolynomial::new(max_mu);
-    //     for i in 0..num_poly {
-    //         let mut eval = polynomials[i].evaluations.clone();
-    //         eval.resize(1 << max_mu, F::ZERO);
-    //         sum_check.add_mle_list([
-    //             evals_to_arcpoly(&eval),
-    //             evals_to_arcpoly(&get_tensor(&points[i])),
-    //         ], r.pow([i as u64])).unwrap();
-    //     }
-    //     let sum_check_proof = <PolyIOP<F> as SumCheck<F>>::prove(sum_check, transcript).unwrap();
-    //     let r = sum_check_proof.point.clone();
-        
-    //     // Batched Open Phase
-    //     let mut a = vec![Vec::new()];
-    //     let mut f_tilde = vec![poly];
-    //     let mut mt = vec![MerkleTree::new(&l0.fft(&f0).iter().map(|&x| compute_sha256_row(&[x])).collect())];
-    //     let mut f = vec![f0];
-    //     let mut alpha = vec![alpha0];
-    //     let mut linear_polys = Vec::new();
-    //     let mut l = vec![l0];
-    //     l.append(&mut (1..mu + 1)
-    //         .map(|i| GeneralEvaluationDomain::<F>::new(l0.size() >> i).unwrap())
-    //         .collect::<Vec<_>>());
-    //     let mut v = vec![v0];
-    //     let mut mt_roots = vec![mt[0].root().clone()];
-    //     let mut mt_proofs = Vec::new();
-    //     let mut f_mu = F::ZERO;
-    //     let mut r = vec![F::ZERO];
 
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
     fn verify(
         verifier_param: &Self::VerifierParam,
@@ -390,6 +377,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
     ) -> Result<bool, PCSError> {
         let Self::VerifierParam{max_mu, len_l0, g, s} = verifier_param.clone();
         let Self::Commitment{mu, rt0, c} = com.clone();
+        let mu = max_mu;
+        let point = resize_point(&point, mu);
         assert!(mu <= max_mu);
         let Self::Proof{linear_polys, mt_roots, f_mu, mt_proofs} = proof.clone();
         
