@@ -15,9 +15,9 @@ fn eval_mle_poly<F: PrimeField>( f: &Vec<F>, point: &Vec<F> ) -> F {
 #[test]
 fn test_ligesis_pcs() {
     let mut rng = test_rng();
-    let mu = 18;
+    let mu = 24;
 
-    let mut srs = LigeSISPCS::<F>::gen_srs_for_testing(&mut rng, mu).unwrap();
+    let srs = LigeSISPCS::<F>::gen_srs_for_testing(&mut rng, mu).unwrap();
     
     let mut transcript = IOPTranscript::<F>::new(b"ligesis_pcs_test");
     let mut transcript_clone = transcript.clone();
@@ -44,5 +44,5 @@ fn test_ligesis_pcs() {
 
     assert!(res);
     assert_eq!(eval_mle_poly(&poly.evaluations, &point), value);
-    // assert!(false);
+    assert!(false);
 }

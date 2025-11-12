@@ -346,7 +346,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         let points = points.iter().map(|point| resize_point(&point, mu)).collect::<Vec<_>>();
         let alpha0 = advices[0].alpha0;
         assert!(advices.iter().all(|advice| advice.alpha0 == alpha0));
-        let mt0_list = advices.iter().map(|advice| advice.mt0.clone()).collect::<Vec<_>>();
+        let mt0_list = advices.iter().map(|advice| &advice.mt0).collect::<Vec<_>>();
 
         // SumCheck Phase
         let r = transcript.get_and_append_challenge(b"batched_sumcheck")?;
@@ -362,7 +362,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         let sum_check_evals = polynomials.iter().map(
             |poly| eval_mle_poly(&poly.evaluations, &point)
         ).collect::<Vec<_>>();
-        // println!(" {}", sum_check_proof.proofs[0].);
         
         // Batched Open Phase
         let gamma = transcript.get_and_append_challenge_vectors(b"gamma", num_poly)?;
