@@ -7,9 +7,10 @@ pub fn assert_valid_parameters(word_size: usize, C: usize, log_M: usize) {
 }
 
 /// Concatenates `C` `vals` field elements each of max size 2^`operand_bits`-1
-/// into a single field element. `operand_bits` is the number of bits required to represent
-/// each element in `vals`. If an element of `vals` is larger it will not be truncated, which
-/// is commonly used by the collation functions of instructions.
+/// into a single field element. `operand_bits` is the number of bits required
+/// to represent each element in `vals`. If an element of `vals` is larger it
+/// will not be truncated, which is commonly used by the collation functions of
+/// instructions.
 pub fn concatenate_lookups<F: PrimeField>(vals: &[F], C: usize, operand_bits: usize) -> F {
     assert_eq!(vals.len(), C);
 
@@ -49,8 +50,8 @@ pub fn chunk_operand_usize(x: u64, C: usize, chunk_len: usize) -> Vec<usize> {
 /// `log_M` is the number of bits of each of the `C` expected results.
 /// `log_M = num_bits(x || y) / C`
 ///
-/// Given the operation x_0, x_1, x_2, x_3 || y_0, y_1, y_2, y_3 with C=2, log_M =4
-/// chunks to `vec![x_0||x_1||y_0||y_1,   x_2||x_3||y_2||y_3]`.
+/// Given the operation x_0, x_1, x_2, x_3 || y_0, y_1, y_2, y_3 with C=2, log_M
+/// =4 chunks to `vec![x_0||x_1||y_0||y_1,   x_2||x_3||y_2||y_3]`.
 pub fn chunk_and_concatenate_operands(x: u64, y: u64, C: usize, log_M: usize) -> Vec<usize> {
     let operand_bits: usize = log_M / 2;
 
@@ -105,8 +106,9 @@ pub fn multiply_and_chunk_operands(x: u128, y: u128, C: usize, log_M: usize) -> 
         .collect()
 }
 
-/// Splits `x`, `y` into `C` chunks and writes [ x_{C-1} || y_0, ..., x_0 || y_0 ]
-/// where `x_{C-1}`` is the the big end of `x``, and `y_0`` is the small end of `y`.
+/// Splits `x`, `y` into `C` chunks and writes [ x_{C-1} || y_0, ..., x_0 || y_0
+/// ] where `x_{C-1}`` is the the big end of `x``, and `y_0`` is the small end
+/// of `y`.
 pub fn chunk_and_concatenate_for_shift(x: u64, y: u64, C: usize, log_M: usize) -> Vec<usize> {
     let operand_bits: usize = log_M / 2;
     let operand_bit_mask: usize = (1 << operand_bits) - 1;

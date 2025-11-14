@@ -482,7 +482,8 @@ impl<F: PrimeField> BatchedCubicSumcheckInstance<F> for BatchedDenseGrandProduct
         debug_assert!(self.layer_len % 4 == 0);
         let timer = start_timer!(|| "bind");
         // TODO(moodlezoup): parallelize over chunks instead of over batch
-        let concurrency = (rayon::current_num_threads() * 4 + self.layers.len() - 1) / self.layers.len();
+        let concurrency =
+            (rayon::current_num_threads() * 4 + self.layers.len() - 1) / self.layers.len();
         self.layers
             .par_iter_mut()
             .for_each(|layer: &mut DenseGrandProductLayer<F>| {

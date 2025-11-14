@@ -2,7 +2,9 @@ use crate::{
     poly_iop::{errors::PolyIOPErrors, PolyIOP},
     SumcheckInstanceProof,
 };
-use arithmetic::{bit_decompose, build_eq_x_r, build_eq_x_r_with_coeff, eq_eval, math::Math, products_except_self};
+use arithmetic::{
+    bit_decompose, build_eq_x_r, build_eq_x_r_with_coeff, eq_eval, math::Math, products_except_self,
+};
 use ark_ff::PrimeField;
 use ark_poly::DenseMultilinearExtension;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -136,12 +138,15 @@ where
 
         end_timer!(start);
 
-        Ok((MultiRationalSumcheckProof {
-            sumcheck_proof,
-            num_rounds: num_vars,
-            num_polys,
-            claimed_sum,
-        }, point))
+        Ok((
+            MultiRationalSumcheckProof {
+                sumcheck_proof,
+                num_rounds: num_vars,
+                num_polys,
+                claimed_sum,
+            },
+            point,
+        ))
     }
 
     fn d_prove(
@@ -202,12 +207,15 @@ where
 
         if Net::am_master() {
             let (sumcheck_proof, point, _) = result.unwrap();
-            Ok(Some((MultiRationalSumcheckProof {
-                sumcheck_proof,
-                num_rounds: length + num_party_vars,
-                num_polys,
-                claimed_sum,
-            }, point)))
+            Ok(Some((
+                MultiRationalSumcheckProof {
+                    sumcheck_proof,
+                    num_rounds: length + num_party_vars,
+                    num_polys,
+                    claimed_sum,
+                },
+                point,
+            )))
         } else {
             Ok(None)
         }
@@ -352,7 +360,10 @@ mod test {
             }
             sum -= product_others;
         }
-        assert_eq!(h_eval + subclaim.coeff * eq * sum, subclaim.sumcheck_expected_evaluation);
+        assert_eq!(
+            h_eval + subclaim.coeff * eq * sum,
+            subclaim.sumcheck_expected_evaluation
+        );
         Ok(())
     }
 }

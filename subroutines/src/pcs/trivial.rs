@@ -1,7 +1,7 @@
 use crate::pcs::prelude::*;
 use ark_ff::PrimeField;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
-use ark_std::{borrow::Borrow, marker::PhantomData, rand::Rng, vec::Vec, sync::Arc};
+use ark_std::{borrow::Borrow, marker::PhantomData, rand::Rng, sync::Arc, vec::Vec};
 use transcript::IOPTranscript;
 
 pub struct TrivialPCS<F: PrimeField> {

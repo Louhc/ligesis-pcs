@@ -6,10 +6,10 @@
 
 //! Main module for the ZeroCheck protocol.
 
-use std::fmt::Debug;
-use std::mem::take;
+use std::{fmt::Debug, mem::take};
 
 use crate::{
+    drop_in_background_thread,
     poly_iop::{
         errors::PolyIOPErrors,
         structs::{IOPProverMessage, IOPProverState},
@@ -17,7 +17,6 @@ use crate::{
         PolyIOP,
     },
     IOPProof,
-    drop_in_background_thread,
 };
 use arithmetic::{bit_decompose, eq_eval, math::Math};
 use ark_ff::PrimeField;

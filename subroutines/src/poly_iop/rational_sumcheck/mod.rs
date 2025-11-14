@@ -8,11 +8,11 @@ use crate::{
 use arithmetic::{bit_decompose, eq_eval, math::Math, VirtualPolynomial};
 use ark_ec::pairing::Pairing;
 use ark_ff::PrimeField;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{end_timer, start_timer, One, Zero};
 use itertools::izip;
 use std::iter::zip;
 use transcript::IOPTranscript;
-use ark_serialize::{CanonicalSerialize, CanonicalDeserialize};
 
 use std::sync::Arc;
 
@@ -40,7 +40,7 @@ where
     fn init_transcript() -> Self::Transcript;
 
     /// Returns (proof, inv_g) for testing
-    /// 
+    ///
     /// IMPORTANT: if claimed_sums is set to equal to the length of fx,
     /// it is assumed that all instances of fx, gx, and g_inv are independent.
     /// If claimed_sums is a single element, it is assumed that all fx, gx
@@ -109,7 +109,7 @@ where
     ) -> Result<Self::RationalSumcheckProof, PolyIOPErrors> {
         let start = start_timer!(|| "rational_sumcheck prove");
 
-        if fx.len() != gx.len() || gx.len() != g_inv.len()  {
+        if fx.len() != gx.len() || gx.len() != g_inv.len() {
             return Err(PolyIOPErrors::InvalidParameters(format!(
                 "polynomials lengthes are not equal"
             )));
@@ -144,8 +144,7 @@ where
         // Sumcheck
 
         let num_polys = fx.len();
-        for (f_poly, g_inv_poly, coeff) in izip!(fx, g_inv, coeffs[num_polys..].iter())
-        {
+        for (f_poly, g_inv_poly, coeff) in izip!(fx, g_inv, coeffs[num_polys..].iter()) {
             let mut item = f_poly;
 
             if should_mix_sums {
@@ -156,8 +155,7 @@ where
             sum_poly += &item;
         }
 
-        let sum_check_proof =
-            <PolyIOP<F> as SumCheck<F>>::prove(sum_poly, transcript)?;
+        let sum_check_proof = <PolyIOP<F> as SumCheck<F>>::prove(sum_poly, transcript)?;
 
         end_timer!(start);
 
@@ -232,8 +230,7 @@ where
 
         // Sumcheck
         let num_polys = fx.len();
-        for (f_poly, g_inv_poly, coeff) in izip!(fx, g_inv, coeffs[num_polys..].iter())
-        {
+        for (f_poly, g_inv_poly, coeff) in izip!(fx, g_inv, coeffs[num_polys..].iter()) {
             let mut item = f_poly;
             if should_mix_sums {
                 item.mul_by_mle(g_inv_poly, *coeff)?;
@@ -243,8 +240,7 @@ where
             sum_poly += &item;
         }
 
-        let sum_check_proof =
-            <PolyIOP<F> as SumCheck<F>>::d_prove(sum_poly, transcript)?;
+        let sum_check_proof = <PolyIOP<F> as SumCheck<F>>::d_prove(sum_poly, transcript)?;
 
         end_timer!(start);
 
@@ -271,22 +267,16 @@ where
         let zerocheck_r =
             transcript.get_and_append_challenge_vectors(b"0check r", aux_info.num_variables)?;
 
-        let coeffs = transcript.get_and_append_challenge_vectors(
-            b"rational_sumcheck_coeffs",
-            proof.num_polys * 2,
-        )?;
+        let coeffs = transcript
+            .get_and_append_challenge_vectors(b"rational_sumcheck_coeffs", proof.num_polys * 2)?;
 
-        let claimed_sum = 
-            if proof.claimed_sums.len() == 1 {
-                proof.claimed_sums[0]
-            } else {
-                zip(
-                    proof.claimed_sums.iter(),
-                    coeffs[proof.num_polys..].iter(),
-                )
+        let claimed_sum = if proof.claimed_sums.len() == 1 {
+            proof.claimed_sums[0]
+        } else {
+            zip(proof.claimed_sums.iter(), coeffs[proof.num_polys..].iter())
                 .map(|(sum, coeff)| *sum * coeff)
                 .sum::<F>()
-            };
+        };
 
         let sum_check_sub_claim = <Self as SumCheck<F>>::verify(
             claimed_sum,
@@ -378,8 +368,14 @@ mod test {
         let mut transcript = <PolyIOP<Fr> as RationalSumcheckSlow<Fr>>::init_transcript();
         let proof = <PolyIOP<Fr> as RationalSumcheckSlow<Fr>>::prove(
             p_virt_polys,
-            q_polys.iter().map(|poly| Arc::new(DenseMultilinearExtension::clone(poly))).collect(),
-            q_inv_polys.iter().map(|poly| Arc::new(DenseMultilinearExtension::clone(poly))).collect(),
+            q_polys
+                .iter()
+                .map(|poly| Arc::new(DenseMultilinearExtension::clone(poly)))
+                .collect(),
+            q_inv_polys
+                .iter()
+                .map(|poly| Arc::new(DenseMultilinearExtension::clone(poly)))
+                .collect(),
             expected_sums,
             &mut transcript,
         )?;
@@ -391,11 +387,8 @@ mod test {
             phantom: PhantomData::default(),
         };
         let mut transcript = <PolyIOP<Fr> as RationalSumcheckSlow<Fr>>::init_transcript();
-        let subclaim = <PolyIOP<Fr> as RationalSumcheckSlow<Fr>>::verify(
-            &proof,
-            &aux_info,
-            &mut transcript,
-        )?;
+        let subclaim =
+            <PolyIOP<Fr> as RationalSumcheckSlow<Fr>>::verify(&proof, &aux_info, &mut transcript)?;
 
         // Zerocheck subclaim
         let mut sum = Fr::zero();

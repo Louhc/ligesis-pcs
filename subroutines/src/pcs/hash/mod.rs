@@ -1,8 +1,6 @@
 use ark_ff::{Field, PrimeField};
-use ark_std::{
-    marker::PhantomData, cfg_into_iter
-};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_std::{cfg_into_iter, marker::PhantomData};
 use sha2::{digest, Digest, Sha256};
 
 pub type Byte32 = [u8; 32];
@@ -32,16 +30,16 @@ pub fn compute_sha256_row<F: Field>(data: &[F]) -> Byte32 {
 }
 
 pub trait Hasher<I, O, C> {
-    fn new( config: &C ) -> Self;
-    fn compute( &self, data : &I ) -> O;
+    fn new(config: &C) -> Self;
+    fn compute(&self, data: &I) -> O;
 }
 
 pub struct MTSHA256Hasher;
-impl Hasher<(Byte32, Byte32), Byte32, ()> for MTSHA256Hasher{
-    fn new( _: &() ) -> Self {
-        MTSHA256Hasher{}
+impl Hasher<(Byte32, Byte32), Byte32, ()> for MTSHA256Hasher {
+    fn new(_: &()) -> Self {
+        MTSHA256Hasher {}
     }
-    fn compute( &self, data: &(Byte32, Byte32) ) -> Byte32 {
+    fn compute(&self, data: &(Byte32, Byte32)) -> Byte32 {
         let (data0, data1) = data;
         let mut d = data0.to_vec();
         d.extend_from_slice(data1);
@@ -57,20 +55,27 @@ pub struct MerkleTree {
 
 impl Default for MerkleTree {
     fn default() -> Self {
-        MerkleTree { n: 0, digest_layers: Vec::<Vec<Byte32>>::new() }
+        MerkleTree {
+            n: 0,
+            digest_layers: Vec::<Vec<Byte32>>::new(),
+        }
     }
 }
 
 pub type MerkleTreeProof = Vec<Byte32>;
 
 impl MerkleTree {
-    pub fn new( leaves: &Vec<Byte32> ) -> Self {
+    pub fn new(leaves: &Vec<Byte32>) -> Self {
         let mut digest_layers: Vec<Vec<Byte32>> = Vec::new();
-        let n = if leaves.len() == 1 { 1usize } else { ((leaves.len() - 1).ilog2() + 2) as usize };
+        let n = if leaves.len() == 1 {
+            1usize
+        } else {
+            ((leaves.len() - 1).ilog2() + 2) as usize
+        };
         let hasher = MTSHA256Hasher::new(&());
-        
+
         digest_layers.push({
-            let mut digest_layer= leaves.clone();
+            let mut digest_layer = leaves.clone();
             digest_layer.resize(1 << (n - 1), [0u8; 32]);
             digest_layer
         });
@@ -80,22 +85,22 @@ impl MerkleTree {
                 let mut digest_layer: Vec<Byte32> = Vec::new();
                 for j in 0..(1usize << (n - i - 1)) {
                     digest_layer.push(hasher.compute(&(
-                        digest_layers[i - 1][j << 1], 
-                        digest_layers[i - 1][j << 1 | 1]
+                        digest_layers[i - 1][j << 1],
+                        digest_layers[i - 1][j << 1 | 1],
                     )));
                 }
                 digest_layer
             });
         }
-        
+
         Self { n, digest_layers }
     }
 
-    pub fn root( &self ) -> Byte32 {
+    pub fn root(&self) -> Byte32 {
         self.digest_layers.last().unwrap().first().unwrap().clone()
     }
 
-    pub fn prove( &self, pos: usize ) -> Vec<Byte32> {
+    pub fn prove(&self, pos: usize) -> Vec<Byte32> {
         let mut proof: Vec<Byte32> = Vec::new();
         let mut j = pos;
         for i in 0..(self.n - 1) {
@@ -105,13 +110,16 @@ impl MerkleTree {
         proof
     }
 
-    pub fn verify( root: &Byte32, pos: usize, val: &Byte32, proof: &MerkleTreeProof ) -> bool {
+    pub fn verify(root: &Byte32, pos: usize, val: &Byte32, proof: &MerkleTreeProof) -> bool {
         let hasher = MTSHA256Hasher::new(&());
         let mut now = val.clone();
         let mut j = pos;
         for i in 0..proof.len() {
-            now = if j & 1 == 0 { hasher.compute(&(now, proof[i])) } 
-                else { hasher.compute(&(proof[i], now)) };
+            now = if j & 1 == 0 {
+                hasher.compute(&(now, proof[i]))
+            } else {
+                hasher.compute(&(proof[i], now))
+            };
             j >>= 1;
         }
         root == &now

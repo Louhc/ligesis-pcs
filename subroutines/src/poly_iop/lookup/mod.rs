@@ -12,7 +12,7 @@ use crate::{
     poly_iop::{
         errors::PolyIOPErrors, sum_check::generic_sumcheck::SumcheckInstanceProof, PolyIOP,
     },
-    split_bits,// Commitment,
+    split_bits, // Commitment,
 };
 use arithmetic::{
     bit_decompose, build_eq_x_r, eq_eval, eq_poly::EqPolynomial, math::Math, OptimizedMul,
@@ -166,32 +166,32 @@ where
     fn commit<PCS>(
         &self,
         pcs_params: &PCS::ProverParam,
-        transcript: &mut IOPTranscript<F>
+        transcript: &mut IOPTranscript<F>,
     ) -> (
         SurgeCommitmentPrimary<F, PCS>,
         Vec<PCS::ProverCommitmentAdvice>,
     )
     where
-        PCS: PolynomialCommitmentScheme<
-            F,
-            Polynomial = Arc<DenseMultilinearExtension<F>>,
-        >,
+        PCS: PolynomialCommitmentScheme<F, Polynomial = Arc<DenseMultilinearExtension<F>>>,
     {
-        let (E_commitment, E_advice): (Vec<_>, Vec<_>) = self.E_polys
-                    .iter()
-                    .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
-                    .unzip();
-        let (dim_commitment, dim_advice): (Vec<_>, Vec<_>) = self.dim
-                    .iter()
-                    .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
-                    .unzip();
-        let (m_commitment, m_advice): (Vec<_>, Vec<_>) = self.m
-                    .iter()
-                    .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
-                    .unzip();
-        // let ((E_commitment, E_advice), ((dim_commitment, dim_advice), (m_commitment, m_advice)))
-        // :  ((Vec<_>, Vec<_>), ((Vec<_>, Vec<_>), (Vec<_>, Vec<_>))) =
-        //     rayon::join(|| 
+        let (E_commitment, E_advice): (Vec<_>, Vec<_>) = self
+            .E_polys
+            .iter()
+            .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
+            .unzip();
+        let (dim_commitment, dim_advice): (Vec<_>, Vec<_>) = self
+            .dim
+            .iter()
+            .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
+            .unzip();
+        let (m_commitment, m_advice): (Vec<_>, Vec<_>) = self
+            .m
+            .iter()
+            .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
+            .unzip();
+        // let ((E_commitment, E_advice), ((dim_commitment, dim_advice), (m_commitment,
+        // m_advice))) :  ((Vec<_>, Vec<_>), ((Vec<_>, Vec<_>), (Vec<_>,
+        // Vec<_>))) =     rayon::join(||
         //         self.E_polys
         //             .par_iter()
         //             .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
@@ -200,14 +200,14 @@ where
         //                 || {
         //                     self.dim
         //                         .par_iter()
-        //                         .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
-        //                         .unzip()
+        //                         .map(|poly| PCS::commit(pcs_params, poly,
+        // transcript).unwrap())                         .unzip()
         //                 },
         //                 || {
         //                     self.m
         //                         .par_iter()
-        //                         .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
-        //                         .unzip()
+        //                         .map(|poly| PCS::commit(pcs_params, poly,
+        // transcript).unwrap())                         .unzip()
         //                 },
         //             )
         //     );
@@ -231,10 +231,7 @@ where
         Vec<PCS::ProverCommitmentAdvice>,
     )
     where
-        PCS: PolynomialCommitmentScheme<
-            F,
-            Polynomial = Arc<DenseMultilinearExtension<F>>,
-        >,
+        PCS: PolynomialCommitmentScheme<F, Polynomial = Arc<DenseMultilinearExtension<F>>>,
     {
         let (mut dim_commitment, dim_advice): (Vec<_>, Vec<_>) = self
             .dim
@@ -482,8 +479,7 @@ where
         ops: &[Instruction],
         alpha: &F,
     ) -> Self::Polys {
-        let num_memories =
-            <Self as SurgeCommons<F, Instruction, C, M>>::num_memories();
+        let num_memories = <Self as SurgeCommons<F, Instruction, C, M>>::num_memories();
         let num_lookups = ops.len().next_power_of_two();
         let log_m = ark_std::log2(num_lookups) as usize;
 
@@ -551,29 +547,20 @@ where
                 for E_index in 0..num_memories {
                     let mut E_evals = Vec::with_capacity(num_lookups);
                     for op_index in 0..num_lookups {
-                        let dimension_index = <Self as SurgeCommons<
-                            F,
-                            Instruction,
-                            C,
-                            M,
-                        >>::memory_to_dimension_index(
-                            E_index
-                        );
-                        let subtable_index = <Self as SurgeCommons<
-                            F,
-                            Instruction,
-                            C,
-                            M,
-                        >>::memory_to_subtable_index(
-                            E_index
-                        );
+                        let dimension_index =
+                            <Self as SurgeCommons<F, Instruction, C, M>>::memory_to_dimension_index(
+                                E_index,
+                            );
+                        let subtable_index =
+                            <Self as SurgeCommons<F, Instruction, C, M>>::memory_to_subtable_index(
+                                E_index,
+                            );
 
                         let eval_index = dim_usize[dimension_index][op_index];
                         let E_eval = if subtable_index >= preprocessing.materialized_subtables.len()
                         {
                             let (x, y) = split_bits(eval_index, bits_per_operand);
-                            F::from_u64(x as u64).unwrap()
-                                + *alpha * F::from_u64(y as u64).unwrap()
+                            F::from_u64(x as u64).unwrap() + *alpha * F::from_u64(y as u64).unwrap()
                         } else {
                             preprocessing.materialized_subtables[subtable_index][eval_index]
                         };
@@ -639,15 +626,10 @@ where
                     (0..hypercube_size)
                         .into_par_iter()
                         .map(|eval_index| {
-                            let g_operands: Vec<F> = (0..<Self as SurgeCommons<
-                                F,
-                                Instruction,
-                                C,
-                                M,
-                            >>::num_memories(
-                            ))
-                                .map(|memory_index| poly.E_polys[memory_index][eval_index])
-                                .collect();
+                            let g_operands: Vec<F> =
+                                (0..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
+                                    .map(|memory_index| poly.E_polys[memory_index][eval_index])
+                                    .collect();
 
                             let vals: &[F] = &g_operands[0..(g_operands.len() - C)];
                             let fingerprints = &g_operands[g_operands.len() - C..];
@@ -836,15 +818,10 @@ where
                 (0..hypercube_size)
                     .into_par_iter()
                     .map(|eval_index| {
-                        let g_operands: Vec<F> = (0..<Self as SurgeCommons<
-                            F,
-                            Instruction,
-                            C,
-                            M,
-                        >>::num_memories(
-                        ))
-                            .map(|memory_index| poly.E_polys[memory_index][eval_index])
-                            .collect();
+                        let g_operands: Vec<F> =
+                            (0..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
+                                .map(|memory_index| poly.E_polys[memory_index][eval_index])
+                                .collect();
 
                         let vals: &[F] = &g_operands[0..(g_operands.len() - C)];
                         let fingerprints = &g_operands[g_operands.len() - C..];
@@ -1093,8 +1070,7 @@ where
     ) -> Result<(), PolyIOPErrors> {
         let (beta, gamma) = subclaim.logup_checking.challenges;
 
-        let num_memories =
-            <Self as SurgeCommons<F, Instruction, C, M>>::num_memories();
+        let num_memories = <Self as SurgeCommons<F, Instruction, C, M>>::num_memories();
 
         let mut f_ok = false;
         let mut g_ok = false;
@@ -1113,10 +1089,7 @@ where
                     r_f.reverse();
 
                     let sid: F = (0..r_f.len())
-                        .map(|i| {
-                            F::from_u64((r_f.len() - i - 1).pow2() as u64).unwrap()
-                                * r_f[i]
-                        })
+                        .map(|i| F::from_u64((r_f.len() - i - 1).pow2() as u64).unwrap() * r_f[i])
                         .sum();
                     let mut t = Instruction::default()
                         .subtables(C, M)
@@ -1217,10 +1190,7 @@ where
                     r_f.reverse();
 
                     let sid: F = (0..r_f.len())
-                        .map(|i| {
-                            F::from_u64((r_f.len() - i - 1).pow2() as u64).unwrap()
-                                * r_f[i]
-                        })
+                        .map(|i| F::from_u64((r_f.len() - i - 1).pow2() as u64).unwrap() * r_f[i])
                         .sum();
                     let mut t = Instruction::default()
                         .subtables(C, M)

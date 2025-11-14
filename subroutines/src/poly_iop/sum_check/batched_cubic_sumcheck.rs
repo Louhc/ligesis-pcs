@@ -8,9 +8,8 @@
 //! This module implements batched cubic sumchecks
 
 use arithmetic::{
-    bind_poly_var_bot, bit_decompose, build_eq_table, eq_eval,
-    interpolate_uni_poly,
-    math::Math, unipoly::UniPoly,
+    bind_poly_var_bot, bit_decompose, build_eq_table, eq_eval, interpolate_uni_poly, math::Math,
+    unipoly::UniPoly,
 };
 use ark_ff::{batch_inversion, PrimeField};
 use ark_poly::DenseMultilinearExtension;
@@ -211,7 +210,7 @@ pub trait BatchedCubicSumcheckInstance<F: PrimeField>: Sync {
                 .unwrap();
 
             r.push(r_j);
-            
+
             polys.par_iter_mut().for_each(|polys| {
                 for poly in polys {
                     bind_poly_var_bot(poly, &r_j);

@@ -165,9 +165,7 @@ where
                         .iter()
                         .enumerate()
                         .map(|(i, t_eval)| {
-                            t_eval.mul_0_optimized(*gamma)
-                                + F::from_u64(i as u64).unwrap()
-                                + *beta
+                            t_eval.mul_0_optimized(*gamma) + F::from_u64(i as u64).unwrap() + *beta
                         })
                         .collect(),
                 );
@@ -185,9 +183,7 @@ where
         for x in 0..sqrtM {
             for y in 0..sqrtM {
                 dechunk_evals.push(
-                    (F::from_u64(x).unwrap()
-                        + F::from_u64(y).unwrap() * *alpha)
-                        * *gamma
+                    (F::from_u64(x).unwrap() + F::from_u64(y).unwrap() * *alpha) * *gamma
                         + F::from_u64(((x << bits_per_operand) | y) as u64).unwrap()
                         + *beta,
                 )
@@ -247,10 +243,7 @@ where
                         .enumerate()
                         .map(|(i, t_eval)| {
                             t_eval.mul_0_optimized(*gamma)
-                                + F::from_u64(
-                                    (i + Net::party_id() * len_per_party) as u64,
-                                )
-                                .unwrap()
+                                + F::from_u64((i + Net::party_id() * len_per_party) as u64).unwrap()
                                 + *beta
                         })
                         .collect(),
@@ -272,9 +265,7 @@ where
         for x in party_id * len_per_party..(party_id + 1) * len_per_party {
             for y in 0..sqrtM {
                 dechunk_evals.push(
-                    (F::from_u64(x).unwrap()
-                        + F::from_u64(y).unwrap() * *alpha)
-                        * *gamma
+                    (F::from_u64(x).unwrap() + F::from_u64(y).unwrap() * *alpha) * *gamma
                         + F::from_u64(((x << bits_per_operand) | y) as u64).unwrap()
                         + *beta,
                 )
@@ -321,12 +312,13 @@ where
     ) {
         let num_vars_g = polynomials.dim[0].num_vars;
         let num_lookups = polynomials.dim[0].evaluations.len();
-        let g_leaves_q = (0
-            ..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
+        let g_leaves_q = (0..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
             .into_par_iter()
             .map(|memory_index| {
-                let dim_index = <Self as SurgeCommons<F,
-    Instruction, C, M>>::memory_to_dimension_index(memory_index);
+                let dim_index =
+                    <Self as SurgeCommons<F, Instruction, C, M>>::memory_to_dimension_index(
+                        memory_index,
+                    );
 
                 let q = DenseMultilinearExtension::from_evaluations_vec(
                     num_vars_g,
@@ -392,15 +384,15 @@ where
         );
 
         let (f_inv_comm, mut f_advice): (Vec<_>, Vec<_>) = f_leaves
-                    .2
-                    .iter()
-                    .map(|inv| PCS::commit(pcs_param, inv, transcript).unwrap())
-                    .unzip();
+            .2
+            .iter()
+            .map(|inv| PCS::commit(pcs_param, inv, transcript).unwrap())
+            .unzip();
         let (g_inv_comm, mut g_advice): (Vec<_>, Vec<_>) = g_leaves
-                    .2
-                    .iter()
-                    .map(|inv| PCS::commit(pcs_param, inv, transcript).unwrap())
-                    .unzip();
+            .2
+            .iter()
+            .map(|inv| PCS::commit(pcs_param, inv, transcript).unwrap())
+            .unzip();
 
         // let ((f_inv_comm, mut f_advice), (g_inv_comm, mut g_advice)): (
         //     (Vec<_>, Vec<_>),
@@ -423,8 +415,7 @@ where
         // );
         f_advice.append(&mut g_advice);
 
-        let claimed_sums = (0
-            ..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
+        let claimed_sums = (0..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
             .map(|memory_index| g_leaves.2[memory_index].evaluations.iter().sum())
             .collect::<Vec<_>>();
 
@@ -438,19 +429,18 @@ where
             .collect::<Vec<_>>();
         let f_p = (0..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
             .map(|memory_index| {
-                let dim_index = <Self as SurgeCommons<F, Instruction, C, M>>::memory_to_dimension_index(memory_index);
+                let dim_index =
+                    <Self as SurgeCommons<F, Instruction, C, M>>::memory_to_dimension_index(
+                        memory_index,
+                    );
                 f_leaves.0[dim_index].clone()
-            }).collect::<Vec<_>>();
-        let (f_q, f_q_inv) = (0
-            ..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
+            })
+            .collect::<Vec<_>>();
+        let (f_q, f_q_inv) = (0..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
             .map(|memory_index| {
-                let subtable_index = <Self as SurgeCommons<
-                        F,
-                        Instruction,
-                        C,
-                        M,
-                    >>::memory_to_subtable_index(
-                        memory_index
+                let subtable_index =
+                    <Self as SurgeCommons<F, Instruction, C, M>>::memory_to_subtable_index(
+                        memory_index,
                     );
                 (
                     f_leaves.1[subtable_index].clone(),
@@ -537,21 +527,20 @@ where
             .map(|x| Arc::new(DenseMultilinearExtension::clone(x)))
             .collect::<Vec<_>>();
         let f_p = (0..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
-                    .map(|memory_index| {
-                        let dim_index = <Self as SurgeCommons<F, Instruction, C, M>>::memory_to_dimension_index(memory_index);
-                        f_leaves.0[dim_index].clone()
-                    }).collect::<Vec<_>>();
-        let (f_q, f_q_inv) = (0
-            ..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
             .map(|memory_index| {
-                let subtable_index = <Self as SurgeCommons<
-                                F,
-                                Instruction,
-                                C,
-                                M,
-                            >>::memory_to_subtable_index(
-                                memory_index
-                            );
+                let dim_index =
+                    <Self as SurgeCommons<F, Instruction, C, M>>::memory_to_dimension_index(
+                        memory_index,
+                    );
+                f_leaves.0[dim_index].clone()
+            })
+            .collect::<Vec<_>>();
+        let (f_q, f_q_inv) = (0..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
+            .map(|memory_index| {
+                let subtable_index =
+                    <Self as SurgeCommons<F, Instruction, C, M>>::memory_to_subtable_index(
+                        memory_index,
+                    );
                 (
                     f_leaves.1[subtable_index].clone(),
                     f_leaves.2[subtable_index].clone(),
@@ -574,8 +563,7 @@ where
 
         f_advice.append(&mut g_advice);
 
-        let claimed_sums = (0
-            ..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
+        let claimed_sums = (0..<Self as SurgeCommons<F, Instruction, C, M>>::num_memories())
             .map(|memory_index| g_leaves.2[memory_index].evaluations.iter().sum())
             .collect::<Vec<_>>();
         let all_claimed_sums = Net::send_to_master(&claimed_sums);

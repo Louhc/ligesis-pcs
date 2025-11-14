@@ -92,13 +92,15 @@ impl<F: PrimeField> SumCheckProver<F> for IOPProverState<F> {
             self.challenges.push(*chal);
 
             let r = self.challenges[self.round - 1];
-            let concurrency = (rayon::current_num_threads() * 2 + self.poly.flattened_ml_extensions.len() - 1) / self.poly.flattened_ml_extensions.len();
+            let concurrency =
+                (rayon::current_num_threads() * 2 + self.poly.flattened_ml_extensions.len() - 1)
+                    / self.poly.flattened_ml_extensions.len();
             // #[cfg(feature = "parallel")]
             // self.poly
             //     .flattened_ml_extensions
             //     .par_iter_mut()
-            //     .for_each(|mle| bind_poly_var_bot_par(Arc::get_mut(mle).unwrap(), &r, concurrency));
-            // #[cfg(not(feature = "parallel"))]
+            //     .for_each(|mle| bind_poly_var_bot_par(Arc::get_mut(mle).unwrap(), &r,
+            // concurrency)); #[cfg(not(feature = "parallel"))]
             self.poly
                 .flattened_ml_extensions
                 .iter_mut()

@@ -7,7 +7,10 @@
 //! This module implements useful functions for the product check protocol.
 
 #![allow(non_snake_case)]
-use crate::poly_iop::{errors::PolyIOPErrors, structs::IOPProof, zero_check::ZeroCheck, lookup::instruction::JoltInstruction, PolyIOP};
+use crate::poly_iop::{
+    errors::PolyIOPErrors, lookup::instruction::JoltInstruction, structs::IOPProof,
+    zero_check::ZeroCheck, PolyIOP,
+};
 use arithmetic::{get_index, VirtualPolynomial};
 use ark_ff::{batch_inversion, PrimeField};
 use ark_poly::DenseMultilinearExtension;
@@ -41,10 +44,13 @@ where
     }
 }
 
-impl<F, Instruction, const C: usize, const M: usize> SurgeCommons<F, Instruction, C, M> for PolyIOP<F>
+impl<F, Instruction, const C: usize, const M: usize> SurgeCommons<F, Instruction, C, M>
+    for PolyIOP<F>
 where
     F: PrimeField,
-    Instruction: JoltInstruction + Default, {}
+    Instruction: JoltInstruction + Default,
+{
+}
 
 // #[tracing::instrument(skip_all, name = "SurgeCommons::polys_from_evals")]
 pub(super) fn polys_from_evals<F: PrimeField>(
@@ -53,11 +59,17 @@ pub(super) fn polys_from_evals<F: PrimeField>(
 ) -> Vec<Arc<DenseMultilinearExtension<F>>> {
     all_evals
         .par_iter()
-        .map(|evals| Arc::new(DenseMultilinearExtension::from_evaluations_vec(num_vars, evals.to_vec())))
+        .map(|evals| {
+            Arc::new(DenseMultilinearExtension::from_evaluations_vec(
+                num_vars,
+                evals.to_vec(),
+            ))
+        })
         .collect()
 }
 
-// #[tracing::instrument(skip_all, name = "SurgeCommons::polys_from_evals_usize")]
+// #[tracing::instrument(skip_all, name =
+// "SurgeCommons::polys_from_evals_usize")]
 pub(super) fn polys_from_evals_usize<F: PrimeField>(
     num_vars: usize,
     all_evals_usize: &Vec<Vec<usize>>,
@@ -67,7 +79,10 @@ pub(super) fn polys_from_evals_usize<F: PrimeField>(
         .map(|evals_usize| {
             Arc::new(DenseMultilinearExtension::from_evaluations_vec(
                 num_vars,
-                evals_usize.iter().map(|x| F::from_u64(*x as u64).unwrap()).collect(),
+                evals_usize
+                    .iter()
+                    .map(|x| F::from_u64(*x as u64).unwrap())
+                    .collect(),
             ))
         })
         .collect()

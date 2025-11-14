@@ -32,7 +32,12 @@ pub trait SumCheck<F: PrimeField> {
     type VPAuxInfo;
     type MultilinearExtension;
 
-    type SumCheckProof: Clone + Debug + Default + PartialEq + CanonicalSerialize + CanonicalDeserialize;
+    type SumCheckProof: Clone
+        + Debug
+        + Default
+        + PartialEq
+        + CanonicalSerialize
+        + CanonicalDeserialize;
     type Transcript;
     type SumCheckSubClaim: Clone + Debug + Default + PartialEq;
 
@@ -225,8 +230,7 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
                     IOPProverMessage {
                         evaluations: vec![F::zero(); max_degree + 1],
                     },
-                    |acc, x| 
-                        IOPProverMessage {
+                    |acc, x| IOPProverMessage {
                         evaluations: acc
                             .evaluations
                             .iter()
@@ -249,7 +253,8 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
 
         let step = start_timer!(|| "Compute final mle");
 
-        let final_mle_evals = IOPProverState::get_final_mle_evaluations(&mut prover_state, challenge.unwrap())?;
+        let final_mle_evals =
+            IOPProverState::get_final_mle_evaluations(&mut prover_state, challenge.unwrap())?;
         let final_mle_evals = Net::send_to_master(&final_mle_evals);
 
         if !Net::am_master() {
@@ -260,11 +265,15 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
 
         let final_mle_evals = final_mle_evals.unwrap();
         let new_mles = (0..final_mle_evals[0].len())
-            .map(|poly_index| Arc::new(DenseMultilinearExtension::from_evaluations_vec(num_party_vars,
-                final_mle_evals.iter().map(
-                    |mle_evals| mle_evals[poly_index]
-                ).collect()
-            )))
+            .map(|poly_index| {
+                Arc::new(DenseMultilinearExtension::from_evaluations_vec(
+                    num_party_vars,
+                    final_mle_evals
+                        .iter()
+                        .map(|mle_evals| mle_evals[poly_index])
+                        .collect(),
+                ))
+            })
             .collect();
 
         let mut poly = prover_state.poly.clone();

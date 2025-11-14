@@ -1,7 +1,7 @@
 #[macro_export]
-/// Tests the consistency of a subtable's `materialize` and `evaluate_mle` methods.
-/// Specifically, checks that the `evaluate_mle` method outputs the same value as the
-/// materialized subtable over the entire Boolean hypercube.
+/// Tests the consistency of a subtable's `materialize` and `evaluate_mle`
+/// methods. Specifically, checks that the `evaluate_mle` method outputs the
+/// same value as the materialized subtable over the entire Boolean hypercube.
 macro_rules! subtable_materialize_mle_parity_test {
     ($test_name:ident, $subtable_type:ty, $F:ty, $M:expr) => {
         #[test]
@@ -14,7 +14,8 @@ macro_rules! subtable_materialize_mle_parity_test {
             for i in 0..M {
                 assert_eq!(
                     materialized[i],
-                    subtable.evaluate_mle(&$crate::poly_iop::utils::index_to_field_bitvector(i, log_M)),
+                    subtable
+                        .evaluate_mle(&$crate::poly_iop::utils::index_to_field_bitvector(i, log_M)),
                     "MLE did not match materialized subtable at index {}",
                     i
                 );

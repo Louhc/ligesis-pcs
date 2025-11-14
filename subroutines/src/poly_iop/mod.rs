@@ -20,13 +20,13 @@ mod perm_check;
 
 pub mod prelude;
 // mod prod_check;
-mod structs;
 mod combined_check;
+mod multi_rational_sumcheck;
+mod rational_sumcheck;
+mod structs;
 mod sum_check;
 mod utils;
 mod zero_check;
-mod rational_sumcheck;
-mod multi_rational_sumcheck;
 
 #[derive(Clone, Debug, Default, Copy, PartialEq, Eq)]
 /// Struct for PolyIOP protocol.

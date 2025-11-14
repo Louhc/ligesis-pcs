@@ -352,14 +352,8 @@ where
                 let h_evals = (0..inv_evals[0].len())
                     .into_par_iter()
                     .map(|i| {
-                        inv_evals[..half_len]
-                            .iter()
-                            .map(|eval| eval[i])
-                            .sum::<F>()
-                            - inv_evals[half_len..]
-                                .iter()
-                                .map(|eval| eval[i])
-                                .sum::<F>()
+                        inv_evals[..half_len].iter().map(|eval| eval[i]).sum::<F>()
+                            - inv_evals[half_len..].iter().map(|eval| eval[i]).sum::<F>()
                     })
                     .collect::<Vec<_>>();
                 let claim = if leaves_len == 1 {
@@ -382,12 +376,7 @@ where
         if Net::am_master() {
             let all_claims = all_claims.unwrap();
             claims = (0..all_claims[0].len())
-                .map(|i| {
-                    all_claims
-                        .iter()
-                        .map(|claims| claims[i])
-                        .sum::<F>()
-                })
+                .map(|i| all_claims.iter().map(|claims| claims[i]).sum::<F>())
                 .collect::<Vec<_>>();
         }
 
@@ -493,8 +482,7 @@ where
         let mut claimed_sum = F::zero();
         for proof in proof.proofs.iter() {
             claimed_sum += proof.claimed_sum;
-            let subclaim =
-                <Self as MultiRationalSumcheck<F>>::verify(proof, transcript)?;
+            let subclaim = <Self as MultiRationalSumcheck<F>>::verify(proof, transcript)?;
             subclaims.push((subclaim, proof.num_polys / 2));
         }
 
@@ -526,9 +514,7 @@ where
             let num_vars = subclaim.sumcheck_point.len();
 
             let sid: F = (0..num_vars)
-                .map(|i| {
-                    F::from_u64(i.pow2() as u64).unwrap() * subclaim.sumcheck_point[i]
-                })
+                .map(|i| F::from_u64(i.pow2() as u64).unwrap() * subclaim.sumcheck_point[i])
                 .sum::<F>()
                 + F::from_u64(shift as u64).unwrap();
 
@@ -536,9 +522,7 @@ where
             let g_evals = f_openings[offset..offset + len]
                 .iter()
                 .enumerate()
-                .map(|(i, f)| {
-                    *f + beta * (sid + F::from((i * (1 << num_vars)) as u64)) + gamma
-                })
+                .map(|(i, f)| *f + beta * (sid + F::from((i * (1 << num_vars)) as u64)) + gamma)
                 .chain(
                     g_openings[offset..offset + len]
                         .iter()

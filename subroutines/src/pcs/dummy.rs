@@ -1,7 +1,7 @@
 use crate::pcs::{PCSError, PolynomialCommitmentScheme};
 use ark_ff::PrimeField;
 use ark_poly::DenseMultilinearExtension;
-use ark_std::{borrow::Borrow, marker::PhantomData, rand::Rng, vec::Vec, sync::Arc};
+use ark_std::{borrow::Borrow, marker::PhantomData, rand::Rng, sync::Arc, vec::Vec};
 use transcript::IOPTranscript;
 
 pub struct DummyPCS<F: PrimeField> {

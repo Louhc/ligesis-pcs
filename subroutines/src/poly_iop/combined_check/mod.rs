@@ -683,8 +683,7 @@ where
         let beta = transcript.get_and_append_challenge(b"beta")?;
         let gamma = transcript.get_and_append_challenge(b"gamma")?;
 
-        let mut leaves =
-            compute_leaves::<F, false>(&beta, &gamma, witness, witness, perms)?;
+        let mut leaves = compute_leaves::<F, false>(&beta, &gamma, witness, witness, perms)?;
         let leaves_len = leaves.len();
         let mut leave = take(&mut leaves[0]);
         assert_eq!(leaves_len, 1);
@@ -697,14 +696,8 @@ where
         let h_evals = (0..leave[0].len())
             .into_par_iter()
             .map(|i| {
-                leave[..half_len]
-                    .iter()
-                    .map(|eval| eval[i])
-                    .sum::<F>()
-                    - leave[half_len..]
-                        .iter()
-                        .map(|eval| eval[i])
-                        .sum::<F>()
+                leave[..half_len].iter().map(|eval| eval[i]).sum::<F>()
+                    - leave[half_len..].iter().map(|eval| eval[i]).sum::<F>()
             })
             .collect::<Vec<_>>();
         let h_poly = Arc::new(DenseMultilinearExtension::from_evaluations_vec(nv, h_evals));
@@ -739,8 +732,7 @@ where
             Net::recv_from_master_uniform(None)
         };
 
-        let mut leaves =
-            compute_leaves::<F, true>(&beta, &gamma, witness, witness, perms)?;
+        let mut leaves = compute_leaves::<F, true>(&beta, &gamma, witness, witness, perms)?;
         let leaves_len = leaves.len();
         let mut leave = take(&mut leaves[0]);
         assert_eq!(leaves_len, 1);
@@ -753,14 +745,8 @@ where
         let h_evals = (0..leave[0].len())
             .into_par_iter()
             .map(|i| {
-                leave[..half_len]
-                    .iter()
-                    .map(|eval| eval[i])
-                    .sum::<F>()
-                    - leave[half_len..]
-                        .iter()
-                        .map(|eval| eval[i])
-                        .sum::<F>()
+                leave[..half_len].iter().map(|eval| eval[i]).sum::<F>()
+                    - leave[half_len..].iter().map(|eval| eval[i]).sum::<F>()
             })
             .collect::<Vec<_>>();
         let h_poly = Arc::new(DenseMultilinearExtension::from_evaluations_vec(nv, h_evals));
@@ -850,9 +836,7 @@ where
         let degree_permcheck = 2 * num_witnesses + 1;
         let extrapolation_aux = {
             let degree = std::cmp::min(degree_zerocheck, degree_permcheck);
-            let points = (0..1 + degree as u64)
-                .map(F::from)
-                .collect::<Vec<_>>();
+            let points = (0..1 + degree as u64).map(F::from).collect::<Vec<_>>();
             let weights = barycentric_weights(&points);
             (points, weights)
         };
@@ -964,17 +948,14 @@ where
             num_witnesses,
             num_selectors: selectors.len(),
             gate,
-            sid_offset: beta
-                * F::from_u64((evals_len * Net::n_parties()) as u64).unwrap(),
+            sid_offset: beta * F::from_u64((evals_len * Net::n_parties()) as u64).unwrap(),
         };
 
         let degree_zerocheck = max_gate_degree;
         let degree_permcheck = 2 * num_witnesses + 1;
         let extrapolation_aux = {
             let degree = std::cmp::min(degree_zerocheck, degree_permcheck);
-            let points = (0..1 + degree as u64)
-                .map(F::from)
-                .collect::<Vec<_>>();
+            let points = (0..1 + degree as u64).map(F::from).collect::<Vec<_>>();
             let weights = barycentric_weights(&points);
             (points, weights)
         };

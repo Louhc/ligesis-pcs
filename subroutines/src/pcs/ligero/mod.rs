@@ -1,11 +1,8 @@
 use crate::pcs::prelude::*;
 use ark_ff::PrimeField;
-use ark_poly::{DenseMultilinearExtension};
+use ark_poly::DenseMultilinearExtension;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::{
-    borrow::Borrow, marker::PhantomData, rand::Rng,
-    sync::Arc, vec, vec::Vec, cmp::min,
-};
+use ark_std::{borrow::Borrow, cmp::min, marker::PhantomData, rand::Rng, sync::Arc, vec, vec::Vec};
 use transcript::IOPTranscript;
 
 mod rand;
@@ -27,11 +24,7 @@ pub struct LigeroProof<F: PrimeField> {
 }
 
 impl<F: PrimeField> LigeroPCS<F> {
-    pub fn compute_value_from_proof(
-        log_m0: usize,
-        point: &Vec<F>,
-        proof: &LigeroProof<F>,
-    ) -> F {
+    pub fn compute_value_from_proof(log_m0: usize, point: &Vec<F>, proof: &LigeroProof<F>) -> F {
         let u1 = get_tensor(&point[log_m0..].to_vec());
         (0..u1.len()).map(|i| proof.f1[i] * u1[i]).sum::<F>()
     }
@@ -42,7 +35,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
     type ProverParam = (usize, usize, usize); // (num of variables, num of variables in one side, length of RS code)
     type VerifierParam = (usize, usize, usize);
     type SRS = (usize, usize, usize); // (num of variables, length of RS code)
-    // Polynomial and its associated types
+                                      // Polynomial and its associated types
     type Polynomial = Arc<DenseMultilinearExtension<F>>;
     type ProverCommitmentAdvice = MerkleTree; // merkle tree structure
     type Point = Vec<F>;
@@ -50,13 +43,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
     // Commitments and proofs
     type Commitment = Byte32; // merkle tree root
     type Proof = LigeroProof<F>; // merkle tree paths, columes of `E`
-    type BatchProof = (); // 
+    type BatchProof = (); //
     type VerifierCommitmentAdvice = ();
 
-    fn gen_srs_for_testing<R: Rng>(
-        _rng: &mut R, 
-        log_size: usize
-    ) -> Result<Self::SRS, PCSError> {
+    fn gen_srs_for_testing<R: Rng>(_rng: &mut R, log_size: usize) -> Result<Self::SRS, PCSError> {
         // MultilinearUniversalParams::<E>::gen_srs_for_testing(rng, log_size)
         let log_n = log_size;
         let log_m = log_n / 2;
@@ -86,16 +76,12 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
 
         // encode `A`
         let rs = ReedSolomon::new(m1, rs_len);
-        let mat_e = mat_a.iter().map(
-            |row| rs.encode(row)
-        ).collect::<Vec<_>>();
+        let mat_e = mat_a.iter().map(|row| rs.encode(row)).collect::<Vec<_>>();
 
         // build merkle tree on columes
-        let hash_cols = (0..(m1 << 1)).map(
-            |j| compute_sha256_row(
-                &((0..m0).map(|i| mat_e[i][j]).collect::<Vec<_>>())
-            )
-        ).collect::<Vec<_>>();
+        let hash_cols = (0..(m1 << 1))
+            .map(|j| compute_sha256_row(&((0..m0).map(|i| mat_e[i][j]).collect::<Vec<_>>())))
+            .collect::<Vec<_>>();
         let mt = MerkleTree::new(&hash_cols);
 
         Ok((mt.root().clone(), mt))
@@ -114,42 +100,45 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
         let (n, m0, m1) = (1 << log_n, 1 << log_m0, 1 << log_m1);
         assert!(log_n == log_m0 + log_m1 && poly.num_vars == log_n);
         let mat_a = reshape(&poly.evaluations, m0, m1);
-        
+
         // encode `A`
         let rs = ReedSolomon::new(m1, rs_len);
-        let mat_e = mat_a.iter().map(
-            |row| rs.encode(row)
-        ).collect::<Vec<_>>();
+        let mat_e = mat_a.iter().map(|row| rs.encode(row)).collect::<Vec<_>>();
 
         // generate `r` and compute the tensor vector `u0`
         let r = transcript.get_and_append_challenge_vectors(b"r", m0)?;
         let u0 = get_tensor(&point[..log_m0].to_vec());
 
         // compute `rA` and `u0A` and compute msg
-        let f0: Vec<F> = (0..m1).map(
-            |j| (0..m0).map(|i| r[i] * mat_a[i][j]).sum()
-        ).collect::<Vec<_>>();
-        let f1: Vec<F> = (0..m1).map(
-            |j| (0..m0).map(|i| u0[i] * mat_a[i][j]).sum()
-        ).collect::<Vec<_>>();
+        let f0: Vec<F> = (0..m1)
+            .map(|j| (0..m0).map(|i| r[i] * mat_a[i][j]).sum())
+            .collect::<Vec<_>>();
+        let f1: Vec<F> = (0..m1)
+            .map(|j| (0..m0).map(|i| u0[i] * mat_a[i][j]).sum())
+            .collect::<Vec<_>>();
         // let msg: Vec<F> = { let mut f = f0.clone(); f.append(&mut f1.clone()); f };
-        
+
         // get merkle tree on columes
         let mt = advice;
-        
+
         // generate lambda indices and alpha
-        let idx: Vec<usize> = transcript.get_and_append_challenge_indices(b"idx", min(128, m1 << 1), m1 << 1)?;        
+        let idx: Vec<usize> =
+            transcript.get_and_append_challenge_indices(b"idx", min(128, m1 << 1), m1 << 1)?;
         let _alpha: F = transcript.get_and_append_challenge(b"alpha")?;
 
         // trim all needed columes and compute merkle paths
-        let cols = idx.iter().map(
-            |&i| mat_e.iter().map(|row| row[i]).collect::<Vec<_>>()
-        ).collect::<Vec<_>>();
-        let mt_proofs = idx.iter().map(
-            |&i| mt.prove(i)
-        ).collect::<Vec<_>>();
-        
-        Ok(LigeroProof{f0, f1, cols, mt_proofs})
+        let cols = idx
+            .iter()
+            .map(|&i| mat_e.iter().map(|row| row[i]).collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        let mt_proofs = idx.iter().map(|&i| mt.prove(i)).collect::<Vec<_>>();
+
+        Ok(LigeroProof {
+            f0,
+            f1,
+            cols,
+            mt_proofs,
+        })
     }
 
     fn verify(
@@ -170,7 +159,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
 
         // generate the challenge and compuate the tensor vector
         let r = transcript.get_and_append_challenge_vectors(b"r", m0)?;
-        let (u0, u1) = (get_tensor(&point[..log_m0].to_vec()), get_tensor(&point[log_m0..].to_vec()));
+        let (u0, u1) = (
+            get_tensor(&point[..log_m0].to_vec()),
+            get_tensor(&point[log_m0..].to_vec()),
+        );
 
         // check if the final value is correctly computed
         if (0..m1).map(|i| f1[i] * u1[i]).sum::<F>() != *value {
@@ -179,30 +171,36 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
 
         // choose lambda columes
         // generate a random value alpha and batch `f0 + alpha * f1`
-        let idx: Vec<usize> = transcript.get_and_append_challenge_indices(b"idx", min(128, m1 << 1), m1 << 1)?;
+        let idx: Vec<usize> =
+            transcript.get_and_append_challenge_indices(b"idx", min(128, m1 << 1), m1 << 1)?;
         let alpha: F = transcript.get_and_append_challenge(b"alpha")?;
         let f = (0..m1).map(|i| f0[i] + alpha * f1[i]).collect();
-        
+
         // encode `f`
         let rs = ReedSolomon::<F>::new(m1, rs_len);
         let enc = rs.encode(&f);
-        let enc_i = idx.iter().map(
-            |&i| enc[i]
-        ).collect::<Vec<_>>();
+        let enc_i = idx.iter().map(|&i| enc[i]).collect::<Vec<_>>();
 
         // check if `Enc(f)` and `(r + alpha * u0)^T E` meet at lambda points
-        let cmp_i = (0..idx.len()).map(
-            |i| (0..m0).map(|j| proof.cols[i][j] * (r[j] + alpha * u0[j])).sum::<F>()
-        ).collect::<Vec<_>>();
+        let cmp_i = (0..idx.len())
+            .map(|i| {
+                (0..m0)
+                    .map(|j| proof.cols[i][j] * (r[j] + alpha * u0[j]))
+                    .sum::<F>()
+            })
+            .collect::<Vec<_>>();
         if cmp_i != enc_i {
             return Ok(false);
         }
 
         // check merkle paths
         for i in 0..idx.len() {
-            if !MerkleTree::verify(com, idx[i], 
-                &compute_sha256_row(&proof.cols[i]), 
-                &proof.mt_proofs[i]) {
+            if !MerkleTree::verify(
+                com,
+                idx[i],
+                &compute_sha256_row(&proof.cols[i]),
+                &proof.mt_proofs[i],
+            ) {
                 return Ok(false);
             }
         }

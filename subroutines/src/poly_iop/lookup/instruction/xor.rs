@@ -1,13 +1,16 @@
 use ark_ff::PrimeField;
 use ark_std::log2;
-use rand::prelude::StdRng;
-use rand::RngCore;
+use rand::{prelude::StdRng, RngCore};
 use serde::{Deserialize, Serialize};
 
 use super::JoltInstruction;
-use crate::poly_iop::lookup::instruction::SubtableIndices;
-use crate::poly_iop::lookup::subtable::{xor::XorSubtable, LassoSubtable};
-use crate::poly_iop::lookup::instruction::util::{chunk_and_concatenate_operands, concatenate_lookups};
+use crate::poly_iop::lookup::{
+    instruction::{
+        util::{chunk_and_concatenate_operands, concatenate_lookups},
+        SubtableIndices,
+    },
+    subtable::{xor::XorSubtable, LassoSubtable},
+};
 
 #[derive(Copy, Clone, Default, Debug, Serialize, Deserialize)]
 pub struct XORInstruction(pub u64, pub u64);
@@ -52,7 +55,7 @@ mod test {
     use ark_std::test_rng;
     use rand_chacha::rand_core::RngCore;
 
-    use crate::{poly_iop::lookup::instruction::JoltInstruction, jolt_instruction_test};
+    use crate::{jolt_instruction_test, poly_iop::lookup::instruction::JoltInstruction};
 
     use super::XORInstruction;
 

@@ -9,9 +9,10 @@
 use super::{ZeroCheckSubClaim, ZeroCheckVerifier};
 use crate::poly_iop::{
     errors::PolyIOPErrors,
-    structs::{IOPProverMessage, IOPVerifierState}, sum_check::SumCheckVerifier,
+    structs::{IOPProverMessage, IOPVerifierState},
+    sum_check::SumCheckVerifier,
 };
-use arithmetic::{VPAuxInfo, interpolate_uni_poly};
+use arithmetic::{interpolate_uni_poly, VPAuxInfo};
 use ark_ff::PrimeField;
 use ark_std::{end_timer, start_timer};
 use transcript::IOPTranscript;
@@ -60,7 +61,8 @@ impl<F: PrimeField> ZeroCheckVerifier<F> for ZeroCheckVerifierState<F> {
         prover_msg: &Self::ProverMessage,
         transcript: &mut Self::Transcript,
     ) -> Result<Self::Challenge, PolyIOPErrors> {
-        self.iop.verify_round_and_update_state(prover_msg, transcript)
+        self.iop
+            .verify_round_and_update_state(prover_msg, transcript)
     }
 
     /// This function verifies the deferred checks in the interactive version of
@@ -92,7 +94,8 @@ impl<F: PrimeField> ZeroCheckVerifier<F> for ZeroCheckVerifierState<F> {
         // 2. set `expected` to P(r)`
         #[cfg(feature = "parallel")]
         let mut expected_vec = self
-            .iop.polynomials_received
+            .iop
+            .polynomials_received
             .clone()
             .into_par_iter()
             .zip(self.iop.challenges.clone().into_par_iter())
@@ -110,7 +113,8 @@ impl<F: PrimeField> ZeroCheckVerifier<F> for ZeroCheckVerifierState<F> {
 
         #[cfg(not(feature = "parallel"))]
         let mut expected_vec = self
-            .iop.polynomials_received
+            .iop
+            .polynomials_received
             .clone()
             .into_iter()
             .zip(self.iop.challenges.clone().into_iter())
@@ -137,7 +141,8 @@ impl<F: PrimeField> ZeroCheckVerifier<F> for ZeroCheckVerifierState<F> {
         }
 
         for (round, (evaluations, &expected)) in self
-            .iop.polynomials_received
+            .iop
+            .polynomials_received
             .iter()
             .zip(expected_vec.iter())
             .take(self.iop.num_vars)

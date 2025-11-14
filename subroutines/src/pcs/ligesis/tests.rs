@@ -1,14 +1,14 @@
 use super::*;
 use ark_std::{test_rng, UniformRand};
 // use ark_bls12_381::Fr as F;
-use FGoldilocks as F;
 use ark_poly::MultilinearExtension;
+use FGoldilocks as F;
 
-fn inner_product<F: PrimeField>( a: &Vec<F>, b: &Vec<F> ) -> F {
+fn inner_product<F: PrimeField>(a: &Vec<F>, b: &Vec<F>) -> F {
     a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum()
 }
 
-fn eval_mle_poly<F: PrimeField>( f: &Vec<F>, point: &Vec<F> ) -> F {
+fn eval_mle_poly<F: PrimeField>(f: &Vec<F>, point: &Vec<F>) -> F {
     inner_product(&f, &get_tensor(&point))
 }
 
@@ -18,7 +18,7 @@ fn test_ligesis_pcs() {
     let mu = 24;
 
     let srs = LigeSISPCS::<F>::gen_srs_for_testing(&mut rng, mu).unwrap();
-    
+
     let mut transcript = IOPTranscript::<F>::new(b"ligesis_pcs_test");
     let mut transcript_clone = transcript.clone();
 
@@ -28,18 +28,28 @@ fn test_ligesis_pcs() {
     let start = std::time::Instant::now();
     let (com, advice) = LigeSISPCS::<F>::commit(&pp, &poly, &mut transcript).unwrap();
     println!("Commit: {} s", start.elapsed().as_secs_f64());
-    
+
     let point = (0..mu).map(|_| F::rand(&mut rng)).collect::<Vec<_>>();
-    
+
     let start = std::time::Instant::now();
     let proof = LigeSISPCS::<F>::open(&pp, &poly, &advice, &point, &mut transcript).unwrap();
     println!("Open: {} s", start.elapsed().as_secs_f64());
-    
+
     let value = LigeSISPCS::<F>::compute_value_from_proof(mu - mu / 2, &point, &proof);
-    
+
     let start = std::time::Instant::now();
-    let v_advice = LigeSISPCS::<F>::verifier_receive_commit(&vp, &com, &mut transcript_clone).unwrap();
-    let res = LigeSISPCS::<F>::verify(&vp, &com, &point, &value, &v_advice, &proof, &mut transcript_clone).unwrap();
+    let v_advice =
+        LigeSISPCS::<F>::verifier_receive_commit(&vp, &com, &mut transcript_clone).unwrap();
+    let res = LigeSISPCS::<F>::verify(
+        &vp,
+        &com,
+        &point,
+        &value,
+        &v_advice,
+        &proof,
+        &mut transcript_clone,
+    )
+    .unwrap();
     println!("Verify: {} s", start.elapsed().as_secs_f64());
 
     assert!(res);

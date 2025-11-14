@@ -11,7 +11,7 @@ use arithmetic::math::Math;
 use ark_ff::PrimeField;
 use ark_poly::DenseMultilinearExtension;
 use ark_std::{end_timer, start_timer};
-use rayon::iter::{IntoParallelIterator, ParallelIterator, IndexedParallelIterator};
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use std::sync::Arc;
 
 use deNetwork::{DeMultiNet as Net, DeNet};
@@ -62,7 +62,9 @@ pub(crate) fn compute_leaves<F: PrimeField, const DISTRIBUTED: bool>(
                 let eval_len = num_vars.pow2() as u64;
 
                 let start = if DISTRIBUTED {
-                    shift + eval_len * n_parties * ((l - start) as u64) + eval_len * (Net::party_id() as u64)
+                    shift
+                        + eval_len * n_parties * ((l - start) as u64)
+                        + eval_len * (Net::party_id() as u64)
                 } else {
                     shift + eval_len * ((l - start) as u64)
                 };
@@ -75,7 +77,8 @@ pub(crate) fn compute_leaves<F: PrimeField, const DISTRIBUTED: bool>(
                     .into_par_iter()
                     .enumerate()
                     .map(|(i, (&f_ev, &g_ev, &perm_ev))| {
-                        let numerator = f_ev + *beta * F::from_u64(start + (i as u64)).unwrap() + gamma;
+                        let numerator =
+                            f_ev + *beta * F::from_u64(start + (i as u64)).unwrap() + gamma;
                         let denominator = g_ev + *beta * perm_ev + gamma;
                         (numerator, denominator)
                     })

@@ -2,49 +2,52 @@ use enum_dispatch::enum_dispatch;
 use fixedbitset::*;
 use rand::prelude::StdRng;
 use serde::Serialize;
-use std::marker::Sync;
-use std::ops::Range;
+use std::{marker::Sync, ops::Range};
 
-use ark_ff::PrimeField;
 use super::subtable::LassoSubtable;
+use ark_ff::PrimeField;
 
 mod util;
 
 use util::chunk_operand;
-pub use util::evaluate_mle_dechunk_operands;
-pub use util::concatenate_lookups;
+pub use util::{concatenate_lookups, evaluate_mle_dechunk_operands};
 
 use std::fmt::Debug;
 
 #[enum_dispatch]
 pub trait JoltInstruction: Clone + Debug + Send + Sync + Serialize {
     fn operands(&self) -> (u64, u64);
-    /// Combines `vals` according to the instruction's "collation" polynomial `g`.
-    /// If `vals` are subtable entries (as opposed to MLE evaluations), this function returns the
-    /// output of the instruction. This function can also be thought of as the low-degree extension
+    /// Combines `vals` according to the instruction's "collation" polynomial
+    /// `g`. If `vals` are subtable entries (as opposed to MLE evaluations),
+    /// this function returns the output of the instruction. This function
+    /// can also be thought of as the low-degree extension
     /// for the instruction.
     ///
     /// Params:
     /// - `vals`: Subtable entries or MLE evaluations. Assumed to be ordered
-    ///           [T1_1, ..., T1_C, T2_1, ..., T2_C, ..., Tk_1, ..., Tk_C]
-    ///           where T1, ..., Tk are the unique subtable types used by this instruction, in the order
-    ///           given by the `subtables` method below. Note that some subtable values may be unused.
-    /// - `C`: The "dimension" of the decomposition, i.e. the number of values read from each subtable.
+    ///   [T1_1, ..., T1_C, T2_1, ..., T2_C, ..., Tk_1, ..., Tk_C] where T1,
+    ///   ..., Tk are the unique subtable types used by this instruction, in the
+    ///   order given by the `subtables` method below. Note that some subtable
+    ///   values may be unused.
+    /// - `C`: The "dimension" of the decomposition, i.e. the number of values
+    ///   read from each subtable.
     /// - `M`: The size of each subtable/memory.
     ///
     /// Returns: The combined value g(vals).
     fn combine_lookups<F: PrimeField>(&self, vals: &[F], C: usize, M: usize) -> F;
     /// The degree of the `g` polynomial described by `combine_lookups`
     fn g_poly_degree(&self, C: usize) -> usize;
-    /// Returns a Vec of the unique subtable types used by this instruction. For some instructions,
-    /// e.g. SLL, the list of subtables depends on the dimension `C`.
+    /// Returns a Vec of the unique subtable types used by this instruction. For
+    /// some instructions, e.g. SLL, the list of subtables depends on the
+    /// dimension `C`.
     fn subtables<F: PrimeField>(
         &self,
         C: usize,
         M: usize,
     ) -> Vec<(Box<dyn LassoSubtable<F>>, SubtableIndices)>;
-    /// Converts the instruction operand(s) in their native word-sized representation into a Vec
-    /// of subtable lookups indices. The returned Vec is length `C`, with elements in [0, `log_M`).
+    /// Converts the instruction operand(s) in their native word-sized
+    /// representation into a Vec of subtable lookups indices. The returned
+    /// Vec is length `C`, with elements in [0, `log_M`).
     fn to_indices(&self, C: usize, log_M: usize) -> Vec<usize>;
     /// Computes the output lookup entry for this instruction as a u64.
     fn lookup_entry(&self) -> u64;

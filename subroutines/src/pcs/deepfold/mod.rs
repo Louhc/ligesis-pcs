@@ -1,4 +1,5 @@
 use core::num;
+use std::time::Instant;
 
 use crate::{pcs::{deepfold, prelude::*}, IOPProof, PolyIOP, SumCheck};
 use arithmetic::{VirtualPolynomial, VPAuxInfo};
@@ -192,7 +193,19 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
 
         let f0 = evals_to_coeffs(mu, &poly.evaluations);
         let v0 = l0.fft(&f0);
+
+        let start = std::time::Instant::now();
         let mt0 = MerkleTree::new(&v0.iter().map(|&x| compute_sha256_row(&[x])).collect());
+        println!("Merkle Tree : {} ms", start.elapsed().as_millis());
+
+
+// {
+//     let len = v0.len() / 8;
+//     let start = Instant::now();
+//     let mt1 = MerkleTree::new(&(0..len).map(|i| compute_sha256_row(&[v0[i], v0[i + len], v0[i + len * 2], v0[i + len * 3], v0[i + len * 4], v0[i + len * 5], v0[i + len * 6], v0[i + len * 7]], )).collect());
+//         println!("Merkle Tree2 : {} ms", start.elapsed().as_millis());
+// }
+
         let rt0 = mt0.root();
         transcript.append_message(b"merkle tree root", &rt0)?;
         let alpha0 = transcript.get_and_append_challenge(b"alpha0")?;
@@ -349,6 +362,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         let mt0_list = advices.iter().map(|advice| &advice.mt0).collect::<Vec<_>>();
 
         // SumCheck Phase
+        let start = std::time::Instant::now();
         let r = transcript.get_and_append_challenge(b"batched_sumcheck")?;
         let mut sum_check = VirtualPolynomial::new(max_mu);
         for i in 0..num_poly {
@@ -362,8 +376,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         let sum_check_evals = polynomials.iter().map(
             |poly| eval_mle_poly(&poly.evaluations, &point)
         ).collect::<Vec<_>>();
-        
+        println!("DeepFoldPCS sumcheck : {} ms", start.elapsed().as_millis());
+
         // Batched Open Phase
+        let start = std::time::Instant::now();
         let gamma = transcript.get_and_append_challenge_vectors(b"gamma", num_poly)?;
         let poly = evals_to_arcpoly(&(0..1 << max_mu).map(
             |i| (0..num_poly).map(
@@ -374,9 +390,13 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         let v0 = l0.fft(&f0);
         let mt0 = MerkleTree::new(&v0.iter().map(|&x| compute_sha256_row(&[x])).collect());
         let deepfold_prover_advice = DeepFoldProverCommitmentAdvice{f0, alpha0, mt0, v0};
+        println!("DeepFoldPCS before multi_open : {} ms", start.elapsed().as_millis());
+        let start = std::time::Instant::now();
         let deepfold_proof = Self::open(prover_param, &poly, &deepfold_prover_advice, &point, transcript)?;
+        println!("DeepFoldPCS multi_open : {} ms", start.elapsed().as_millis());
 
         // Additional checks for mt0
+        let start = std::time::Instant::now();
         let mut mt_proofs_for_mt0 = Vec::new();
         for t in 0..s {
             mt_proofs_for_mt0.push(Vec::new());
@@ -392,6 +412,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         let evals = polynomials.iter().zip(points.iter()).map(
             |(poly, point)| eval_mle_poly(&poly.evaluations, point)
         ).collect::<Vec<_>>();
+        println!("DeepFoldPCS merkle tree : {} ms", start.elapsed().as_millis());
         
 
         Ok(Self::BatchProof{

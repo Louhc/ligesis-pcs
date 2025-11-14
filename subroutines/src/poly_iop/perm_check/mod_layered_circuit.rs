@@ -6,10 +6,13 @@
 
 //! Main module for the Permutation Check protocol
 
-use crate::{drop_in_background_thread, poly_iop::{errors::PolyIOPErrors, PolyIOP}};
+use crate::{
+    drop_in_background_thread,
+    poly_iop::{errors::PolyIOPErrors, PolyIOP},
+};
 use arithmetic::math::Math;
-use ark_ff::PrimeField;
 use ark_ec::pairing::Pairing;
+use ark_ff::PrimeField;
 use ark_poly::DenseMultilinearExtension;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{end_timer, start_timer, One};
@@ -141,7 +144,7 @@ where
 
 impl<E, PCS> PermutationCheck<E, PCS> for PolyIOP<E::ScalarField>
 where
-    E: Pairing
+    E: Pairing,
 {
     type PermutationCheckSubClaim = PermutationCheckSubClaim<E::ScalarField>;
     type PermutationProof = PermutationCheckProof<E::ScalarField>;
@@ -181,12 +184,13 @@ where
             .map(|mut leave| {
                 let leave_len = leave.len();
                 let batched_circuit =
-                    <BatchedDenseGrandProduct<E::ScalarField> as BatchedGrandProduct<E::ScalarField>>::construct(take(
-                        &mut leave,
-                    ));
-                let mut f_claims = <BatchedDenseGrandProduct<E::ScalarField> as BatchedGrandProduct<E::ScalarField>>::claims(
-                    &batched_circuit,
-                );
+                    <BatchedDenseGrandProduct<E::ScalarField> as BatchedGrandProduct<
+                        E::ScalarField,
+                    >>::construct(take(&mut leave));
+                let mut f_claims =
+                    <BatchedDenseGrandProduct<E::ScalarField> as BatchedGrandProduct<
+                        E::ScalarField,
+                    >>::claims(&batched_circuit);
                 let g_claims = f_claims.split_off(leave_len / 2);
                 (batched_circuit, f_claims, g_claims)
             })
@@ -248,9 +252,9 @@ where
             .map(|mut leave| {
                 let leave_len = leave.len();
                 let (batched_circuit, companion_circuit) =
-                    <BatchedDenseGrandProduct<E::ScalarField> as BatchedGrandProduct<E::ScalarField>>::d_construct(take(
-                        &mut leave,
-                    ));
+                    <BatchedDenseGrandProduct<E::ScalarField> as BatchedGrandProduct<
+                        E::ScalarField,
+                    >>::d_construct(take(&mut leave));
                 if Net::am_master() {
                     let mut f_claims = companion_circuit.as_ref().unwrap().claims();
                     let g_claims = f_claims.split_off(leave_len / 2);
@@ -266,12 +270,11 @@ where
         let mut proofs = Vec::with_capacity(to_prove.len());
         let mut points = Vec::with_capacity(to_prove.len());
         for (batched_circuit, companion_circuit, f_claims, g_claims) in to_prove.iter_mut() {
-            let proof_ret =
-                <BatchedDenseGrandProduct<E::ScalarField> as BatchedGrandProduct<E::ScalarField>>::d_prove_grand_product(
-                    batched_circuit,
-                    companion_circuit.as_mut(),
-                    transcript,
-                );
+            let proof_ret = <BatchedDenseGrandProduct<E::ScalarField> as BatchedGrandProduct<
+                E::ScalarField,
+            >>::d_prove_grand_product(
+                batched_circuit, companion_circuit.as_mut(), transcript
+            );
             if Net::am_master() {
                 let (proof, point) = proof_ret.unwrap();
                 proofs.push(PermutationCheckProofSingle {
@@ -405,12 +408,12 @@ mod test {
         random_permutation_u64,
     };
     use ark_bls12_381::{Bls12_381, Fr};
+    use ark_ec::pairing::Pairing;
     use ark_ff::PrimeField;
     use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
     use ark_std::test_rng;
     use rand_core::RngCore;
     use std::sync::Arc;
-    use ark_ec::pairing::Pairing;
 
     fn test_permutation_check_helper<E>(
         fxs: &[Arc<DenseMultilinearExtension<E::ScalarField>>],
@@ -418,16 +421,22 @@ mod test {
         perms: &[Arc<DenseMultilinearExtension<E::ScalarField>>],
     ) -> Result<(), PolyIOPErrors>
     where
-        E: Pairing
+        E: Pairing,
     {
         // prover
-        let mut transcript = <PolyIOP<E::ScalarField> as PermutationCheck<E, ()>>::init_transcript();
+        let mut transcript =
+            <PolyIOP<E::ScalarField> as PermutationCheck<E, ()>>::init_transcript();
         transcript.append_message(b"testing", b"initializing transcript for testing")?;
-        let (proof, _) =
-            <PolyIOP<E::ScalarField> as PermutationCheck<E, ()>>::prove(fxs, gxs, perms, &mut transcript)?;
+        let (proof, _) = <PolyIOP<E::ScalarField> as PermutationCheck<E, ()>>::prove(
+            fxs,
+            gxs,
+            perms,
+            &mut transcript,
+        )?;
 
         // verifier
-        let mut transcript = <PolyIOP<E::ScalarField> as PermutationCheck<E, ()>>::init_transcript();
+        let mut transcript =
+            <PolyIOP<E::ScalarField> as PermutationCheck<E, ()>>::init_transcript();
         transcript.append_message(b"testing", b"initializing transcript for testing")?;
         let perm_check_sub_claim =
             <PolyIOP<E::ScalarField> as PermutationCheck<E, ()>>::verify(&proof, &mut transcript)?;
