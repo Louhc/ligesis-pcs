@@ -14,6 +14,7 @@ use ark_ff::{batch_inversion, One, PrimeField};
 use ark_poly::DenseMultilinearExtension;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use sha2::digest::InvalidOutputSize;
 use std::{mem::take, sync::Arc};
 use transcript::IOPTranscript;
 
@@ -386,12 +387,12 @@ where
         let (f_inv_comm, mut f_advice): (Vec<_>, Vec<_>) = f_leaves
             .2
             .iter()
-            .map(|inv| PCS::commit(pcs_param, inv, transcript).unwrap())
+            .map(|inv| PCS::commit(pcs_param, inv).unwrap())
             .unzip();
         let (g_inv_comm, mut g_advice): (Vec<_>, Vec<_>) = g_leaves
             .2
             .iter()
-            .map(|inv| PCS::commit(pcs_param, inv, transcript).unwrap())
+            .map(|inv| PCS::commit(pcs_param, inv).unwrap())
             .unzip();
 
         // let ((f_inv_comm, mut f_advice), (g_inv_comm, mut g_advice)): (

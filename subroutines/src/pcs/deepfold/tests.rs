@@ -20,7 +20,7 @@ fn test_deepfold_pcs() {
     let poly_arc = Arc::new(poly);
 
     let start = std::time::Instant::now();
-    let (com, advice) = DeepFoldPCS::<F>::commit(&pp, &poly_arc, &mut transcript).unwrap();
+    let (com, advice) = DeepFoldPCS::<F>::commit(&pp, &poly_arc).unwrap();
     println!("DeepFoldPCS commit : {} ms", start.elapsed().as_millis());
 
     let point = random_field_vector_from_rng::<F>(mu, &mut rng);
@@ -30,13 +30,11 @@ fn test_deepfold_pcs() {
 
     let value = DeepFoldPCS::compute_value_from_proof(&point, &proof);
 
-    let v_advice = DeepFoldPCS::verifier_receive_commit(&vp, &com, &mut transcript_clone).unwrap();
     let result = DeepFoldPCS::verify(
         &vp,
         &com,
         &point,
         &value,
-        &v_advice,
         &proof,
         &mut transcript_clone,
     )

@@ -23,7 +23,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DummyPCS<F> {
     type Commitment = ();
     type Proof = ();
     type BatchProof = ();
-    type VerifierCommitmentAdvice = ();
 
     /// Build SRS for testing.
     ///
@@ -55,7 +54,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DummyPCS<F> {
     fn commit(
         _prover_param: impl Borrow<Self::ProverParam>,
         _poly: &Self::Polynomial,
-        _transcript: &mut IOPTranscript<F>,
     ) -> Result<(Self::Commitment, Self::ProverCommitmentAdvice), PCSError> {
         Ok(((), ()))
     }
@@ -122,7 +120,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DummyPCS<F> {
         _commitment: &Self::Commitment,
         _point: &Self::Point,
         _value: &F,
-        _advice: &Self::VerifierCommitmentAdvice,
         _proof: &Self::Proof,
         _transcript: &mut IOPTranscript<F>,
     ) -> Result<bool, PCSError> {
@@ -135,7 +132,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DummyPCS<F> {
         _verifier_param: &Self::VerifierParam,
         _commitments: &[Self::Commitment],
         _points: &[Self::Point],
-        _advice: &[Self::VerifierCommitmentAdvice],
         _batch_proof: &Self::BatchProof,
         _transcript: &mut IOPTranscript<F>,
     ) -> Result<bool, PCSError> {

@@ -252,7 +252,7 @@ where
                 };
 
                 let h_poly = Arc::new(DenseMultilinearExtension::from_evaluations_vec(nv, h_evals));
-                let (h_comm, h_advice) = PCS::commit(prover_param, &h_poly, transcript).unwrap();
+                let (h_comm, h_advice) = PCS::commit(prover_param, &h_poly).unwrap();
 
                 (g_polys, h_poly, claim, h_comm, h_advice)
             })

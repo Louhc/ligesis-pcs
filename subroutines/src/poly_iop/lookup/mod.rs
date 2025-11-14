@@ -177,17 +177,17 @@ where
         let (E_commitment, E_advice): (Vec<_>, Vec<_>) = self
             .E_polys
             .iter()
-            .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
+            .map(|poly| PCS::commit(pcs_params, poly).unwrap())
             .unzip();
         let (dim_commitment, dim_advice): (Vec<_>, Vec<_>) = self
             .dim
             .iter()
-            .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
+            .map(|poly| PCS::commit(pcs_params, poly).unwrap())
             .unzip();
         let (m_commitment, m_advice): (Vec<_>, Vec<_>) = self
             .m
             .iter()
-            .map(|poly| PCS::commit(pcs_params, poly, transcript).unwrap())
+            .map(|poly| PCS::commit(pcs_params, poly).unwrap())
             .unzip();
         // let ((E_commitment, E_advice), ((dim_commitment, dim_advice), (m_commitment,
         // m_advice))) :  ((Vec<_>, Vec<_>), ((Vec<_>, Vec<_>), (Vec<_>,
