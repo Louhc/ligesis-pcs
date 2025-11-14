@@ -99,7 +99,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for TrivialPCS<F> {
     fn multi_open(
         _prover_param: impl Borrow<Self::ProverParam>,
         _polynomials: Vec<Self::Polynomial>,
-        _advices: &[Self::ProverCommitmentAdvice],
+        _advices: &[&Self::ProverCommitmentAdvice],
         _points: &[Self::Point],
         _evals: &[Self::Evaluation],
         _transcript: &mut IOPTranscript<F>,
@@ -110,7 +110,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for TrivialPCS<F> {
     fn d_multi_open(
         _prover_param: impl Borrow<Self::ProverParam>,
         _polynomials: Vec<Self::Polynomial>,
-        _advices: &[Self::ProverCommitmentAdvice],
+        _advices: &[&Self::ProverCommitmentAdvice],
         _points: &[Self::Point],
         _evals: &[Self::Evaluation],
         _transcript: &mut IOPTranscript<F>,

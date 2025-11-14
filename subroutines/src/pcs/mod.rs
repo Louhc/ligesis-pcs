@@ -156,7 +156,7 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
     fn multi_open(
         prover_param: impl Borrow<Self::ProverParam>,
         polynomials: Vec<Self::Polynomial>,
-        advices: &[Self::ProverCommitmentAdvice],
+        advices: &[&Self::ProverCommitmentAdvice],
         points: &[Self::Point],
         evals: &[Self::Evaluation],
         transcript: &mut IOPTranscript<F>,
@@ -167,7 +167,7 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
     fn d_multi_open(
         _prover_param: impl Borrow<Self::ProverParam>,
         _polynomials: Vec<Self::Polynomial>,
-        _advices: &[Self::ProverCommitmentAdvice],
+        _advices: &[&Self::ProverCommitmentAdvice],
         _points: &[Self::Point],
         _evals: &[Self::Evaluation],
         _transcript: &mut IOPTranscript<F>,

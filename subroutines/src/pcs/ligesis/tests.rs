@@ -15,7 +15,7 @@ fn eval_mle_poly<F: PrimeField>(f: &Vec<F>, point: &Vec<F>) -> F {
 #[test]
 fn test_ligesis_pcs() {
     let mut rng = test_rng();
-    let mu = 22;
+    let mu = 26;
 
     let srs = LigeSISPCS::<F>::gen_srs_for_testing(&mut rng, mu).unwrap();
 

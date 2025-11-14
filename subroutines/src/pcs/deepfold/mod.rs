@@ -130,9 +130,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         poly: &Self::Polynomial,
     ) -> Result<(Self::Commitment, Self::ProverCommitmentAdvice), PCSError> {
         let &Self::ProverParam{max_mu, l0, s} = prover_param.borrow();
-        // let mu = poly.num_vars;
-        let mu = max_mu;
-        let poly = resize_poly(&poly, mu);
+        let mu = poly.num_vars;
+        // let mu = max_mu;
+        // let poly = resize_poly(&poly, mu);
         assert!(mu <= max_mu);
 
         let f0 = evals_to_coeffs(mu, &poly.evaluations);
@@ -156,10 +156,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
     ) -> Result<Self::Proof, PCSError> {
         let &Self::ProverParam{max_mu, l0, s} = prover_param.borrow();
         
-        // let mu = poly.num_vars;
-        let mu = max_mu;
-        let poly = resize_poly(&poly, mu);
-        let point = resize_point(&point, mu);
+        let mu = poly.num_vars;
+        // let mu = max_mu;
+        // let poly = resize_poly(&poly, mu);
+        // let point = resize_point(&point, mu);
         
         assert!(mu <= max_mu);
 
@@ -259,17 +259,22 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
     fn multi_open(
             prover_param: impl Borrow<Self::ProverParam>,
             polynomials: Vec<Self::Polynomial>,
-            advices: &[Self::ProverCommitmentAdvice],
+            advices: &[&Self::ProverCommitmentAdvice],
             points: &[Self::Point],
             _evals: &[Self::Evaluation],
             transcript: &mut IOPTranscript<F>,
         ) -> Result<Self::BatchProof, PCSError> {
+        let start = std::time::Instant::now();
         let &Self::ProverParam{max_mu, l0, s} = prover_param.borrow();
         let num_poly = polynomials.len();
         let mu = max_mu;
-        let polynomials = polynomials.iter().map(|poly| resize_poly(&poly, mu)).collect::<Vec<_>>();
-        let points = points.iter().map(|point| resize_point(&point, mu)).collect::<Vec<_>>();
+        assert!(polynomials.iter().all(|poly| poly.num_vars == mu));
+        assert!(points.iter().all(|point| point.len() == mu));
+        assert!(points.len() == num_poly && advices.len() == num_poly);
+        // let polynomials = polynomials.iter().map(|poly| resize_poly(&poly, mu)).collect::<Vec<_>>();
+        // let points = points.iter().map(|point| resize_point(&point, mu)).collect::<Vec<_>>();
         let mt0_list = advices.iter().map(|advice| &advice.mt0).collect::<Vec<_>>();
+        println!("  DeepFoldPCS trim and check insaneness : {} ms", start.elapsed().as_millis());
 
         // SumCheck Phase
         let start = std::time::Instant::now();
@@ -286,7 +291,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         let sum_check_evals = polynomials.iter().map(
             |poly| eval_mle_poly(&poly.evaluations, &point)
         ).collect::<Vec<_>>();
-        println!("DeepFoldPCS sumcheck : {} ms", start.elapsed().as_millis());
+        println!("  DeepFoldPCS sumcheck : {} ms", start.elapsed().as_millis());
 
         // Batched Open Phase
         let start = std::time::Instant::now();
@@ -300,10 +305,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         let v0 = l0.fft(&f0);
         let mt0 = MerkleTree::new(&v0.iter().map(|&x| compute_sha256_row(&[x])).collect());
         let deepfold_prover_advice = DeepFoldProverCommitmentAdvice{f0, mt0, v0};
-        println!("DeepFoldPCS before multi_open : {} ms", start.elapsed().as_millis());
+        println!("  DeepFoldPCS before multi_open : {} ms", start.elapsed().as_millis());
         let start = std::time::Instant::now();
         let deepfold_proof = Self::open(prover_param, &poly, &deepfold_prover_advice, &point, transcript)?;
-        println!("DeepFoldPCS multi_open : {} ms", start.elapsed().as_millis());
+        println!("  DeepFoldPCS multi_open : {} ms", start.elapsed().as_millis());
 
         // Additional checks for mt0
         let start = std::time::Instant::now();
@@ -322,7 +327,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         let evals = polynomials.iter().zip(points.iter()).map(
             |(poly, point)| eval_mle_poly(&poly.evaluations, point)
         ).collect::<Vec<_>>();
-        println!("DeepFoldPCS merkle tree : {} ms", start.elapsed().as_millis());
+        println!("  DeepFoldPCS merkle tree : {} ms", start.elapsed().as_millis());
         
 
         Ok(Self::BatchProof{
@@ -344,8 +349,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
     ) -> Result<bool, PCSError> {
         let Self::VerifierParam{max_mu, len_l0, g, s} = verifier_param.clone();
         let Self::Commitment{mu, rt0} = com.clone();
-        let mu = max_mu;
-        let point = resize_point(&point, mu);
+        // let mu = max_mu;
+        // let point = resize_point(&point, mu);
         assert!(mu <= max_mu);
         let Self::Proof{linear_polys, mt_roots, f_mu, mt_proofs} = proof.clone();
         
@@ -428,8 +433,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
     ) -> Result<bool, PCSError> {
         let Self::VerifierParam{max_mu, len_l0, g, s} = verifier_param.clone();
         let mu = max_mu;
+        assert!(commitments.iter().all(|com| com.mu == mu));
         let num_poly = commitments.len();
-        let points = points.iter().map(|point| resize_point(&point, mu)).collect::<Vec<_>>();
+        // let points = points.iter().map(|point| resize_point(&point, mu)).collect::<Vec<_>>();
+        assert!(points.iter().all(|point| point.len() == mu));
         assert!(points.len() == num_poly);
         let Self::BatchProof{deepfold_proof, sum_check_proof, mt_proofs_for_mt0, evals, sum_check_evals} = batch_proof.clone();
 
