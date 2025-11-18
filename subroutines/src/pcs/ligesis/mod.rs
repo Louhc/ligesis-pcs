@@ -20,6 +20,13 @@ use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 mod types;
 use types::*;
 
+#[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq)]
+/// proof of lookup
+pub struct LigeSISLookupProof<F: PrimeField> {
+    pub sumcheck_proof: IOPProof<F>,
+}
+
+
 #[cfg(test)]
 mod tests;
 
@@ -92,7 +99,7 @@ pub struct LigeSISProof<F: PrimeField> {
     pub v_bI_r2_check_proof: IOPProof<F>,
     pub rs_a_check_proof: IOPProof<F>,
     pub mat_g_check_proofs: Vec<IOPProof<F>>,
-    pub lookup_proof: (),
+    pub lookup_proof: LigeSISLookupProof<F>,
     pub deepfold_batched_proof: <DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::BatchProof,
 }
 
@@ -533,7 +540,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             mat_g_check_proofs.push(mat_g_check_proof);
         }
 
-        // Step 8 Lookup Argument
+        // Step 8 - Lookup Argument Verification Lookup Argument
         let eq_alpha2_a_bI = mat_mul(
             &vec![get_tensor(&alpha2)],
             &field_mat_mul_bool_mat(&mat_a, &mat_bI),
@@ -549,10 +556,28 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let eq_alpha2_h = mat_mul(&vec![get_tensor(&alpha2)], &mat_h).concat();
 
         // Lookup Argument for (I, eq_alpha2_a_bI, v_bI) in ([2n], eq_alpha2_h, rs_a)
-        assert!(
-            (0..s_lambda).all(|k| eq_alpha2_a_bI[k] == eq_alpha2_h[I[k]] && v_bI[k] == rs_a[I[k]])
-        );
-        let lookup_proof = ();
+        let gamma = transcript.get_and_append_challenge_vectors(b"gamma", 1)?[0];
+        let r = transcript.get_and_append_challenge_vectors(b"r", s_lambda.ilog2() as usize)?;
+        let eq_r = get_tensor(&r);
+
+
+        let mut lookup_check = VirtualPolynomial::new(s_lambda.ilog2() as usize);
+        let mut eq_alpha2_h_circ_I = vec![F::ZERO; s_lambda];
+        let mut rs_a_circ_I = vec![F::ZERO; s_lambda];
+        for i in 0..s_lambda {
+            eq_alpha2_h_circ_I[i] = eq_alpha2_h[I[i]];
+            rs_a_circ_I[i] = rs_a[I[i]];
+        }
+
+        lookup_check.add_mle_list([evals_to_arcpoly(&eq_r), evals_to_arcpoly(&eq_alpha2_a_bI)], F::ONE).unwrap();
+        lookup_check.add_mle_list([evals_to_arcpoly(&eq_r), evals_to_arcpoly(&eq_alpha2_h_circ_I)], -F::ONE).unwrap();
+        lookup_check.add_mle_list([evals_to_arcpoly(&eq_r), evals_to_arcpoly(&v_bI)], gamma).unwrap();
+        lookup_check.add_mle_list([evals_to_arcpoly(&eq_r), evals_to_arcpoly(&rs_a_circ_I)], -gamma).unwrap();
+
+        let lookup_proof = LigeSISLookupProof {
+            sumcheck_proof: <PolyIOP<F> as SumCheck<F>>::prove(lookup_check, transcript).unwrap(),
+        };
+
         let r2 = vec![F::ONE; s_lambda.ilog2() as usize];
         let r3 = vec![F::ONE; 1 + log_n];
 
@@ -784,6 +809,29 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         }
 
         // Step 8
+        let gamma = transcript.get_and_append_challenge_vectors(b"gamma", 1)?[0];
+        let r = transcript.get_and_append_challenge_vectors(b"r", s_lambda.ilog2() as usize)?;
+
+        let LigeSISLookupProof { sumcheck_proof: lookup_sumcheck_proof } = lookup_proof;
+        let lookup_sum = <PolyIOP<F> as SumCheck<F>>::extract_sum(&lookup_sumcheck_proof);
+        if lookup_sum != F::ZERO {
+            return Ok(false);
+        }
+
+        let lookup_claim = <PolyIOP<F> as SumCheck<F>>::verify(
+            lookup_sum,
+            &lookup_sumcheck_proof,
+            &VPAuxInfo {
+                max_degree: 2,
+                num_variables: s_lambda.ilog2() as usize,
+                phantom: PhantomData::<F>::default(),
+            },
+            transcript,
+        )
+        .unwrap();
+
+        let r_lookup = lookup_sumcheck_proof.point.clone();
+
         let r2 = vec![F::ONE; s_lambda.ilog2() as usize];
         let r3 = vec![F::ONE; 1 + log_n];
 
