@@ -820,7 +820,8 @@ where
                 } else {
                     witnesses.len() + 1
                 }
-            }).max()
+            })
+            .max()
             .unwrap();
 
         let info = CombinedCheckInfo {

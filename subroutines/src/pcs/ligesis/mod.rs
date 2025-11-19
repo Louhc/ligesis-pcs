@@ -26,7 +26,6 @@ pub struct LigeSISLookupProof<F: PrimeField> {
     pub sumcheck_proof: IOPProof<F>,
 }
 
-
 #[cfg(test)]
 mod tests;
 
@@ -204,7 +203,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         )?;
 
         let mat_a_pad = evals_to_arcpoly(&resize_eval(&mat_a.concat(), deepfold_srs.max_mu));
-        let (com_mat_a, com_mat_a_advice) = DeepFoldPCS::commit(&deepfold_prover_param, &mat_a_pad)?;
+        let (com_mat_a, com_mat_a_advice) =
+            DeepFoldPCS::commit(&deepfold_prover_param, &mat_a_pad)?;
 
         let rs = ReedSolomon::<F>::new(n, rs_len);
         let g = rs.get_generator();
@@ -298,11 +298,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         println!("SIS_Hash(B): {} s", start.elapsed().as_secs_f64());
 
         // compute com(H)
-        let mat_h_pad = evals_to_arcpoly(&resize_eval(&mat_h.concat(), deepfold_prover_param.max_mu));
-        let (com_mat_h, com_mat_h_advice) = DeepFoldPCS::commit(
-            deepfold_prover_param,
-            &mat_h_pad,
-        )?;
+        let mat_h_pad =
+            evals_to_arcpoly(&resize_eval(&mat_h.concat(), deepfold_prover_param.max_mu));
+        let (com_mat_h, com_mat_h_advice) = DeepFoldPCS::commit(deepfold_prover_param, &mat_h_pad)?;
 
         Ok((
             LigeSISCommitment { com_mat_h },
@@ -362,11 +360,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
                         .collect::<Vec<_>>()
                 })
                 .collect::<Vec<_>>();
-            let mat_h_pad = evals_to_arcpoly(&resize_eval(&mat_h.concat(), deepfold_prover_param.max_mu));
-            let (com_mat_h, com_mat_h_advice) = DeepFoldPCS::commit(
-                deepfold_prover_param,
-                &mat_h_pad,
-            )?;
+            let mat_h_pad =
+                evals_to_arcpoly(&resize_eval(&mat_h.concat(), deepfold_prover_param.max_mu));
+            let (com_mat_h, com_mat_h_advice) =
+                DeepFoldPCS::commit(deepfold_prover_param, &mat_h_pad)?;
             Ok((
                 Some(LigeSISCommitment { com_mat_h }),
                 LigeSISProverCommitmentAdvice {
@@ -435,10 +432,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             .map(|j| (0..m).map(|i| eq_z1[i] * mat_f[i][j]).sum())
             .collect::<Vec<F>>();
         let a_pad = evals_to_arcpoly(&resize_eval(&a, deepfold_prover_param.max_mu));
-        let (com_a, com_a_advice) = DeepFoldPCS::commit(
-            deepfold_prover_param,
-            &a_pad,
-        )?;
+        let (com_a, com_a_advice) = DeepFoldPCS::commit(deepfold_prover_param, &a_pad)?;
         println!("DeepFold.Commit(a): {} s", start.elapsed().as_secs_f64());
 
         // Step 3
@@ -455,10 +449,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         );
         let bI_field = bool_vec_to_field_vec(&mat_bI.concat());
         let bI_field_pad = evals_to_arcpoly(&resize_eval(&bI_field, deepfold_prover_param.max_mu));
-        let (com_bI, com_bI_advice) = DeepFoldPCS::commit(
-            deepfold_prover_param,
-            &evals_to_arcpoly(&bI_field),
-        )?;
+        let (com_bI, com_bI_advice) =
+            DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&bI_field))?;
         println!("DeepFold.Commit(B_I): {} s", start.elapsed().as_secs_f64());
 
         // Step 5
@@ -487,10 +479,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let rs_a = rs.encode(&a);
         let g = rs.get_generator();
         let rs_a_pad = evals_to_arcpoly(&resize_eval(&rs_a, deepfold_prover_param.max_mu));
-        let (com_rs_a, com_rs_a_advice) = DeepFoldPCS::commit(
-            deepfold_prover_param,
-            &rs_a_pad,
-        )?;
+        let (com_rs_a, com_rs_a_advice) = DeepFoldPCS::commit(deepfold_prover_param, &rs_a_pad)?;
 
         // Step 7.1 check eq_alpha3^T * G * a = eq_alpha3^T * rs_a
         //  \sum_i alpha3_mat_g(i) * a(i) = eq_alpha3^T * rs_a
@@ -560,7 +549,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let r = transcript.get_and_append_challenge_vectors(b"r", s_lambda.ilog2() as usize)?;
         let eq_r = get_tensor(&r);
 
-
         let mut lookup_check = VirtualPolynomial::new(s_lambda.ilog2() as usize);
         let mut eq_alpha2_h_circ_I = vec![F::ZERO; s_lambda];
         let mut rs_a_circ_I = vec![F::ZERO; s_lambda];
@@ -569,10 +557,30 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             rs_a_circ_I[i] = rs_a[I[i]];
         }
 
-        lookup_check.add_mle_list([evals_to_arcpoly(&eq_r), evals_to_arcpoly(&eq_alpha2_a_bI)], F::ONE).unwrap();
-        lookup_check.add_mle_list([evals_to_arcpoly(&eq_r), evals_to_arcpoly(&eq_alpha2_h_circ_I)], -F::ONE).unwrap();
-        lookup_check.add_mle_list([evals_to_arcpoly(&eq_r), evals_to_arcpoly(&v_bI)], gamma).unwrap();
-        lookup_check.add_mle_list([evals_to_arcpoly(&eq_r), evals_to_arcpoly(&rs_a_circ_I)], -gamma).unwrap();
+        lookup_check
+            .add_mle_list(
+                [evals_to_arcpoly(&eq_r), evals_to_arcpoly(&eq_alpha2_a_bI)],
+                F::ONE,
+            )
+            .unwrap();
+        lookup_check
+            .add_mle_list(
+                [
+                    evals_to_arcpoly(&eq_r),
+                    evals_to_arcpoly(&eq_alpha2_h_circ_I),
+                ],
+                -F::ONE,
+            )
+            .unwrap();
+        lookup_check
+            .add_mle_list([evals_to_arcpoly(&eq_r), evals_to_arcpoly(&v_bI)], gamma)
+            .unwrap();
+        lookup_check
+            .add_mle_list(
+                [evals_to_arcpoly(&eq_r), evals_to_arcpoly(&rs_a_circ_I)],
+                -gamma,
+            )
+            .unwrap();
 
         let lookup_proof = LigeSISLookupProof {
             sumcheck_proof: <PolyIOP<F> as SumCheck<F>>::prove(lookup_check, transcript).unwrap(),
@@ -618,7 +626,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             &bI_field_pad,
             &bI_field_pad,
             &bI_field_pad,
-        ].map(|p| Arc::clone(p)).to_vec();
+        ]
+        .map(|p| Arc::clone(p))
+        .to_vec();
         let advices = [
             &com_a_advice,
             &com_a_advice,
@@ -630,7 +640,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             &com_bI_advice,
             &com_bI_advice,
         ];
-        println!("DeepFold.Prepare polys: {} s", start.elapsed().as_secs_f64());
+        println!(
+            "DeepFold.Prepare polys: {} s",
+            start.elapsed().as_secs_f64()
+        );
         let start = std::time::Instant::now();
         let points = [
             &z2,
@@ -812,7 +825,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let gamma = transcript.get_and_append_challenge_vectors(b"gamma", 1)?[0];
         let r = transcript.get_and_append_challenge_vectors(b"r", s_lambda.ilog2() as usize)?;
 
-        let LigeSISLookupProof { sumcheck_proof: lookup_sumcheck_proof } = lookup_proof;
+        let LigeSISLookupProof {
+            sumcheck_proof: lookup_sumcheck_proof,
+        } = lookup_proof;
         let lookup_sum = <PolyIOP<F> as SumCheck<F>>::extract_sum(&lookup_sumcheck_proof);
         if lookup_sum != F::ZERO {
             return Ok(false);
@@ -903,7 +918,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             r1,
             vec![r2.clone(), r4.clone()].concat(),
             vec![r2.clone(), r5.clone()].concat(),
-        ].map(|p| resize_point(&p, deepfold_verifier_param.max_mu));
+        ]
+        .map(|p| resize_point(&p, deepfold_verifier_param.max_mu));
         if values[0] != *value {
             return Ok(false);
         }

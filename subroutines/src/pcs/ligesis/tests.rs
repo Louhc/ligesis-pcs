@@ -38,15 +38,8 @@ fn test_ligesis_pcs() {
     let value = LigeSISPCS::<F>::compute_value_from_proof(mu - mu / 2, &point, &proof);
 
     let start = std::time::Instant::now();
-    let res = LigeSISPCS::<F>::verify(
-        &vp,
-        &com,
-        &point,
-        &value,
-        &proof,
-        &mut transcript_clone,
-    )
-    .unwrap();
+    let res =
+        LigeSISPCS::<F>::verify(&vp, &com, &point, &value, &proof, &mut transcript_clone).unwrap();
     println!("Verify: {} s", start.elapsed().as_secs_f64());
 
     assert!(res);

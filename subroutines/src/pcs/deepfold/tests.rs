@@ -30,15 +30,8 @@ fn test_deepfold_pcs() {
 
     let value = DeepFoldPCS::compute_value_from_proof(&point, &proof);
 
-    let result = DeepFoldPCS::verify(
-        &vp,
-        &com,
-        &point,
-        &value,
-        &proof,
-        &mut transcript_clone,
-    )
-    .unwrap();
+    let result =
+        DeepFoldPCS::verify(&vp, &com, &point, &value, &proof, &mut transcript_clone).unwrap();
 
     assert!(result);
     assert_eq!(eval_mle_poly(&poly_arc.evaluations, &point), value);

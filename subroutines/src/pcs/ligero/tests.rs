@@ -17,14 +17,7 @@ fn test_ligero_pcs() {
     let proof = LigeroPCS::<F>::open(&pp, &poly, &advice, &point, &mut transcript).unwrap();
     let value = LigeroPCS::<F>::compute_value_from_proof(pp.1, &point, &proof);
 
-    let res = LigeroPCS::<F>::verify(
-        &vp,
-        &com,
-        &point,
-        &value,
-        &proof,
-        &mut transcript_clone,
-    )
-    .unwrap();
+    let res =
+        LigeroPCS::<F>::verify(&vp, &com, &point, &value, &proof, &mut transcript_clone).unwrap();
     assert!(res);
 }
