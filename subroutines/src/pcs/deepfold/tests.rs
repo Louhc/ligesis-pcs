@@ -7,7 +7,7 @@ use ark_std::test_rng;
 #[test]
 fn test_deepfold_pcs() {
     let mut rng = test_rng();
-    let mu = 21;
+    let mu = 22;
     let mut transcript = IOPTranscript::new(b"test");
     let mut transcript_clone = transcript.clone();
 

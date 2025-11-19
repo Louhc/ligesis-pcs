@@ -16,6 +16,8 @@ use transcript::IOPTranscript;
 
 #[cfg(test)]
 mod tests;
+mod utils;
+use utils::*;
 
 /// DeepFold Polynomial Commitment Scheme
 pub struct DeepFoldPCS<F: PrimeField> {
@@ -52,14 +54,14 @@ pub struct DeepFoldProof<F: PrimeField> {
     pub linear_polys: Vec<Vec<(F, F)>>,
     pub mt_roots: Vec<Byte32>,
     pub f_mu: F,
-    pub mt_proofs: Vec<Vec<(F, Vec<Byte32>, usize)>>,
+    pub mt_proofs: Vec<Vec<(usize, (F, F), [F; 4], Vec<Byte32>)>>,
 }
 
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct DeepFoldBatchedProof<F: PrimeField> {
     pub deepfold_proof: DeepFoldProof<F>,
     pub sum_check_proof: IOPProof<F>,
-    pub mt_proofs_for_mt0: Vec<Vec<(F, Vec<Byte32>, usize)>>,
+    pub mt_proofs_for_mt0: Vec<Vec<([F; 4], Vec<Byte32>)>>,
     pub evals: Vec<F>,
     pub sum_check_evals: Vec<F>,
 }
@@ -131,14 +133,13 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
     ) -> Result<(Self::Commitment, Self::ProverCommitmentAdvice), PCSError> {
         let &Self::ProverParam{max_mu, l0, s} = prover_param.borrow();
         let mu = poly.num_vars;
-        // let mu = max_mu;
-        // let poly = resize_poly(&poly, mu);
         assert!(mu <= max_mu);
 
         let f0 = evals_to_coeffs(mu, &poly.evaluations);
         let v0 = l0.fft(&f0);
 
-        let mt0 = MerkleTree::new(&v0.iter().map(|&x| compute_sha256_row(&[x])).collect());
+        // let mt0 = MerkleTree::new(&v0.iter().map(|&x| compute_sha256_row(&[x])).collect());
+        let mt0 = build_merkle_tree(&v0);
 
         let rt0 = mt0.root();
         Ok((
@@ -157,9 +158,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         let &Self::ProverParam{max_mu, l0, s} = prover_param.borrow();
         
         let mu = poly.num_vars;
-        // let mu = max_mu;
-        // let poly = resize_poly(&poly, mu);
-        // let point = resize_point(&point, mu);
         
         assert!(mu <= max_mu);
 
@@ -227,7 +225,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
             if i == mu {
                 f_mu = v[i][0];
             } else {
-                let mti = MerkleTree::new(&v[i].iter().map(|&x| compute_sha256_row(&[x])).collect());
+                let mti = build_merkle_tree(&v[i]);
                 mt_roots.push(mti.root().clone());
                 mt.push(mti);    
             }
@@ -239,12 +237,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
             // Step 4.b
             mt_proofs.push(Vec::new());
             for i in 0..mu {
-                let offset = l[i + 1].size();
-                let beta0 = if beta >= offset {beta - offset} else {beta + offset};
-                mt_proofs[t].push((v[i][beta], mt[i].prove(beta), beta));
-                mt_proofs[t].push((v[i][beta0], mt[i].prove(beta0), beta0));
-                if beta >= offset {
-                    beta -= offset;
+                mt_proofs[t].push(open_merkle_tree_at_conjugate_points(&mt[i], &v[i], beta));
+                if beta >= l[i + 1].size() {
+                    beta -= l[i + 1].size();
                 }
             }
         }
@@ -264,17 +259,13 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
             _evals: &[Self::Evaluation],
             transcript: &mut IOPTranscript<F>,
         ) -> Result<Self::BatchProof, PCSError> {
-        let start = std::time::Instant::now();
         let &Self::ProverParam{max_mu, l0, s} = prover_param.borrow();
         let num_poly = polynomials.len();
         let mu = max_mu;
         assert!(polynomials.iter().all(|poly| poly.num_vars == mu));
         assert!(points.iter().all(|point| point.len() == mu));
         assert!(points.len() == num_poly && advices.len() == num_poly);
-        // let polynomials = polynomials.iter().map(|poly| resize_poly(&poly, mu)).collect::<Vec<_>>();
-        // let points = points.iter().map(|point| resize_point(&point, mu)).collect::<Vec<_>>();
         let mt0_list = advices.iter().map(|advice| &advice.mt0).collect::<Vec<_>>();
-        println!("  DeepFoldPCS trim and check insaneness : {} ms", start.elapsed().as_millis());
 
         // SumCheck Phase
         let start = std::time::Instant::now();
@@ -303,9 +294,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         ).collect::<Vec<_>>());
         let f0 = evals_to_coeffs(mu, &poly.evaluations);
         let v0 = l0.fft(&f0);
-        let mt0 = MerkleTree::new(&v0.iter().map(|&x| compute_sha256_row(&[x])).collect());
+        let mt0 = build_merkle_tree(&v0);
         let deepfold_prover_advice = DeepFoldProverCommitmentAdvice{f0, mt0, v0};
-        println!("  DeepFoldPCS before multi_open : {} ms", start.elapsed().as_millis());
+        println!("  DeepFoldPCS before multi_open (build a merkle tree) : {} ms", start.elapsed().as_millis());
         let start = std::time::Instant::now();
         let deepfold_proof = Self::open(prover_param, &poly, &deepfold_prover_advice, &point, transcript)?;
         println!("  DeepFoldPCS multi_open : {} ms", start.elapsed().as_millis());
@@ -316,10 +307,11 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         for t in 0..s {
             mt_proofs_for_mt0.push(Vec::new());
             for k in 0..num_poly {
+                let step = l0.size() / 4;
+                let x0 = deepfold_proof.mt_proofs[t][0].0 % step;
                 mt_proofs_for_mt0[t].push((
-                    advices[k].v0[deepfold_proof.mt_proofs[t][0].2], 
-                    mt0_list[k].prove(deepfold_proof.mt_proofs[t][0].2), 
-                    deepfold_proof.mt_proofs[t][0].2,
+                    [advices[k].v0[x0], advices[k].v0[x0 + step], advices[k].v0[x0 + step * 2], advices[k].v0[x0 + step * 3]],
+                    mt0_list[k].prove(x0), 
                 ));
             }
         }
@@ -389,29 +381,17 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
             let mut beta_point = g.pow([beta as u64]);
             for i in 0..mu {
                 let offset = len_l0 >> (i + 1);
-                let beta0 = if beta >= offset {beta - offset} else {beta + offset};
-                if !MerkleTree::verify(
-                    &mt_roots[i],
-                    beta,
-                    &compute_sha256_row(&[mt_proofs[t][i * 2].0]),
-                    &mt_proofs[t][i * 2].1,
-                ) {
-                    return Ok(false);
-                }
-                if !MerkleTree::verify(
-                    &mt_roots[i],
-                    beta0,
-                    &compute_sha256_row(&[mt_proofs[t][i * 2 + 1].0]),
-                    &mt_proofs[t][i * 2 + 1].1,
-                ) {
+                if !verify_merkle_tree_at_conjugate_points(
+                    len_l0 >> i, &mt_roots[i], beta, &mt_proofs[t][i].1, &mt_proofs[t][i].2, &mt_proofs[t][i].3
+                    ) {
                     return Ok(false);
                 }
 
                 let next_beta = if beta >= offset {beta - offset} else {beta};
-                let val = if i < mu - 1 {mt_proofs[t][i * 2 + 2].0} else {f_mu};
+                let val = if i < mu - 1 {mt_proofs[t][i + 1].1.0} else {f_mu};
                 
-                if !is_collinear( (beta_point, mt_proofs[t][i * 2].0), 
-                                  (-beta_point, mt_proofs[t][i * 2 + 1].0),
+                if !is_collinear( (beta_point, mt_proofs[t][i].1.0), 
+                                  (-beta_point, mt_proofs[t][i].1.1),
                                   (r[i + 1], val) ) {
                     return Ok(false);
                 }
@@ -475,17 +455,19 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         for t in 0..s {
             let mut sum = F::ZERO;
             for k in 0..num_poly {
+                let x = deepfold_proof.mt_proofs[t][0].0;
+                let step = len_l0 / 4;
                 if !MerkleTree::verify(
                     &commitments[k].rt0,
-                    deepfold_proof.mt_proofs[t][0].2,
-                    &compute_sha256_row(&[mt_proofs_for_mt0[t][k].0]),
+                    x % step,
+                    &compute_sha256_row(&mt_proofs_for_mt0[t][k].0),
                     &mt_proofs_for_mt0[t][k].1,
                 ) {
                     return Ok(false);
                 }
-                sum += gamma[k] * mt_proofs_for_mt0[t][k].0;
+                sum += gamma[k] * mt_proofs_for_mt0[t][k].0[x / step];
             }
-            if sum != deepfold_proof.mt_proofs[t][0].0 {
+            if sum != deepfold_proof.mt_proofs[t][0].1.0 {
                 return Ok(false);
             }
         }
