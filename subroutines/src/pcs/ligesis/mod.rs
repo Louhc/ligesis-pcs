@@ -741,11 +741,17 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
 
         // Step 2
         let a_k = (0..n)
-            .map(|j| (0..m / num_party_vars).map(|i| eq_z1_1[i] * mat_f[i][j]).sum())
+            .map(|j| {
+                (0..m / num_party_vars)
+                    .map(|i| eq_z1_1[i] * mat_f[i][j])
+                    .sum()
+            })
             .collect::<Vec<F>>();
         let a_k_list = Net::send_to_master(&a_k).unwrap();
         let a = if Net::am_master() {
-            (0..n).map(|j| (0..num_party).map(|k| eq_z1_0[k] * a_k_list[k][j]).sum()).collect::<Vec<F>>()
+            (0..n)
+                .map(|j| (0..num_party).map(|k| eq_z1_0[k] * a_k_list[k][j]).sum())
+                .collect::<Vec<F>>()
         } else {
             vec![]
         };
@@ -753,7 +759,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let (com_a, com_a_advice) = if Net::am_master() {
             DeepFoldPCS::commit(deepfold_prover_param, &a_pad)?
         } else {
-            (DeepFoldCommitment::default(), DeepFoldProverCommitmentAdvice::default())
+            (
+                DeepFoldCommitment::default(),
+                DeepFoldProverCommitmentAdvice::default(),
+            )
         };
 
         // Step 3
@@ -774,17 +783,24 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
                 .collect::<Vec<_>>(),
         );
         let mat_bI_k_list = Net::send_to_master(&mat_bI_k).unwrap();
-        let mat_bI = if Net::am_master() { mat_bI_k_list.concat() } else { vec![] };
+        let mat_bI = if Net::am_master() {
+            mat_bI_k_list.concat()
+        } else {
+            vec![]
+        };
         let bI_field = bool_vec_to_field_vec(&mat_bI.concat());
         let bI_field_pad = evals_to_arcpoly(&resize_eval(&bI_field, deepfold_prover_param.max_mu));
         let (com_bI, com_bI_advice) =
             DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&bI_field))?;
-        
+
         // Step 5
         let (alpha1, alpha2, alpha3) = if Net::am_master() {
-            let alpha1 = transcript
-            .get_and_append_challenge_vectors(b"alpha1", (m * eta * s_lambda).ilog2() as usize)?;
-            let alpha2 = transcript.get_and_append_challenge_vectors(b"alpha2", c.ilog2() as usize)?;
+            let alpha1 = transcript.get_and_append_challenge_vectors(
+                b"alpha1",
+                (m * eta * s_lambda).ilog2() as usize,
+            )?;
+            let alpha2 =
+                transcript.get_and_append_challenge_vectors(b"alpha2", c.ilog2() as usize)?;
             let alpha3 = transcript.get_and_append_challenge_vectors(b"alpha3", log_rs_len)?;
             let msg = (0..num_party)
                 .map(|_| (alpha1.clone(), alpha2.clone(), alpha3.clone()))
@@ -817,11 +833,21 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         };
 
         // Step 7
-        let (rs_a, rs_a_pad, com_rs_a, com_rs_a_advice, rs_a_check_proof, r6, a, mat_g_check_proofs) = if Net::am_master() {
+        let (
+            rs_a,
+            rs_a_pad,
+            com_rs_a,
+            com_rs_a_advice,
+            rs_a_check_proof,
+            r6,
+            a,
+            mat_g_check_proofs,
+        ) = if Net::am_master() {
             let rs_a = rs.encode(&a);
             let g = rs.get_generator();
             let rs_a_pad = evals_to_arcpoly(&resize_eval(&rs_a, deepfold_prover_param.max_mu));
-            let (com_rs_a, com_rs_a_advice) = DeepFoldPCS::commit(deepfold_prover_param, &rs_a_pad)?;
+            let (com_rs_a, com_rs_a_advice) =
+                DeepFoldPCS::commit(deepfold_prover_param, &rs_a_pad)?;
 
             // Step 7.1 check eq_alpha3^T * G * a = eq_alpha3^T * rs_a
             //  \sum_i alpha3_mat_g(i) * a(i) = eq_alpha3^T * rs_a
@@ -837,7 +863,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
                     F::ONE,
                 )
                 .unwrap();
-            let rs_a_check_proof = <PolyIOP<F> as SumCheck<F>>::prove(rs_a_check, transcript).unwrap();
+            let rs_a_check_proof =
+                <PolyIOP<F> as SumCheck<F>>::prove(rs_a_check, transcript).unwrap();
             let r6 = rs_a_check_proof.point.clone();
             // Step 7.2 check alpha3_mat_g(r6)
             let mut cur_p = vec![r6.clone(), vec![F::ZERO; log_rs_len - log_n]].concat();
@@ -869,7 +896,16 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
                 cur_p = mat_g_check_proof.point.clone();
                 mat_g_check_proofs.push(mat_g_check_proof);
             }
-            (rs_a, rs_a_pad, com_rs_a, com_rs_a_advice, rs_a_check_proof, r6, a, mat_g_check_proofs)
+            (
+                rs_a,
+                rs_a_pad,
+                com_rs_a,
+                com_rs_a_advice,
+                rs_a_check_proof,
+                r6,
+                a,
+                mat_g_check_proofs,
+            )
         } else {
             (
                 vec![],
@@ -938,7 +974,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
                 .unwrap();
 
             let lookup_proof = LigeSISLookupProof {
-                sumcheck_proof: <PolyIOP<F> as SumCheck<F>>::prove(lookup_check, transcript).unwrap(),
+                sumcheck_proof: <PolyIOP<F> as SumCheck<F>>::prove(lookup_check, transcript)
+                    .unwrap(),
             };
 
             let r2 = vec![F::ONE; s_lambda.ilog2() as usize];
@@ -946,8 +983,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             (lookup_proof, r2, r3, v)
         } else {
             (
-                LigeSISLookupProof { sumcheck_proof: IOPProof::<F>::default() }, 
-                vec![], 
+                LigeSISLookupProof {
+                    sumcheck_proof: IOPProof::<F>::default(),
+                },
+                vec![],
                 vec![],
                 vec![],
             )
@@ -1055,7 +1094,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         } else {
             Ok(None)
         }
-        
     }
 
     fn verify(
