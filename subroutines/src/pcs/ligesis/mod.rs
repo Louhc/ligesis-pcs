@@ -147,7 +147,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let eta = F::ONE.into_bigint().to_bits_be().len();
         let lambda = 128usize;
         let mu = log_size;
-        let log_m = if log_size < 8 { 0 } else { (log_size - 8) / 2 };
+        let log_m = if log_size < 8 { 0 } else { (log_size - 4) / 2 };
         let rs_len = (1 << (mu - log_m)) * 2;
         let log_c = 3;
         let c = 1 << log_c;
@@ -277,8 +277,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             })
             .collect::<Vec<_>>();
         let mat_h = mat_a_prime
-            .iter()
-            .map(|row| {
+            .iter().enumerate()
+            .map(|(h, row)| {
                 (0..n * 2)
                     .map(|j| {
                         (0..m)
@@ -319,9 +319,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         poly: &Self::Polynomial,
     ) -> Result<(Option<Self::Commitment>, Self::ProverCommitmentAdvice), PCSError> {
         // trim parameters
-        assert!(false);
         let num_party = Net::n_parties();
         let num_party_vars = Net::n_parties().log_2() as usize;
+        let party_id = Net::party_id();
 
         let &LigeSISProverParam {
             eta,
@@ -337,14 +337,16 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             ref com_mat_a_advice,
             ref deepfold_prover_param,
         } = prover_param.borrow();
-        let log_m = log_m - num_party_vars;
         let (m, n) = (1 << log_m, 1 << log_n);
-        let mat_f = reshape(&poly.evaluations, m, n);
+        let mat_f = reshape(&poly.evaluations, m / num_party, n);
         // encode `F`
         let mat_f_prime = mat_f.iter().map(|row| rs.encode(row)).collect::<Vec<_>>();
 
         // compute `H`
-        let mat_a_prime = mat_a
+        let mat_a_k = mat_a.iter().map(
+            |row| row[party_id * eta * m / num_party..(party_id + 1) * eta * m / num_party].to_vec()
+        ).collect::<Vec<_>>();
+        let mat_a_prime = mat_a_k
             .iter()
             .map(|row| {
                 (0..eta * m / num_party / 8)
@@ -353,8 +355,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             })
             .collect::<Vec<_>>();
         let mat_h_i = mat_a_prime
-            .iter()
-            .map(|row| {
+            .iter().enumerate()
+            .map(|(h, row)| {
                 (0..n * 2)
                     .map(|j| {
                         (0..m / num_party)
@@ -372,7 +374,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
-
+        
         let all_mat_h = Net::send_to_master(&mat_h_i);
 
         if Net::am_master() {
@@ -736,14 +738,13 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         } = prover_param.borrow();
         let num_party = Net::n_parties();
         let num_party_vars = Net::n_parties().log_2() as usize;
-        let log_m = log_m - num_party_vars;
         let (m, n) = (1 << log_m, 1 << log_n);
         let log_rs_len = rs_len.ilog2() as usize;
 
-        assert_eq!(mu, log_m + log_n + num_party_vars);
-        assert_eq!(poly.num_vars, mu);
+        assert_eq!(mu, log_m + log_n);
+        assert_eq!(poly.num_vars, mu - num_party_vars);
 
-        let mat_f = reshape(&poly.evaluations, m, n);
+        let mat_f = reshape(&poly.evaluations, m / num_party, n);
 
         let LigeSISProverCommitmentAdvice {
             mat_f_prime,
@@ -764,13 +765,14 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         // Step 2
         let a_k = (0..n)
             .map(|j| {
-                (0..m / num_party_vars)
+                (0..m / num_party)
                     .map(|i| eq_z1_1[i] * mat_f[i][j])
                     .sum()
             })
             .collect::<Vec<F>>();
-        let a_k_list = Net::send_to_master(&a_k).unwrap();
+        let a_k_list = Net::send_to_master(&a_k);
         let a = if Net::am_master() {
+            let a_k_list = a_k_list.unwrap();
             (0..n)
                 .map(|j| (0..num_party).map(|k| eq_z1_0[k] * a_k_list[k][j]).sum())
                 .collect::<Vec<F>>()
@@ -804,8 +806,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
                 .map(|&i| decompose_vector(&mat_f_prime_trans[i]))
                 .collect::<Vec<_>>(),
         );
-        let mat_bI_k_list = Net::send_to_master(&mat_bI_k).unwrap();
+        let mat_bI_k_list = Net::send_to_master(&mat_bI_k);
         let mat_bI = if Net::am_master() {
+            let mat_bI_k_list = mat_bI_k_list.unwrap();
             mat_bI_k_list.concat()
         } else {
             vec![]
