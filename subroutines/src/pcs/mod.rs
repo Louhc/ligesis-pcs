@@ -105,7 +105,6 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
     fn d_commit(
         _prover_param: impl Borrow<Self::ProverParam>,
         _poly: &Self::Polynomial,
-        _transcript: &mut IOPTranscript<F>,
     ) -> Result<(Option<Self::Commitment>, Self::ProverCommitmentAdvice), PCSError> {
         unimplemented!();
     }
@@ -124,7 +123,7 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
         // By default, simply d_commits everything
         let (comms, advices) = polys
             .iter()
-            .map(|poly| Self::d_commit(prover_param.borrow(), poly, transcript))
+            .map(|poly| Self::d_commit(prover_param.borrow(), poly))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .unzip();

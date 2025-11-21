@@ -70,7 +70,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for TrivialPCS<F> {
     fn d_commit(
         _prover_param: impl Borrow<Self::ProverParam>,
         _poly: &Self::Polynomial,
-        _transcript: &mut IOPTranscript<F>,
     ) -> Result<(Option<Self::Commitment>, Self::ProverCommitmentAdvice), PCSError> {
         Ok((Some(()), ()))
     }

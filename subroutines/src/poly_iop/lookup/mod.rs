@@ -236,19 +236,19 @@ where
         let (mut dim_commitment, dim_advice): (Vec<_>, Vec<_>) = self
             .dim
             .iter()
-            .map(|poly| PCS::d_commit(pcs_params, poly, transcript).unwrap())
+            .map(|poly| PCS::d_commit(pcs_params, poly).unwrap())
             .unzip();
 
         let (mut E_commitment, E_advice): (Vec<_>, Vec<_>) = self
             .E_polys
             .iter()
-            .map(|poly| PCS::d_commit(pcs_params, poly, transcript).unwrap())
+            .map(|poly| PCS::d_commit(pcs_params, poly).unwrap())
             .unzip();
 
         let (mut m_commitment, m_advice): (Vec<_>, Vec<_>) = self
             .m
             .iter()
-            .map(|poly| PCS::d_commit(pcs_params, poly, transcript).unwrap())
+            .map(|poly| PCS::d_commit(pcs_params, poly).unwrap())
             .unzip();
 
         if Net::am_master() {

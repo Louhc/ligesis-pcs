@@ -91,6 +91,7 @@ pub fn eval_mle_poly<F: PrimeField>(f: &Vec<F>, point: &Vec<F>) -> F {
 }
 
 pub fn reshape<F: PrimeField>(a: &Vec<F>, n: usize, m: usize) -> Vec<Vec<F>> {
+    assert_eq!(a.len(), n * m);
     (0..n)
         .map(|i| {
             (0..m)

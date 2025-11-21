@@ -1,4 +1,4 @@
-use std::default;
+use std::{default, ffi::os_str::Display};
 
 use crate::{pcs::prelude::*, IOPProof, PolyIOP, SumCheck};
 use arithmetic::{math::Math, VPAuxInfo, VirtualPolynomial};
@@ -47,7 +47,7 @@ impl<F: PrimeField> LigeSISPCS<F> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, Default)]
 pub struct LigeSISSRS<F: PrimeField> {
     lambda: usize,
     eta: usize,
@@ -197,7 +197,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let log_n = mu - log_m;
         let n = 1 << log_n;
         let s_lambda = min(lambda, rs_len);
-        println!("deepfold mu = {}", deepfold_srs.max_mu);
         let (deepfold_prover_param, deepfold_verifier_param) = DeepFoldPCS::<F>::setup(
             deepfold_srs,
             Some(deepfold_srs.max_mu.clone()),
@@ -318,9 +317,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
     fn d_commit(
         prover_param: impl Borrow<Self::ProverParam>,
         poly: &Self::Polynomial,
-        transcript: &mut IOPTranscript<F>,
     ) -> Result<(Option<Self::Commitment>, Self::ProverCommitmentAdvice), PCSError> {
         // trim parameters
+        assert!(false);
         let num_party = Net::n_parties();
         let num_party_vars = Net::n_parties().log_2() as usize;
 
@@ -344,12 +343,35 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         // encode `F`
         let mat_f_prime = mat_f.iter().map(|row| rs.encode(row)).collect::<Vec<_>>();
 
-        // decompose `F`
-        let mat_b_trans = transposition(&mat_f_prime)
+        // compute `H`
+        let mat_a_prime = mat_a
             .iter()
-            .map(|col| decompose_vector(col))
+            .map(|row| {
+                (0..eta * m / num_party / 8)
+                    .map(|i| get_mat_a_byte_bucket(&row[i * 8..(i + 1) * 8].to_vec()))
+                    .collect::<Vec<_>>()
+            })
             .collect::<Vec<_>>();
-        let mat_h_i = field_mat_mul_trans_bool_mat(&mat_a, &mat_b_trans);
+        let mat_h_i = mat_a_prime
+            .iter()
+            .map(|row| {
+                (0..n * 2)
+                    .map(|j| {
+                        (0..m / num_party)
+                            .map(|i| {
+                                mat_f_prime[i][j]
+                                    .into_bigint()
+                                    .to_bytes_le()
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(k, x)| row[eta * i / 8 + k][*x as usize])
+                                    .sum::<F>()
+                            })
+                            .sum::<F>()
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
 
         let all_mat_h = Net::send_to_master(&mat_h_i);
 
@@ -788,10 +810,15 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         } else {
             vec![]
         };
-        let bI_field = bool_vec_to_field_vec(&mat_bI.concat());
-        let bI_field_pad = evals_to_arcpoly(&resize_eval(&bI_field, deepfold_prover_param.max_mu));
-        let (com_bI, com_bI_advice) =
-            DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&bI_field))?;
+
+        let (bI_field, bI_field_pad, com_bI, com_bI_advice) = if Net::am_master() {
+            let bI_field = bool_vec_to_field_vec(&mat_bI.concat());
+            let bI_field_pad = evals_to_arcpoly(&resize_eval(&bI_field, deepfold_prover_param.max_mu));
+            let (com_bI, com_bI_advice) = DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&bI_field))?;
+            (bI_field, bI_field_pad, com_bI, com_bI_advice)
+        } else {
+            (vec![], Arc::default(), DeepFoldCommitment::default(), DeepFoldProverCommitmentAdvice::default())
+        };
 
         // Step 5
         let (alpha1, alpha2, alpha3) = if Net::am_master() {

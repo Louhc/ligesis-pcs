@@ -37,45 +37,48 @@ sha2 = { version = "0.10.9" }
 
 # Benchmarks
 [[example]]
-name = "dSumcheck"
-path = "dTests/dSumcheck.rs"
+name = "dLigesis"
+path = "dTests/dLigesis.rs"
 
-[[example]]
-name = "dZerocheck"
-path = "dTests/dZerocheck.rs"
+# name = "dSumcheck"
+# path = "dTests/dSumcheck.rs"
 
-[[example]]
-name = "dPermcheck"
-path = "dTests/dPermcheck.rs"
+# [[example]]
+# name = "dZerocheck"
+# path = "dTests/dZerocheck.rs"
 
-[[example]]
-name = "dRationalSumcheck"
-path = "dTests/dRationalSumcheck.rs"
+# [[example]]
+# name = "dPermcheck"
+# path = "dTests/dPermcheck.rs"
 
-[[example]]
-name = "dRationalSumcheckPIOP"
-path = "dTests/dRationalSumcheckPIOP.rs"
-required-features = ["rational_sumcheck_piop"]
+# [[example]]
+# name = "dRationalSumcheck"
+# path = "dTests/dRationalSumcheck.rs"
 
-[[example]]
-name = "dMultiRationalSumcheck"
-path = "dTests/dMultiRationalSumcheck.rs"
+# [[example]]
+# name = "dRationalSumcheckPIOP"
+# path = "dTests/dRationalSumcheckPIOP.rs"
+# required-features = ["rational_sumcheck_piop"]
 
-[[example]]
-name = "dLookup"
-path = "dTests/dLookup.rs"
+# [[example]]
+# name = "dMultiRationalSumcheck"
+# path = "dTests/dMultiRationalSumcheck.rs"
 
-[[example]]
-name = "dCombinedCheck"
-path = "dTests/dCombinedCheck.rs"
+# [[example]]
+# name = "dLookup"
+# path = "dTests/dLookup.rs"
 
-[[example]]
-name = "lookup_bench"
-path = "dTests/lookup_bench.rs"
+# [[example]]
+# name = "dCombinedCheck"
+# path = "dTests/dCombinedCheck.rs"
 
-[[example]]
-name = "deNetwork"
-path = "dTests/deNetwork.rs"
+# [[example]]
+# name = "lookup_bench"
+# path = "dTests/lookup_bench.rs"
+
+# [[example]]
+# name = "deNetwork"
+# path = "dTests/deNetwork.rs"
 
 [features]
 # default = [ "parallel", "print-trace" ]

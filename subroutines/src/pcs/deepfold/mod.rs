@@ -27,11 +27,21 @@ pub struct DeepFoldPCS<F: PrimeField> {
     phantom: PhantomData<F>,
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, Copy)]
 pub struct DeepFoldSRS<F: PrimeField> {
     pub max_mu: usize,
     pub l0: GeneralEvaluationDomain<F>,
     pub s: usize,
+}
+
+impl<F: PrimeField> Default for DeepFoldSRS<F> {
+    fn default() -> Self {
+        DeepFoldSRS {
+            max_mu: 0,
+            l0: GeneralEvaluationDomain::<F>::new(1).unwrap(),
+            s: 0,
+        }
+    }
 }
 
 #[derive(Clone)]
