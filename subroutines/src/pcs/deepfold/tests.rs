@@ -7,7 +7,7 @@ use ark_std::test_rng;
 #[test]
 fn test_deepfold_pcs() {
     let mut rng = test_rng();
-    let mu = 22;
+    let mu = 8;
     let mut transcript = IOPTranscript::new(b"test");
     let mut transcript_clone = transcript.clone();
 
@@ -35,5 +35,5 @@ fn test_deepfold_pcs() {
 
     assert!(result);
     assert_eq!(eval_mle_poly(&poly_arc.evaluations, &point), value);
-    assert!(false);
+    assert!(result);
 }

@@ -100,6 +100,12 @@ pub struct LigeSISProof<F: PrimeField> {
     pub v_bI_r2_check_proof: IOPProof<F>,
     pub rs_a_check_proof: IOPProof<F>,
     pub mat_g_check_proofs: Vec<IOPProof<F>>,
+
+    pub eq_alpha2_a_bI_eval: F,
+    pub eq_alpha2_h_circ_I_eval: F,
+    pub v_bI_eval: F,
+    pub rs_a_circ_I_eval: F,
+
     pub lookup_proof: LigeSISLookupProof<F>,
     pub deepfold_batched_proof: <DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::BatchProof,
 }
@@ -612,8 +618,14 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             sumcheck_proof: <PolyIOP<F> as SumCheck<F>>::prove(lookup_check, transcript).unwrap(),
         };
 
-        let r2 = vec![F::ONE; s_lambda.ilog2() as usize];
-        let r3 = vec![F::ONE; 1 + log_n];
+        let r_lookup = lookup_proof.sumcheck_proof.point.clone();
+        let eq_alpha2_a_bI_eval = eval_mle_poly(&eq_alpha2_a_bI, &r_lookup);
+        let eq_alpha2_h_circ_I_eval = eval_mle_poly(&eq_alpha2_h_circ_I, &r_lookup);
+        let v_bI_eval = eval_mle_poly(&v_bI, &r_lookup);
+        let rs_a_circ_I_eval = eval_mle_poly(&rs_a_circ_I, &r_lookup);
+
+        let r2 = r_lookup;
+        let r3 = alpha3.clone();
 
         // Step 9
         let alpha2_a = mat_mul(&vec![get_tensor(&alpha2)], &mat_a)[0].clone();
@@ -708,6 +720,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             rs_a_check_proof,
             mat_g_check_proofs,
             // lookup proof
+            eq_alpha2_a_bI_eval,
+            eq_alpha2_h_circ_I_eval,
+            v_bI_eval,
+            rs_a_circ_I_eval,
             lookup_proof,
             // commitment proofs
             deepfold_batched_proof,
@@ -950,7 +966,16 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         };
 
         // Step 8
-        let (lookup_proof, r2, r3, v) = if Net::am_master() {
+        let (
+            lookup_proof,
+            eq_alpha2_a_bI_eval,
+            eq_alpha2_h_circ_I_eval,
+            v_bI_eval,
+            rs_a_circ_I_eval,
+            r2,
+            r3,
+            v,
+        ) = if Net::am_master() {
             let eq_alpha2_a_bI = mat_mul(
                 &vec![get_tensor(&alpha2)],
                 &field_mat_mul_bool_mat(&mat_a, &mat_bI),
@@ -1008,14 +1033,33 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
                     .unwrap(),
             };
 
-            let r2 = vec![F::ONE; s_lambda.ilog2() as usize];
-            let r3 = vec![F::ONE; 1 + log_n];
-            (lookup_proof, r2, r3, v)
+            let r_lookup = lookup_proof.sumcheck_proof.point.clone();
+            let eq_alpha2_a_bI_eval = eval_mle_poly(&eq_alpha2_a_bI, &r_lookup);
+            let eq_alpha2_h_circ_I_eval = eval_mle_poly(&eq_alpha2_h_circ_I, &r_lookup);
+            let v_bI_eval = eval_mle_poly(&v_bI, &r_lookup);
+            let rs_a_circ_I_eval = eval_mle_poly(&rs_a_circ_I, &r_lookup);
+
+            let r2 = r_lookup;
+            let r3 = alpha3.clone();
+            (
+                lookup_proof,
+                eq_alpha2_a_bI_eval,
+                eq_alpha2_h_circ_I_eval,
+                v_bI_eval,
+                rs_a_circ_I_eval,
+                r2,
+                r3,
+                v,
+            )
         } else {
             (
                 LigeSISLookupProof {
                     sumcheck_proof: IOPProof::<F>::default(),
                 },
+                F::default(),
+                F::default(),
+                F::default(),
+                F::default(),
                 vec![],
                 vec![],
                 vec![],
@@ -1117,6 +1161,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
                 rs_a_check_proof,
                 mat_g_check_proofs,
                 // lookup proof
+                eq_alpha2_a_bI_eval,
+                eq_alpha2_h_circ_I_eval,
+                v_bI_eval,
+                rs_a_circ_I_eval,
                 lookup_proof,
                 // commitment proofs
                 deepfold_batched_proof,
@@ -1159,6 +1207,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             v_bI_r2_check_proof,
             rs_a_check_proof,
             mat_g_check_proofs,
+            eq_alpha2_a_bI_eval,
+            eq_alpha2_h_circ_I_eval,
+            v_bI_eval,
+            rs_a_circ_I_eval,
             lookup_proof,
             deepfold_batched_proof,
         } = proof.clone();
@@ -1262,6 +1314,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         // Step 8
         let gamma = transcript.get_and_append_challenge_vectors(b"gamma", 1)?[0];
         let r = transcript.get_and_append_challenge_vectors(b"r", s_lambda.ilog2() as usize)?;
+        let eq_r = get_tensor(&r);
 
         let LigeSISLookupProof {
             sumcheck_proof: lookup_sumcheck_proof,
@@ -1285,8 +1338,16 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
 
         let r_lookup = lookup_sumcheck_proof.point.clone();
 
-        let r2 = vec![F::ONE; s_lambda.ilog2() as usize];
-        let r3 = vec![F::ONE; 1 + log_n];
+        // Verify the lookup_claim using the evaluations from the proof
+        if lookup_claim.expected_evaluation
+            != (eq_alpha2_a_bI_eval - eq_alpha2_h_circ_I_eval) * eval_mle_eq(&r, &r_lookup)
+                + (v_bI_eval - rs_a_circ_I_eval) * eval_mle_eq(&r, &r_lookup) * gamma
+        {
+            return Ok(false);
+        }
+
+        let r2 = r_lookup.clone();
+        let r3 = alpha3.clone();
 
         // Step 9
         let alpha2_a_bI_r2_check_sum =
