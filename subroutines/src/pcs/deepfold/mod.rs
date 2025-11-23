@@ -113,9 +113,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
 
     fn gen_srs_for_testing<R: Rng>(_rng: &mut R, log_size: usize) -> Result<Self::SRS, PCSError> {
         let max_mu = log_size;
-        let len_l0 = (1 << max_mu) * 2;
+        let len_l0 = (1 << max_mu) * 8;
         let l0 = GeneralEvaluationDomain::<F>::new(len_l0).unwrap();
-        let s = 10;
+        let s = 33;
         Ok(DeepFoldSRS { max_mu, l0, s })
     }
 
@@ -339,11 +339,15 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         // Additional checks for mt0
         let start = std::time::Instant::now();
         let mut mt_proofs_for_mt0 = Vec::new();
+        let idx = (0..num_poly).filter(
+            |&i| (0..i).all(|j| polynomials[i] != polynomials[j])
+        ).collect::<Vec<_>>();
         for t in 0..s {
             mt_proofs_for_mt0.push(Vec::new());
-            for k in 0..num_poly {
-                let step = l0.size() / 4;
-                let x0 = deepfold_proof.mt_proofs[t][0].0 % step;
+            let step = l0.size() / 4;
+            let x0 = deepfold_proof.mt_proofs[t][0].0 % step;
+                
+            for (ki, &k) in idx.iter().enumerate() {
                 mt_proofs_for_mt0[t].push((
                     [
                         advices[k].v0[x0],
@@ -557,22 +561,37 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         }
 
         // Additional checks for mt0
+        let idx = (0..num_poly).filter(
+            |&i| (0..i).all(|j| commitments[i] != commitments[j])
+        ).collect::<Vec<_>>();
+        let mut flag = vec![]; let mut cnt = 0;
+        for i in 0..num_poly {
+            for j in 0..=i {
+                if i == j {
+                    flag.push(cnt); cnt += 1;
+                } else if commitments[i] == commitments[j] {
+                    flag.push(flag[j]); break;       
+                }
+            }
+        }
         for t in 0..s {
             let mut sum = F::ZERO;
-            for k in 0..num_poly {
-                let x = deepfold_proof.mt_proofs[t][0].0;
-                let step = len_l0 / 4;
+            let x = deepfold_proof.mt_proofs[t][0].0;
+            let step = len_l0 / 4;
+            for (ki, &k) in idx.iter().enumerate() {
                 if !MerkleTree::verify(
                     &commitments[k].rt0,
                     x % step,
-                    &compute_sha256_row(&mt_proofs_for_mt0[t][k].0),
-                    &mt_proofs_for_mt0[t][k].1,
+                    &compute_sha256_row(&mt_proofs_for_mt0[t][ki].0),
+                    &mt_proofs_for_mt0[t][ki].1,
                 ) {
                     return Ok(false);
                 }
-                sum += gamma[k] * mt_proofs_for_mt0[t][k].0[x / step];
             }
-            if sum != deepfold_proof.mt_proofs[t][0].1 .0 {
+            for (k, &ki) in flag.iter().enumerate() {
+                sum += gamma[k] * mt_proofs_for_mt0[t][ki].0[x / step];
+            }
+            if sum != deepfold_proof.mt_proofs[t][0].1.0 {
                 return Ok(false);
             }
         }

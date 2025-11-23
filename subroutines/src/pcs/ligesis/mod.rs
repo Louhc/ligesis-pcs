@@ -110,6 +110,25 @@ pub struct LigeSISProof<F: PrimeField> {
     pub deepfold_batched_proof: <DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::BatchProof,
 }
 
+impl<F: PrimeField> LigeSISProof<F> {
+    fn size_in_bytes(&self) -> usize {
+        println!("com_a: {}", self.com_a.serialized_size(ark_serialize::Compress::No));
+        println!("com_bI: {}", self.com_bI.serialized_size(ark_serialize::Compress::No));
+        println!("com_rs_a: {}", self.com_rs_a.serialized_size(ark_serialize::Compress::No));
+        println!("bI_check_proof: {}", self.bI_check_proof.serialized_size(ark_serialize::Compress::No));
+        println!("alpha2_a_bI_r2_check_proof: {}", self.alpha2_a_bI_r2_check_proof.serialized_size(ark_serialize::Compress::No));
+        println!("v_bI_r2_check_proof: {}", self.v_bI_r2_check_proof.serialized_size(ark_serialize::Compress::No));
+        println!("rs_a_check_proof: {}", self.rs_a_check_proof.serialized_size(ark_serialize::Compress::No));
+        println!("mat_g_check_proofs: {}", self.mat_g_check_proofs.serialized_size(ark_serialize::Compress::No));
+        println!("lookup_proof: {}", self.lookup_proof.serialized_size(ark_serialize::Compress::No));
+        println!("deepfold_batched_proof: {}", self.deepfold_batched_proof.serialized_size(ark_serialize::Compress::No));
+        println!("deepfold_batched_proof.deepfold_proof: {}", self.deepfold_batched_proof.deepfold_proof.serialized_size(ark_serialize::Compress::No));
+        println!("deepfold_batched_proof.sum_check_proof: {}", self.deepfold_batched_proof.sum_check_proof.serialized_size(ark_serialize::Compress::No));
+        println!("deepfold_batched_proof.mt_proofs_for_mt0: {}", self.deepfold_batched_proof.mt_proofs_for_mt0.serialized_size(ark_serialize::Compress::No));
+        self.serialized_size(ark_serialize::Compress::No)
+    }
+}
+
 #[derive(CanonicalSerialize, CanonicalDeserialize, Debug, PartialEq, Eq, Default)]
 pub struct LigeSISProverCommitmentAdvice<F: PrimeField> {
     pub mat_f_prime: Vec<Vec<F>>,
@@ -153,7 +172,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let eta = F::ONE.into_bigint().to_bits_be().len();
         let lambda = 128usize;
         let mu = log_size;
-        let log_m = if log_size < 8 { 0 } else { (log_size - 4) / 2 };
+        let log_m = if log_size < 8 { 0 } else { (log_size - 8) / 2 };
         let rs_len = (1 << (mu - log_m)) * 2;
         let log_c = 3;
         let c = 1 << log_c;
