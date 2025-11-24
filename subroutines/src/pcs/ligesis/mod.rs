@@ -643,8 +643,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let v_bI_eval = eval_mle_poly(&v_bI, &r_lookup);
         let rs_a_circ_I_eval = eval_mle_poly(&rs_a_circ_I, &r_lookup);
 
-        let r2 = r_lookup;
-        let r3 = alpha3.clone();
+        let r2 = transcript.get_and_append_challenge_vectors(b"r2", s_lambda.ilog2() as usize)?;
+        let r3 = transcript.get_and_append_challenge_vectors(b"r3", (2 * n).ilog2() as usize)?;
 
         // Step 9
         let alpha2_a = mat_mul(&vec![get_tensor(&alpha2)], &mat_a)[0].clone();
@@ -1058,8 +1058,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             let v_bI_eval = eval_mle_poly(&v_bI, &r_lookup);
             let rs_a_circ_I_eval = eval_mle_poly(&rs_a_circ_I, &r_lookup);
 
-            let r2 = r_lookup;
-            let r3 = alpha3.clone();
+            let r2 = transcript.get_and_append_challenge_vectors(b"r2", s_lambda.ilog2() as usize)?;
+            let r3 = transcript.get_and_append_challenge_vectors(b"r3", (2 * n).ilog2() as usize)?;
             (
                 lookup_proof,
                 eq_alpha2_a_bI_eval,
@@ -1365,8 +1365,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             return Ok(false);
         }
 
-        let r2 = r_lookup.clone();
-        let r3 = alpha3.clone();
+        let r2 = transcript.get_and_append_challenge_vectors(b"r2", s_lambda.ilog2() as usize)?;
+        let r3 = transcript.get_and_append_challenge_vectors(b"r3", (2 * n).ilog2() as usize)?;
 
         // Step 9
         let alpha2_a_bI_r2_check_sum =
