@@ -130,6 +130,7 @@ fn write_data(stream: &mut impl Write, channel_id: usize, data: &[u8]) {
                 _ => { assert!(false); },
             },
         }
+        thread::sleep(std::time::Duration::from_secs_f32(0.1));
     }
     assert!(false);
     // stream.write_all(&actual_data).unwrap()
