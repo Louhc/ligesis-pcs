@@ -120,7 +120,19 @@ fn write_data(stream: &mut impl Write, channel_id: usize, data: &[u8]) {
     let channel_id = [channel_id as u8];
     let bytes_size = (data.len() as u64).to_le_bytes();
     let actual_data = [&channel_id[..], &bytes_size[..], data].concat();
-    stream.write_all(&actual_data).unwrap();
+    let mut t = Ok(());
+    for i in 0..10 {
+        t = stream.write_all(&actual_data);
+        match t {
+            Ok(_) => {return;},
+            Err(e) => match e.kind() {
+                ErrorKind::WouldBlock => {},
+                _ => { assert!(false); },
+            },
+        }
+    }
+    assert!(false);
+    // stream.write_all(&actual_data).unwrap()
 }
 
 // These worker threads are globals
