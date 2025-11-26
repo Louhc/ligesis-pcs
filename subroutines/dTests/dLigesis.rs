@@ -17,7 +17,7 @@ use types::FGoldilocks as F;
 
 fn test_multi<F: PrimeField>() -> Result<(), PCSError> {
     let mut rng = test_rng();
-    let mu = 22;
+    let mu = 20;
 
     if Net::am_master() {
         println!(">   master: start");
