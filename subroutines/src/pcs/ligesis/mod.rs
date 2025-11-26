@@ -888,7 +888,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         println!("Step 5: {} s", start.elapsed().as_secs_f64());
 
         // Step 6 (non-disbtributed)
-
+        let start = std::time::Instant::now();
         let (bI_check_proof, r1) = if Net::am_master() {
             let mut bI_check = VirtualPolynomial::new(bI_field.len().ilog2() as usize);
             bI_check
@@ -907,6 +907,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         } else {
             (IOPProof::<F>::default(), vec![])
         };
+        println!("Step 6: {} s", start.elapsed().as_secs_f64());
+
 
         // Step 7
         let (
@@ -919,6 +921,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             a,
             mat_g_check_proofs,
         ) = if Net::am_master() {
+            let start = std::time::Instant::now();
             let rs_a = rs.encode(&a);
             let g = rs.get_generator();
             let rs_a_pad = evals_to_arcpoly(&resize_eval(&rs_a, deepfold_prover_param.max_mu));
@@ -972,6 +975,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
                 cur_p = mat_g_check_proof.point.clone();
                 mat_g_check_proofs.push(mat_g_check_proof);
             }
+            println!("Step 7: {} s", start.elapsed().as_secs_f64());
+
             (
                 rs_a,
                 rs_a_pad,
