@@ -371,6 +371,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let mat_a_k = mat_a.iter().map(
             |row| row[party_id * eta * m / num_party..(party_id + 1) * eta * m / num_party].to_vec()
         ).collect::<Vec<_>>();
+
+        let start = std::time::Instant::now();
         let mat_a_prime = mat_a_k
             .iter()
             .map(|row| {
@@ -399,6 +401,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
+        println!("distributed SIS({} * {} * {}): {}", c, m / num_party * eta, n * 2, start.elapsed().as_secs_f64());
         
         let all_mat_h = Net::send_to_master(&mat_h_i);
 

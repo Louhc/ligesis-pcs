@@ -48,7 +48,10 @@ fn test_multi<F: PrimeField>() -> Result<(), PCSError> {
         let (com, advice) = LigeSISPCS::d_commit(&pp, &poly_k).unwrap();
         println!(">   master: finish commit");
 
+        println!(">   master: commit without distribution");
+        let start = std::time::Instant::now();
         let (com0, advice0) = LigeSISPCS::commit(&pp, &Arc::new(poly)).unwrap();
+        println!(">   master: finish commit without distribution, {} s", start.elapsed().as_secs_f64());
 
         let mut transcript = IOPTranscript::<F>::new(b"test");
         let mut transcript_clone = transcript.clone();
