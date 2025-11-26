@@ -4,7 +4,7 @@ set -ex
 trap "exit" INT TERM
 trap "kill 0" EXIT
 
-RUSTFLAGS="-Awarnings" cargo build --example $1
+RUSTFLAGS="-Awarnings" cargo build --example $1 --release
 BIN=../target/debug/examples/$1
 
 PROCS=()
