@@ -17,7 +17,7 @@ use types::FGoldilocks as F;
 
 fn test_multi<F: PrimeField>() -> Result<(), PCSError> {
     let mut rng = test_rng();
-    let mu = 12;
+    let mu = 18;
 
     if Net::am_master() {
         println!(">   master: start");
@@ -26,7 +26,7 @@ fn test_multi<F: PrimeField>() -> Result<(), PCSError> {
         println!(">   master: srs distributed");
 
         let (pp, vp) = LigeSISPCS::<F>::setup(&srs, None, None)?;
-        let poly = DenseMultilinearExtension::<F>::rand(mu, &mut rng);
+        let poly: DenseMultilinearExtension<F> = DenseMultilinearExtension::<F>::rand(mu, &mut rng);
         let num_party = Net::n_parties();
         let polys = (0..num_party)
             .map(|i| DenseMultilinearExtension::from_evaluations_slice(
