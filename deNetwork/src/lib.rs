@@ -1,9 +1,7 @@
 #![feature(tcp_linger)]
 
 pub mod multi;
-pub mod two;
 
-pub use two::DeTwoNet;
 pub use multi::DeMultiNet;
 
 pub mod channel;
@@ -54,8 +52,6 @@ pub trait DeNet {
     fn reset_stats();
     /// Get statistics.
     fn stats() -> Stats;
-    /// All parties send bytes to each other.
-    fn broadcast_bytes(bytes: &[u8]) -> Vec<Vec<u8>>;
     /// All parties send bytes to the master.
     fn send_bytes_to_master(bytes: Vec<u8>) -> Option<Vec<Vec<u8>>>;
     /// All parties recv bytes from the master.

@@ -2,8 +2,8 @@ use crossbeam_channel::{Receiver, Select, Sender};
 use lazy_static::lazy_static;
 use log::debug;
 use mio::{
-    net::{TcpListener, TcpStream},
     Events, Interest, Poll, Token,
+    net::{TcpListener, TcpStream},
 };
 use rayon::prelude::*;
 use std::{
@@ -14,7 +14,7 @@ use std::{
     io::{BufRead, BufReader, ErrorKind, Read, Write},
     net::SocketAddr,
     sync::{Mutex, RwLock},
-    thread::{self, JoinHandle},
+    thread::{self, JoinHandle}, time::Duration,
 };
 
 use ark_std::{end_timer, start_timer};
@@ -120,20 +120,30 @@ fn write_data(stream: &mut impl Write, channel_id: usize, data: &[u8]) {
     let channel_id = [channel_id as u8];
     let bytes_size = (data.len() as u64).to_le_bytes();
     let actual_data = [&channel_id[..], &bytes_size[..], data].concat();
-    let mut t = Ok(());
-    for i in 0..10 {
-        t = stream.write_all(&actual_data);
-        match t {
-            Ok(_) => {return;},
-            Err(e) => match e.kind() {
-                ErrorKind::WouldBlock => {},
-                _ => { assert!(false); },
-            },
+
+    let mut written = 0;
+    while written < actual_data.len() {
+        match stream.write(&actual_data[written..]) {
+            Ok(0) => {
+                panic!("");
+                // Connection probably closed
+                // return Err(io::Error::new(
+                //     ErrorKind::WriteZero,
+                //     "failed to write to socket",
+                // ));
+            }
+            Ok(n) => {
+                written += n;
+            }
+            Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
+                // Non-blocking socket: send buffer full, wait a bit and retry
+                thread::sleep(Duration::from_millis(1));
+                continue;
+            }
+            Err(e) => panic!(""),
         }
-        thread::sleep(std::time::Duration::from_secs_f32(0.1));
     }
-    assert!(false);
-    // stream.write_all(&actual_data).unwrap()
+    // stream.write_all(&actual_data).unwrap();
 }
 
 // These worker threads are globals
@@ -162,7 +172,7 @@ fn send_thread(
                     let mut stream = streams[0].as_ref().unwrap();
                     write_data(&mut stream, channel_id, &bytes_out);
                 }
-            },
+            }
 
             Data::Multi(bytes_out) => {
                 // Iterate over the sub-parties
@@ -175,7 +185,7 @@ fn send_thread(
                         let mut stream = stream.as_ref().unwrap();
                         write_data(&mut stream, channel_id, &bytes_out[id]);
                     });
-            },
+            }
 
             Data::Shutdown => {
                 if am_master {
@@ -198,7 +208,7 @@ fn send_thread(
                         .unwrap();
                 }
                 return;
-            },
+            }
         }
     }
 }
@@ -231,11 +241,11 @@ fn recv_thread(
                 let mut stream = streams[peer_id].as_ref().unwrap();
                 match read_to_buffer(&mut stream, &mut peer_buffers[peer_id], &mut tmp_buffer) {
                     Ok(false) => peer_closed[peer_id] = true,
-                    Ok(true) => {},
+                    Ok(true) => {}
                     Err(e) => {
                         println!("Read error: {e} from client {peer_id}");
                         peer_closed[peer_id] = true;
-                    },
+                    }
                 };
                 parse_buffer(&mut peer_buffers[peer_id], |channel_id, data| {
                     if channel_messages[channel_id][peer_id].is_empty() {
@@ -271,11 +281,11 @@ fn recv_thread(
                 let mut should_return = false;
                 match read_to_buffer(&mut stream, &mut buffer, &mut tmp_buffer) {
                     Ok(false) => should_return = true,
-                    Ok(true) => {},
+                    Ok(true) => {}
                     Err(e) => {
                         println!("Read error: {e}, recv thread now exiting");
                         should_return = true;
-                    },
+                    }
                 };
                 parse_buffer(&mut buffer, |channel_id, data| {
                     channels[channel_id].send(Data::Single(data)).unwrap()
@@ -337,10 +347,10 @@ impl Connections {
                                     } else if ms_waited > 30_000 {
                                         panic!("Could not find peer in 30s");
                                     }
-                                },
+                                }
                                 _ => {
                                     panic!("Error during FieldChannel::new: {}", e);
-                                },
+                                }
                             },
                         }
                     };
@@ -398,12 +408,11 @@ impl Connections {
         println!("deNetwork ready!");
         end_timer!(timer);
     }
+
     fn am_master(&self) -> bool {
         self.id == 0
     }
-    fn broadcast(&self, _bytes_out: &[u8]) -> Vec<Vec<u8>> {
-        unimplemented!("No longer supported");
-    }
+
     fn send_to_master(&self, bytes_out: Vec<u8>) -> Option<Vec<Vec<u8>>> {
         let timer = start_timer!(|| format!("To master {}", bytes_out.len()));
         let channel_id = CHANNEL_ID.get();
@@ -414,7 +423,7 @@ impl Connections {
                     let bytes_recv = data.iter().map(|subdata| 9 + subdata.len()).sum::<usize>();
                     data[self.id] = bytes_out;
                     (bytes_recv, data)
-                },
+                }
                 _ => panic!("Unexpected single response"),
             };
             {
@@ -568,11 +577,6 @@ impl DeNet for DeMultiNet {
     #[inline]
     fn stats() -> crate::Stats {
         STATS.lock().unwrap().clone()
-    }
-
-    #[inline]
-    fn broadcast_bytes(bytes: &[u8]) -> Vec<Vec<u8>> {
-        get_ch!().broadcast(bytes)
     }
 
     #[inline]
