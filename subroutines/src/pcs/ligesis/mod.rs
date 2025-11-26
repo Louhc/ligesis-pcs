@@ -801,6 +801,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let eq_z1_0 = get_tensor(&z1_0);
 
         // Step 2
+        let start = std::time::Instant::now();
         let a_k = (0..n)
             .map(|j| {
                 (0..m / num_party)
@@ -826,8 +827,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
                 DeepFoldProverCommitmentAdvice::default(),
             )
         };
+        println!("Step 2: {} s", start.elapsed().as_secs_f64());
 
         // Step 3
+        let start = std::time::Instant::now();
         let I = if Net::am_master() {
             let I = transcript.get_and_append_challenge_indices(b"I", s_lambda, 2 * n)?;
             let msg = (0..num_party).map(|_| I.clone()).collect::<Vec<_>>();
@@ -836,8 +839,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         } else {
             Net::recv_from_master(None)
         };
+        println!("Step 3: {} s", start.elapsed().as_secs_f64());
 
         // Step 4
+        let start = std::time::Instant::now();
         let mat_f_prime_trans = transposition(&mat_f_prime);
         let mat_bI_k = transposition(
             &I.iter()
@@ -860,8 +865,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         } else {
             (vec![], Arc::default(), DeepFoldCommitment::default(), DeepFoldProverCommitmentAdvice::default())
         };
+        println!("Step 4: {} s", start.elapsed().as_secs_f64());
 
         // Step 5
+        let start = std::time::Instant::now();
         let (alpha1, alpha2, alpha3) = if Net::am_master() {
             let alpha1 = transcript.get_and_append_challenge_vectors(
                 b"alpha1",
@@ -878,6 +885,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         } else {
             Net::recv_from_master(None)
         };
+        println!("Step 5: {} s", start.elapsed().as_secs_f64());
 
         // Step 6 (non-disbtributed)
 
