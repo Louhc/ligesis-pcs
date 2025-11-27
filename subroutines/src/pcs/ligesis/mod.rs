@@ -172,7 +172,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let eta = F::ONE.into_bigint().to_bits_be().len();
         let lambda = 128usize;
         let mu = log_size;
-        let log_m = if log_size < 4 { 0 } else { (log_size - 4) / 2 };
+        let log_m = if log_size < 4 { 0 } else { (log_size - 8) / 2 };
         let rs_len = (1 << (mu - log_m)) * 2;
         let log_c = 3;
         let c = 1 << log_c;
