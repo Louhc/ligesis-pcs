@@ -51,7 +51,7 @@ impl<F: PrimeField> LigeSISPCS<F> {
 pub struct LigeSISSRS<F: PrimeField> {
     lambda: usize,
     eta: usize,
-    mu: usize,
+    pub mu: usize,
     log_m: usize,
     rs_len: usize,
     c: usize,

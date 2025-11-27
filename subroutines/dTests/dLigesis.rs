@@ -7,6 +7,7 @@ use rand::Rng;
 use std::{iter::zip, sync::Arc};
 use subroutines::pcs::prelude::{LigeSISPCS, LigeSISSRS, PCSError, PolynomialCommitmentScheme};
 use transcript::IOPTranscript;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
 use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 
@@ -15,28 +16,25 @@ use common::{d_evaluate_mle, test_rng};
 mod types;
 use types::FGoldilocks as F;
 
+use std::fs;
+use std::io::{self, BufRead};
+
 fn test_multi<F: PrimeField>() -> Result<(), PCSError> {
     let mut rng = test_rng();
-    let mu = 26;
     let start = std::time::Instant::now();
     
     if Net::am_master() {
+        let mu = 28;
         println!(">   master: start ({} s)", start.elapsed().as_secs_f64());
         let srs = LigeSISPCS::<F>::gen_srs_for_testing(&mut rng, mu)?;
         Net::recv_from_master_uniform(Some(srs.clone()));
         println!(">   master: srs distributed ({} s)", start.elapsed().as_secs_f64());
-
         let (pp, vp) = LigeSISPCS::<F>::setup(&srs, None, None)?;
-        let poly: DenseMultilinearExtension<F> = DenseMultilinearExtension::<F>::rand(mu, &mut rng);
+        
         let num_party = Net::n_parties();
-        let polys = (0..num_party)
-            .map(|i| DenseMultilinearExtension::from_evaluations_slice(
-                mu - (num_party.ilog2() as usize), 
-                &poly.evaluations[i * (1 << mu) / num_party..(i + 1) * (1 << mu) / num_party]) 
-            ).collect::<Vec<_>>();
-        let poly_k = Arc::new(polys[0].clone());
-        println!(">   master: poly distributing... ({} s)", start.elapsed().as_secs_f64());
-        Net::recv_from_master(Some(polys.clone()));
+        let num_party_vars = num_party.ilog2() as usize;
+        let poly_k = Arc::new(DenseMultilinearExtension::<F>::rand(mu - num_party_vars, &mut rng));
+        
 
         println!(">   master: poly distrbuted ({} s)", start.elapsed().as_secs_f64());
 
@@ -71,8 +69,13 @@ fn test_multi<F: PrimeField>() -> Result<(), PCSError> {
         println!(">   server({}): srs received ({} s)", Net::party_id(), start.elapsed().as_secs_f64());
 
         let (pp, vp) = LigeSISPCS::<F>::setup(&srs, None, None)?;
-        let poly_k: DenseMultilinearExtension<F> = Net::recv_from_master(None);
-        let poly_k: Arc<DenseMultilinearExtension<F>> = Arc::new(poly_k);
+        let mu = srs.mu;
+        let num_party = Net::n_parties();
+        let num_party_vars = num_party.ilog2() as usize;
+
+        let poly_k = Arc::new(DenseMultilinearExtension::<F>::rand(mu - num_party_vars, &mut rng));
+        // let poly_k: DenseMultilinearExtension<F> = Net::recv_from_master(None);
+        // let poly_k: Arc<DenseMultilinearExtension<F>> = Arc::new(poly_k);
         println!(">   server({}): poly received ({} s)", Net::party_id(), start.elapsed().as_secs_f64());
         
         let point: Vec<F> = Net::recv_from_master_uniform(None);
