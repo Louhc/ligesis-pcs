@@ -65,14 +65,14 @@ pub struct DeepFoldProof<F: PrimeField> {
     pub linear_polys: Vec<Vec<(F, F)>>,
     pub mt_roots: Vec<Byte32>,
     pub f_mu: F,
-    pub mt_proofs: Vec<Vec<(usize, (F, F), [F; 4], Vec<Byte32>)>>,
+    pub mt_proofs: Vec<Vec<(usize, (F, F), [F; 8], Vec<Byte32>)>>,
 }
 
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct DeepFoldBatchedProof<F: PrimeField> {
     pub deepfold_proof: DeepFoldProof<F>,
     pub sum_check_proof: IOPProof<F>,
-    pub mt_proofs_for_mt0: Vec<Vec<([F; 4], Vec<Byte32>)>>,
+    pub mt_proofs_for_mt0: Vec<Vec<([F; 8], Vec<Byte32>)>>,
     pub evals: Vec<F>,
     pub sum_check_evals: Vec<F>,
 }
@@ -344,7 +344,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         ).collect::<Vec<_>>();
         for t in 0..s {
             mt_proofs_for_mt0.push(Vec::new());
-            let step = l0.size() / 4;
+            let step = l0.size() / 8;
             let x0 = deepfold_proof.mt_proofs[t][0].0 % step;
                 
             for (ki, &k) in idx.iter().enumerate() {
@@ -354,6 +354,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
                         advices[k].v0[x0 + step],
                         advices[k].v0[x0 + step * 2],
                         advices[k].v0[x0 + step * 3],
+                        advices[k].v0[x0 + step * 4],
+                        advices[k].v0[x0 + step * 5],
+                        advices[k].v0[x0 + step * 6],
+                        advices[k].v0[x0 + step * 7],
                     ],
                     mt0_list[k].prove(x0),
                 ));
@@ -456,7 +460,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
 
                 let next_beta = if beta >= offset { beta - offset } else { beta };
                 let val = if i < mu - 1 {
-                    mt_proofs[t][i + 1].1 .0
+                    mt_proofs[t][i + 1].1.0
                 } else {
                     f_mu
                 };
@@ -577,7 +581,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         for t in 0..s {
             let mut sum = F::ZERO;
             let x = deepfold_proof.mt_proofs[t][0].0;
-            let step = len_l0 / 4;
+            let step = len_l0 / 8;
             for (ki, &k) in idx.iter().enumerate() {
                 if !MerkleTree::verify(
                     &commitments[k].rt0,

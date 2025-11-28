@@ -843,12 +843,15 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
 
         // Step 4
         let start = std::time::Instant::now();
-        let mat_f_prime_trans = transposition(&mat_f_prime);
-        let mat_bI_k = transposition(
+        
+        let mat_bI_k = {
+            let mat_f_prime_trans = transposition(&mat_f_prime);
+            transposition(
             &I.iter()
-                .map(|&i| decompose_vector(&mat_f_prime_trans[i]))
-                .collect::<Vec<_>>(),
-        );
+                    .map(|&i| decompose_vector(&mat_f_prime_trans[i]))
+                    .collect::<Vec<_>>(),
+            )
+        };
         let mat_bI_k_list = Net::send_to_master(&mat_bI_k);
         let mat_bI = if Net::am_master() {
             let mat_bI_k_list = mat_bI_k_list.unwrap();

@@ -44,7 +44,7 @@ fn test_ligesis_pcs() {
     let res =
         LigeSISPCS::<F>::verify(&vp, &com, &point, &value, &proof, &mut transcript_clone).unwrap();
     println!("Verify: {} s", start.elapsed().as_secs_f64());
-    println!("Proof Size: {} B", proof.size_in_bytes());
+    // println!("Proof Size: {} B", proof.size_in_bytes());
 
     assert!(res);
     assert_eq!(eval_mle_poly(&poly.evaluations, &point), value);
