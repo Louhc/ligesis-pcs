@@ -1,16 +1,12 @@
 use crate::iop_errors::PolyIOPErrors;
 use arithmetic::{
-    bind_poly_var_bot_par, bit_decompose, build_eq_table, eq_eval,
+    bind_poly_var_bot, bit_decompose, build_eq_table, eq_eval,
     math::Math,
     unipoly::{CompressedUniPoly, UniPoly},
 };
 use ark_ff::{batch_inversion, PrimeField};
 use ark_poly::DenseMultilinearExtension;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use rayon::iter::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
-    IntoParallelRefMutIterator, ParallelIterator,
-};
 use std::{fmt::Debug, iter::zip, sync::Arc};
 use transcript::IOPTranscript;
 
@@ -32,7 +28,7 @@ impl<F: PrimeField> SumcheckInstanceProof<F> {
         combined_degree: usize,
     ) -> Vec<F>
     where
-        Func: Fn(&[F]) -> F + std::marker::Sync,
+        Func: Fn(&[F]) -> F,
     {
         // Vector storing evaluations of combined polynomials g(x) = P_0(x) * ...
         // P_{num_polys} (x) for points {0, ..., |g(x)|}
@@ -41,7 +37,6 @@ impl<F: PrimeField> SumcheckInstanceProof<F> {
         let mle_half = polys[0].evaluations.len() / 2;
 
         let accum: Vec<Vec<F>> = (0..mle_half)
-            .into_par_iter()
             .map(|poly_term_i| {
                 let mut accum = vec![F::zero(); combined_degree + 1];
                 // Evaluate P({0, ..., |g(r)|})
@@ -85,11 +80,11 @@ impl<F: PrimeField> SumcheckInstanceProof<F> {
             .collect();
 
         eval_points
-            .par_iter_mut()
+            .iter_mut()
             .enumerate()
             .for_each(|(poly_i, eval_point)| {
                 *eval_point = accum
-                    .par_iter()
+                    .iter()
                     .take(mle_half)
                     .map(|mle| mle[poly_i])
                     .sum::<F>();
@@ -120,7 +115,7 @@ impl<F: PrimeField> SumcheckInstanceProof<F> {
         transcript: &mut IOPTranscript<F>,
     ) -> (Self, Vec<F>, Vec<F>)
     where
-        Func: Fn(&[F]) -> F + std::marker::Sync,
+        Func: Fn(&[F]) -> F,
     {
         let mut r: Vec<F> = Vec::new();
         let mut compressed_polys: Vec<CompressedUniPoly<F>> = Vec::new();
@@ -142,9 +137,8 @@ impl<F: PrimeField> SumcheckInstanceProof<F> {
             r.push(r_j);
 
             // bound all tables to the verifier's challenege
-            let concurrency = (rayon::current_num_threads() * 2 + polys.len() - 1) / polys.len();
-            polys.par_iter_mut().for_each(|poly| {
-                bind_poly_var_bot_par(Arc::get_mut(poly).unwrap(), &r_j, concurrency)
+            polys.iter_mut().for_each(|poly| {
+                bind_poly_var_bot(Arc::get_mut(poly).unwrap(), &r_j)
             });
             compressed_polys.push(round_uni_poly.compress());
             previous_claim = round_uni_poly.evaluate(&r_j);
@@ -164,7 +158,7 @@ impl<F: PrimeField> SumcheckInstanceProof<F> {
         transcript: &mut IOPTranscript<F>,
     ) -> Option<(Self, Vec<F>, Vec<F>)>
     where
-        Func: Fn(&[F]) -> F + std::marker::Sync,
+        Func: Fn(&[F]) -> F,
     {
         let mut r: Vec<F> = Vec::new();
         let mut compressed_polys: Vec<CompressedUniPoly<F>> = Vec::new();
@@ -202,9 +196,8 @@ impl<F: PrimeField> SumcheckInstanceProof<F> {
             r.push(r_j);
 
             // bound all tables to the verifier's challenege
-            let concurrency = (rayon::current_num_threads() * 2 + polys.len() - 1) / polys.len();
-            polys.par_iter_mut().for_each(|poly| {
-                bind_poly_var_bot_par(Arc::get_mut(poly).unwrap(), &r_j, concurrency)
+            polys.iter_mut().for_each(|poly| {
+                bind_poly_var_bot(Arc::get_mut(poly).unwrap(), &r_j)
             });
         }
 
@@ -218,7 +211,6 @@ impl<F: PrimeField> SumcheckInstanceProof<F> {
         let num_party_vars = Net::n_parties().log_2();
         let all_final_evals = all_final_evals.unwrap();
         let mut polys = (0..all_final_evals[0].len())
-            .into_par_iter()
             .map(|poly_id| {
                 Arc::new(DenseMultilinearExtension::from_evaluations_vec(
                     num_party_vars,

@@ -13,7 +13,6 @@ use arithmetic::{
 };
 use ark_ff::{batch_inversion, PrimeField};
 use ark_poly::DenseMultilinearExtension;
-use rayon::iter::{IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use transcript::IOPTranscript;
 
 use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
@@ -26,7 +25,7 @@ use super::generic_sumcheck::ZerocheckInstanceProof;
 // Instead the struct itself can hold arbitrary state as long as it can bind
 // varaibles and produce a cubic polynomial on demand.
 // Used by the layered circuit implementation for rational sumcheck
-pub trait BatchedCubicSumcheckInstance<F: PrimeField>: Sync {
+pub trait BatchedCubicSumcheckInstance<F: PrimeField> {
     fn num_rounds(&self) -> usize;
     fn bind(&mut self, r: &F);
     // Returns evals at 0, 2, 3
@@ -174,7 +173,6 @@ pub trait BatchedCubicSumcheckInstance<F: PrimeField>: Sync {
 
         let final_claims = final_claims.unwrap();
         let mut polys = (0..final_claims[0].len())
-            .into_par_iter()
             .map(|poly_id| {
                 (0..final_claims[0][poly_id].len())
                     .map(|batch_index| {
@@ -211,7 +209,7 @@ pub trait BatchedCubicSumcheckInstance<F: PrimeField>: Sync {
 
             r.push(r_j);
 
-            polys.par_iter_mut().for_each(|polys| {
+            polys.iter_mut().for_each(|polys| {
                 for poly in polys {
                     bind_poly_var_bot(poly, &r_j);
                 }

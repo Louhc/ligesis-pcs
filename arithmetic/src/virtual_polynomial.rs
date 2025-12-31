@@ -19,7 +19,6 @@ use ark_std::{
     rand::{Rng, RngCore},
     start_timer,
 };
-use rayon::prelude::*;
 use std::{
     cmp::max,
     collections::HashMap,
@@ -521,7 +520,7 @@ fn build_eq_x_r_helper<F: PrimeField>(r: &[F], buf: &mut Vec<F>) -> Result<(), A
         // *buf = res;
 
         let mut res = unsafe_allocate_zero_vec::<F>(buf.len() << 1);
-        res.par_iter_mut().enumerate().for_each(|(i, val)| {
+        res.iter_mut().enumerate().for_each(|(i, val)| {
             let bi = buf[i >> 1];
             let tmp = r[0] * bi;
             if i & 1 == 0 {
@@ -611,7 +610,7 @@ fn build_eq_x_r_helper_with_coeff<F: PrimeField>(
         // *buf = res;
 
         let mut res = unsafe_allocate_zero_vec::<F>(buf.len() << 1);
-        res.par_iter_mut().enumerate().for_each(|(i, val)| {
+        res.iter_mut().enumerate().for_each(|(i, val)| {
             let bi = buf[i >> 1];
             let tmp = r[0] * bi;
             if i & 1 == 0 {
@@ -632,8 +631,8 @@ pub fn build_eq_table<F: PrimeField>(r: &[F], coeff: F) -> Vec<Vec<F>> {
     for r in r.iter().skip(1).rev() {
         let last = table.last().unwrap();
         let mut evals: Vec<F> = unsafe_allocate_zero_vec(last.len() * 2);
-        evals.par_chunks_exact_mut(2)
-            .zip(last.par_iter())
+        evals.chunks_exact_mut(2)
+            .zip(last.iter())
             .for_each(|(evals, last)| {
                 evals[1] = *last * *r;
                 evals[0] = *last - evals[1];

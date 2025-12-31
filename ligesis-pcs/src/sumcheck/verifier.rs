@@ -15,9 +15,6 @@ use arithmetic::{interpolate_uni_poly, VPAuxInfo};
 use ark_ff::PrimeField;
 use transcript::IOPTranscript;
 
-#[cfg(feature = "parallel")]
-use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
-
 impl<F: PrimeField> SumCheckVerifier<F> for IOPVerifierState<F> {
     type VPAuxInfo = VPAuxInfo<F>;
     type ProverMessage = IOPProverMessage<F>;

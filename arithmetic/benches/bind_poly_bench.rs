@@ -7,7 +7,7 @@
 #[macro_use]
 extern crate criterion;
 
-use arithmetic::{bind_poly_var_bot, fix_variables, bind_poly_var_bot_par};
+use arithmetic::{bind_poly_var_bot, fix_variables};
 use ark_bls12_381::Fr;
 use ark_ff::PrimeField;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
@@ -24,15 +24,6 @@ fn evaluation_op_bench<F: PrimeField>(c: &mut Criterion) {
             b.iter_batched(
                 || poly.clone(),
                 |mut poly| black_box(bind_poly_var_bot(&mut poly, &point[0])),
-                BatchSize::LargeInput,
-            )
-        });
-        group.bench_with_input(BenchmarkId::new("bind poly var bot par", nv), &nv, |b, &nv| {
-            let poly = DenseMultilinearExtension::<F>::rand(nv, &mut rng);
-            let point: Vec<_> = (0..nv).map(|_| F::rand(&mut rng)).collect();
-            b.iter_batched(
-                || poly.clone(),
-                |mut poly| black_box(bind_poly_var_bot_par(&mut poly, &point[0], rayon::current_num_threads() * 2)),
                 BatchSize::LargeInput,
             )
         });

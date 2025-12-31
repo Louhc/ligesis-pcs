@@ -23,8 +23,7 @@ pub fn drop_in_background_thread<T>(data: T)
 where
     T: Send + 'static,
 {
-    // h/t https://abrams.cc/rust-dropping-things-in-another-thread
-    rayon::spawn(move || drop(data));
+    drop(data);
 }
 
 /// Converts an integer value to a bitvector (all values {0,1}) of field

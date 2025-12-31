@@ -12,14 +12,10 @@ use crate::{
     iop_errors::PolyIOPErrors,
     structs::{IOPProverMessage, IOPProverState},
 };
-use arithmetic::{bind_poly_var_bot, bind_poly_var_bot_par, VirtualPolynomial};
+use arithmetic::{bind_poly_var_bot, VirtualPolynomial};
 use ark_ff::PrimeField;
-use ark_std::{cfg_into_iter, vec::Vec};
-use rayon::prelude::IntoParallelIterator;
+use ark_std::vec::Vec;
 use std::sync::Arc;
-
-#[cfg(feature = "parallel")]
-use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
 impl<F: PrimeField> SumCheckProver<F> for IOPProverState<F> {
     type VirtualPolynomial = VirtualPolynomial<F>;
@@ -83,15 +79,6 @@ impl<F: PrimeField> SumCheckProver<F> for IOPProverState<F> {
             self.challenges.push(*chal);
 
             let r = self.challenges[self.round - 1];
-            let concurrency =
-                (rayon::current_num_threads() * 2 + self.poly.flattened_ml_extensions.len() - 1)
-                    / self.poly.flattened_ml_extensions.len();
-            // #[cfg(feature = "parallel")]
-            // self.poly
-            //     .flattened_ml_extensions
-            //     .par_iter_mut()
-            //     .for_each(|mle| bind_poly_var_bot_par(Arc::get_mut(mle).unwrap(), &r,
-            // concurrency)); #[cfg(not(feature = "parallel"))]
             self.poly
                 .flattened_ml_extensions
                 .iter_mut()
@@ -107,42 +94,29 @@ impl<F: PrimeField> SumCheckProver<F> for IOPProverState<F> {
         // f(r_1, ... r_m,, x_{m+1}... x_n)
 
         products_list.iter().for_each(|(coefficient, products)| {
-            let mut sum = cfg_into_iter!(0..1 << (self.poly.aux_info.num_variables - self.round))
+            let mut sum = (0..1 << (self.poly.aux_info.num_variables - self.round))
                 .fold(
-                    || {
-                        (
-                            vec![(F::zero(), F::zero()); products.len()],
-                            vec![F::zero(); products.len() + 1],
-                        )
-                    },
-                    |(mut buf, mut acc), b| {
-                        buf.iter_mut()
-                            .zip(products.iter())
-                            .for_each(|((eval, step), f)| {
+                    vec![F::zero(); products.len() + 1],
+                    |mut acc, b| {
+                        let mut buf: Vec<(F, F)> = products
+                            .iter()
+                            .map(|f| {
                                 let table = &self.poly.flattened_ml_extensions[*f];
-                                *eval = table[b << 1];
-                                *step = table[(b << 1) + 1] - table[b << 1];
-                            });
+                                let eval = table[b << 1];
+                                let step = table[(b << 1) + 1] - table[b << 1];
+                                (eval, step)
+                            })
+                            .collect();
                         acc[0] += buf.iter().map(|(eval, _)| eval).product::<F>();
                         acc[1..].iter_mut().for_each(|acc| {
                             buf.iter_mut().for_each(|(eval, step)| *eval += step as &_);
                             *acc += buf.iter().map(|(eval, _)| eval).product::<F>();
                         });
-                        (buf, acc)
-                    },
-                )
-                .map(|(_, partial)| partial)
-                .reduce(
-                    || vec![F::zero(); products.len() + 1],
-                    |mut sum, partial| {
-                        sum.iter_mut()
-                            .zip(partial.iter())
-                            .for_each(|(sum, partial)| *sum += partial);
-                        sum
+                        acc
                     },
                 );
             sum.iter_mut().for_each(|sum| *sum *= coefficient);
-            let extraploation = cfg_into_iter!(0..self.poly.aux_info.max_degree - products.len())
+            let extraploation = (0..self.poly.aux_info.max_degree - products.len())
                 .map(|i| {
                     let (points, weights) = &self.extrapolation_aux[products.len() - 1];
                     let at = F::from((products.len() + 1 + i) as u64);
@@ -168,18 +142,6 @@ impl<F: PrimeField> SumCheckProver<F> for IOPProverState<F> {
         }
         self.challenges.push(challenge);
 
-        // #[cfg(feature = "parallel")]
-        // let claims = self
-        //     .poly
-        //     .flattened_ml_extensions
-        //     .par_iter_mut()
-        //     .map(|mle| {
-        //         let mle = Arc::get_mut(mle).unwrap();
-        //         bind_poly_var_bot(mle, &challenge);
-        //         mle.evaluations[0]
-        //     })
-        //     .collect();
-        // #[cfg(not(feature = "parallel"))]
         let claims = self
             .poly
             .flattened_ml_extensions

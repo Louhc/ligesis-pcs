@@ -7,7 +7,6 @@ use std::{
 use crate::gaussian_elimination::gaussian_elimination;
 use ark_ff::PrimeField;
 use ark_serialize::*;
-use rayon::iter::{IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
 // ax^2 + bx + c stored as vec![c,b,a]
 // ax^3 + bx^2 + cx + d stored as vec![d,c,b,a]
@@ -133,7 +132,7 @@ impl<F: PrimeField> UniPoly<F> {
     }
 
     pub fn shift_coefficients(&mut self, rhs: &F) {
-        self.coeffs.par_iter_mut().for_each(|c| *c += *rhs);
+        self.coeffs.iter_mut().for_each(|c| *c += *rhs);
     }
 }
 
@@ -161,7 +160,7 @@ impl<F: PrimeField> Mul<F> for UniPoly<F> {
     type Output = Self;
 
     fn mul(self, rhs: F) -> Self {
-        let iter = self.coeffs.into_par_iter();
+        let iter = self.coeffs.into_iter();
         Self::from_coeff(iter.map(|c| c * rhs).collect::<Vec<_>>())
     }
 }
@@ -170,7 +169,7 @@ impl<F: PrimeField> Mul<&F> for UniPoly<F> {
     type Output = Self;
 
     fn mul(self, rhs: &F) -> Self {
-        let iter = self.coeffs.into_par_iter();
+        let iter = self.coeffs.into_iter();
         Self::from_coeff(iter.map(|c| c * *rhs).collect::<Vec<_>>())
     }
 }
@@ -191,7 +190,7 @@ impl<F: PrimeField> IndexMut<usize> for UniPoly<F> {
 
 impl<F: PrimeField> MulAssign<&F> for UniPoly<F> {
     fn mul_assign(&mut self, rhs: &F) {
-        self.coeffs.par_iter_mut().for_each(|c| *c *= *rhs);
+        self.coeffs.iter_mut().for_each(|c| *c *= *rhs);
     }
 }
 

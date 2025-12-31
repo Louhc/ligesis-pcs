@@ -64,7 +64,6 @@ The distributed test configuration is in `ligesis-pcs/dTests/data/4`.
 
 ## Features
 
-- `parallel` (default): Enable parallel computation using Rayon
 - `print-trace`: Enable timing output for performance profiling
 
 ## License

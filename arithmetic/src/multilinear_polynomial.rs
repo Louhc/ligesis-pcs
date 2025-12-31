@@ -8,10 +8,6 @@ use crate::{unsafe_allocate_zero_vec, util::get_batched_nv, ArithErrors};
 use ark_ff::{Field, PrimeField};
 use ark_poly::MultilinearExtension;
 use ark_std::{end_timer, rand::RngCore, start_timer};
-#[cfg(feature = "parallel")]
-use rayon::prelude::{
-    IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator, ParallelSliceMut,
-};
 use std::sync::Arc;
 
 pub use ark_poly::DenseMultilinearExtension;
@@ -39,32 +35,6 @@ pub fn bind_poly_var_bot<F: PrimeField>(poly: &mut DenseMultilinearExtension<F>,
     poly.evaluations.truncate(n);
 }
 
-pub fn bind_poly_var_bot_par<F: PrimeField>(poly: &mut DenseMultilinearExtension<F>, r: &F, concurrency: usize) {
-    let n = poly.evaluations.len() / 2;
-    let mut chunk_size = (poly.evaluations.len() + concurrency - 1) / concurrency;
-    if chunk_size == 0 || chunk_size % 2 == 1 {
-        chunk_size += 1;
-    }
-    let num_chunks = (poly.evaluations.len() + chunk_size - 1) / chunk_size;
-    poly.evaluations
-        .par_chunks_mut(chunk_size)
-        .for_each(|chunk| {
-            for i in 0..chunk.len() / 2 {
-                chunk[i] = chunk[2 * i] + *r * (chunk[2 * i + 1] - chunk[2 * i]);
-            }
-        });
-    for i in 1..num_chunks {
-        let src_start = i * chunk_size;
-        let dst_start = (i * chunk_size) / 2;
-        let size = (std::cmp::min((i + 1) * chunk_size, poly.evaluations.len()) - src_start) / 2;
-        unsafe {
-            let data = poly.evaluations.as_mut_ptr();
-            std::ptr::copy_nonoverlapping(data.add(src_start), data.add(dst_start), size);
-        }
-    }
-    poly.num_vars -= 1;
-    poly.evaluations.truncate(n);
-}
 
 /// Sample a random list of multilinear polynomials.
 /// Returns
@@ -243,15 +213,9 @@ fn fix_one_variable_helper<F: PrimeField>(data: &[F], nv: usize, point: &F) -> V
     let mut res = unsafe_allocate_zero_vec::<F>(1 << (nv - 1));
 
     // evaluate single variable of partial point from left to right
-    #[cfg(not(feature = "parallel"))]
     for i in 0..(1 << (nv - 1)) {
         res[i] = data[i] + (data[(i << 1) + 1] - data[i << 1]) * point;
     }
-
-    #[cfg(feature = "parallel")]
-    res.par_iter_mut().enumerate().for_each(|(i, x)| {
-        *x = data[i << 1] + (data[(i << 1) + 1] - data[i << 1]) * point;
-    });
 
     res
 }
@@ -357,22 +321,16 @@ fn fix_last_variable_helper<F: PrimeField>(data: &[F], nv: usize, point: &F) -> 
     let mut res = unsafe_allocate_zero_vec::<F>(half_len);
 
     // evaluate single variable of partial point from left to right
-    #[cfg(not(feature = "parallel"))]
     for b in 0..half_len {
         res[b] = data[b] + (data[b + half_len] - data[b]) * point;
     }
-
-    #[cfg(feature = "parallel")]
-    res.par_iter_mut().enumerate().for_each(|(i, x)| {
-        *x = data[i] + (data[i + half_len] - data[i]) * point;
-    });
 
     res
 }
 
 #[cfg(test)]
 mod tests{
-    use super::{bind_poly_var_bot, bind_poly_var_bot_par};
+    use super::bind_poly_var_bot;
     use ark_bls12_381::Fr;
     use ark_std::{test_rng, UniformRand};
     use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
@@ -386,7 +344,7 @@ mod tests{
         let mut poly_2 = poly.clone();
         let point: Vec<_> = (0..nv).map(|_| Fr::rand(&mut rng)).collect();
         bind_poly_var_bot(&mut poly, &point[0]);
-        bind_poly_var_bot_par(&mut poly_2, &point[0], rayon::current_num_threads() / 2);
+        bind_poly_var_bot(&mut poly_2, &point[0]);
         assert_eq!(poly.evaluations, poly_2.evaluations);
     }
 }
