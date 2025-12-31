@@ -1,4 +1,4 @@
-use crate::pcs::prelude::*;
+use crate::hash::*;
 use ark_ff::PrimeField;
 
 pub fn build_merkle_tree<F: PrimeField>(v: &Vec<F>) -> MerkleTree {

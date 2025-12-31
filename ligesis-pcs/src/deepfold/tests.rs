@@ -1,8 +1,7 @@
-use crate::pcs::prelude;
-
 use super::*;
+use crate::rand::random_field_vector_from_rng;
 use ark_bls12_381::Fr as F;
-use ark_std::test_rng;
+use ark_std::{end_timer, start_timer, test_rng};
 
 #[test]
 fn test_deepfold_pcs() {
@@ -19,14 +18,14 @@ fn test_deepfold_pcs() {
     let poly = DenseMultilinearExtension::<F>::from_evaluations_vec(mu, poly);
     let poly_arc = Arc::new(poly);
 
-    let start = std::time::Instant::now();
+    let timer = start_timer!(|| "DeepFold.Commit");
     let (com, advice) = DeepFoldPCS::<F>::commit(&pp, &poly_arc).unwrap();
-    println!("DeepFoldPCS commit : {} ms", start.elapsed().as_millis());
+    end_timer!(timer);
 
     let point = random_field_vector_from_rng::<F>(mu, &mut rng);
-    let start = std::time::Instant::now();
+    let timer = start_timer!(|| "DeepFold.Open");
     let proof = DeepFoldPCS::<F>::open(&pp, &poly_arc, &advice, &point, &mut transcript).unwrap();
-    println!("DeepFoldPCS open : {} ms", start.elapsed().as_millis());
+    end_timer!(timer);
 
     let value = DeepFoldPCS::compute_value_from_proof(&point, &proof);
 
@@ -35,5 +34,4 @@ fn test_deepfold_pcs() {
 
     assert!(result);
     assert_eq!(eval_mle_poly(&poly_arc.evaluations, &point), value);
-    assert!(result);
 }

@@ -1,23 +1,16 @@
 use arithmetic::math::Math;
-use ark_bls12_381::Bls12_381;
-use ark_ec::pairing::Pairing;
 use ark_ff::{PrimeField, UniformRand};
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
-use rand::Rng;
-use std::{iter::zip, sync::Arc};
-use subroutines::pcs::prelude::{LigeSISPCS, LigeSISSRS, PCSError, PolynomialCommitmentScheme};
+use std::sync::Arc;
+use ligesis_pcs::{LigeSISPCS, LigeSISSRS, PCSError, PolynomialCommitmentScheme};
 use transcript::IOPTranscript;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
 use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 
 mod common;
-use common::{d_evaluate_mle, test_rng};
+use common::test_rng;
 mod types;
 use types::FGoldilocks as F;
-
-use std::fs;
-use std::io::{self, BufRead};
 
 fn test_multi<F: PrimeField>() -> Result<(), PCSError> {
     let mut rng = test_rng();

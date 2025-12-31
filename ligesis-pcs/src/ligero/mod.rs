@@ -1,4 +1,4 @@
-use crate::pcs::prelude::*;
+use crate::{errors::PCSError, hash::*, rscode::*, utils::*, PolynomialCommitmentScheme};
 use ark_ff::PrimeField;
 use ark_poly::DenseMultilinearExtension;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};

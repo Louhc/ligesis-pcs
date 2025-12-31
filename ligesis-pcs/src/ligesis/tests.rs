@@ -1,6 +1,5 @@
 use super::*;
-use ark_std::{test_rng, UniformRand};
-// use ark_bls12_381::Fr as F;
+use ark_std::{end_timer, start_timer, test_rng, UniformRand};
 use ark_poly::MultilinearExtension;
 use FGoldilocks as F;
 
@@ -28,30 +27,29 @@ fn test_ligesis_pcs() {
     let (pp, vp) = LigeSISPCS::<F>::setup(&srs, 0.into(), 0.into()).unwrap();
     let poly = Arc::new(DenseMultilinearExtension::<F>::rand(mu, &mut rng));
 
-    let start = std::time::Instant::now();
+    let timer = start_timer!(|| "LigeSIS.Commit");
     let (com, advice) = LigeSISPCS::<F>::commit(&pp, &poly).unwrap();
-    println!("Commit: {} s", start.elapsed().as_secs_f64());
+    end_timer!(timer);
 
     let point = (0..mu).map(|_| F::rand(&mut rng)).collect::<Vec<_>>();
 
-    let start = std::time::Instant::now();
+    let timer = start_timer!(|| "LigeSIS.Open");
     let proof = LigeSISPCS::<F>::open(&pp, &poly, &advice, &point, &mut transcript).unwrap();
-    println!("Open: {} s", start.elapsed().as_secs_f64());
+    end_timer!(timer);
 
     let value = LigeSISPCS::<F>::compute_value_from_proof(mu - mu / 2, &point, &proof);
 
-    let start = std::time::Instant::now();
+    let timer = start_timer!(|| "LigeSIS.Verify");
     let res =
         LigeSISPCS::<F>::verify(&vp, &com, &point, &value, &proof, &mut transcript_clone).unwrap();
-    println!("Verify: {} s", start.elapsed().as_secs_f64());
-    // println!("Proof Size: {} B", proof.size_in_bytes());
+    end_timer!(timer);
 
     assert!(res);
     assert_eq!(eval_mle_poly(&poly.evaluations, &point), value);
 }
 
 #[bench]
-fn bench_ligesis_pcs(b: &mut Bencher) {
+fn bench_ligesis_pcs(_b: &mut Bencher) {
     let mut rng = test_rng();
     let mu = 18;
 
@@ -63,26 +61,23 @@ fn bench_ligesis_pcs(b: &mut Bencher) {
     let (pp, vp) = LigeSISPCS::<F>::setup(&srs, 0.into(), 0.into()).unwrap();
     let poly = Arc::new(DenseMultilinearExtension::<F>::rand(mu, &mut rng));
 
-    let start = std::time::Instant::now();
+    let timer = start_timer!(|| "LigeSIS.Commit");
     let (com, advice) = LigeSISPCS::<F>::commit(&pp, &poly).unwrap();
-    println!("Commit: {} s", start.elapsed().as_secs_f64());
-    // b.iter(|| LigeSISPCS::<F>::commit(&pp, &poly));
+    end_timer!(timer);
 
     let point = (0..mu).map(|_| F::rand(&mut rng)).collect::<Vec<_>>();
 
-    let start = std::time::Instant::now();
+    let timer = start_timer!(|| "LigeSIS.Open");
     let proof = LigeSISPCS::<F>::open(&pp, &poly, &advice, &point, &mut transcript).unwrap();
-    println!("Open: {} s", start.elapsed().as_secs_f64());
+    end_timer!(timer);
 
     let value = LigeSISPCS::<F>::compute_value_from_proof(mu - mu / 2, &point, &proof);
 
-    let start = std::time::Instant::now();
+    let timer = start_timer!(|| "LigeSIS.Verify");
     let res =
         LigeSISPCS::<F>::verify(&vp, &com, &point, &value, &proof, &mut transcript_clone).unwrap();
-    println!("Verify: {} s", start.elapsed().as_secs_f64());
-    println!("Proof Size: {} B", proof.size_in_bytes());
+    end_timer!(timer);
 
     assert!(res);
     assert_eq!(eval_mle_poly(&poly.evaluations, &point), value);
-    assert!(res);
 }

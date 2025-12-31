@@ -1,20 +1,23 @@
-use std::{default, ffi::os_str::Display};
-
-use crate::{pcs::prelude::*, IOPProof, PolyIOP, SumCheck};
+use crate::{
+    deepfold::*, errors::PCSError, rand::*, rscode::*, utils::*,
+    IOPProof, PolyIOP, PolynomialCommitmentScheme,
+    sumcheck::SumCheck,
+};
 use arithmetic::{math::Math, VPAuxInfo, VirtualPolynomial};
 use ark_ff::{BigInteger, PrimeField};
-use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
+use ark_poly::DenseMultilinearExtension;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{
     borrow::Borrow,
     cmp::{max, min},
+    end_timer,
     marker::PhantomData,
     rand::Rng,
+    start_timer,
     sync::Arc,
     vec,
     vec::Vec,
 };
-use serde::Serialize;
 use transcript::IOPTranscript;
 
 use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
@@ -108,25 +111,6 @@ pub struct LigeSISProof<F: PrimeField> {
 
     pub lookup_proof: LigeSISLookupProof<F>,
     pub deepfold_batched_proof: <DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::BatchProof,
-}
-
-impl<F: PrimeField> LigeSISProof<F> {
-    fn size_in_bytes(&self) -> usize {
-        println!("com_a: {}", self.com_a.serialized_size(ark_serialize::Compress::No));
-        println!("com_bI: {}", self.com_bI.serialized_size(ark_serialize::Compress::No));
-        println!("com_rs_a: {}", self.com_rs_a.serialized_size(ark_serialize::Compress::No));
-        println!("bI_check_proof: {}", self.bI_check_proof.serialized_size(ark_serialize::Compress::No));
-        println!("alpha2_a_bI_r2_check_proof: {}", self.alpha2_a_bI_r2_check_proof.serialized_size(ark_serialize::Compress::No));
-        println!("v_bI_r2_check_proof: {}", self.v_bI_r2_check_proof.serialized_size(ark_serialize::Compress::No));
-        println!("rs_a_check_proof: {}", self.rs_a_check_proof.serialized_size(ark_serialize::Compress::No));
-        println!("mat_g_check_proofs: {}", self.mat_g_check_proofs.serialized_size(ark_serialize::Compress::No));
-        println!("lookup_proof: {}", self.lookup_proof.serialized_size(ark_serialize::Compress::No));
-        println!("deepfold_batched_proof: {}", self.deepfold_batched_proof.serialized_size(ark_serialize::Compress::No));
-        println!("deepfold_batched_proof.deepfold_proof: {}", self.deepfold_batched_proof.deepfold_proof.serialized_size(ark_serialize::Compress::No));
-        println!("deepfold_batched_proof.sum_check_proof: {}", self.deepfold_batched_proof.sum_check_proof.serialized_size(ark_serialize::Compress::No));
-        println!("deepfold_batched_proof.mt_proofs_for_mt0: {}", self.deepfold_batched_proof.mt_proofs_for_mt0.serialized_size(ark_serialize::Compress::No));
-        self.serialized_size(ark_serialize::Compress::No)
-    }
 }
 
 #[derive(CanonicalSerialize, CanonicalDeserialize, Debug, PartialEq, Eq, Default)]
@@ -287,12 +271,12 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let mat_f = reshape(&poly.evaluations, m, n);
 
         // encode `F`
-        let start = std::time::Instant::now();
+        let timer = start_timer!(|| "Commit.RS");
         let mat_f_prime = mat_f.iter().map(|row| rs.encode(row)).collect::<Vec<_>>();
-        println!("RS(F): {} s", start.elapsed().as_secs_f64());
+        end_timer!(timer);
 
         // compute `H`
-        let start = std::time::Instant::now();
+        let timer = start_timer!(|| "Commit.SISHash");
         let mat_a_prime = mat_a
             .iter()
             .map(|row| {
@@ -321,7 +305,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
-        println!("SIS_Hash(B): {} s", start.elapsed().as_secs_f64());
+        end_timer!(timer);
 
         // compute com(H)
         let mat_h_pad =
@@ -372,7 +356,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             |row| row[party_id * eta * m / num_party..(party_id + 1) * eta * m / num_party].to_vec()
         ).collect::<Vec<_>>();
 
-        let start = std::time::Instant::now();
+        let timer = start_timer!(|| format!("Commit.DistributedSIS({}x{}x{})", c, m / num_party * eta, n * 2));
         let mat_a_prime = mat_a_k
             .iter()
             .map(|row| {
@@ -401,7 +385,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
-        println!("distributed SIS({} * {} * {}): {}", c, m / num_party * eta, n * 2, start.elapsed().as_secs_f64());
+        end_timer!(timer);
         
         let all_mat_h = Net::send_to_master(&mat_h_i);
 
@@ -481,20 +465,20 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let eq_z1 = get_tensor(&z1);
 
         // Step 2
-        let start = std::time::Instant::now();
+        let timer = start_timer!(|| "Open.DeepFold.CommitA");
         let a = (0..n)
             .map(|j| (0..m).map(|i| eq_z1[i] * mat_f[i][j]).sum())
             .collect::<Vec<F>>();
         let a_pad = evals_to_arcpoly(&resize_eval(&a, deepfold_prover_param.max_mu));
         let (com_a, com_a_advice) = DeepFoldPCS::commit(deepfold_prover_param, &a_pad)?;
-        println!("DeepFold.Commit(a): {} s", start.elapsed().as_secs_f64());
+        end_timer!(timer);
 
         // Step 3
         let I = transcript.get_and_append_challenge_indices(b"I", s_lambda, 2 * n)?;
 
         // Step 4
         // let mat_b_trans = transposition(&mat_b);
-        let start = std::time::Instant::now();
+        let timer = start_timer!(|| "Open.DeepFold.CommitBI");
         let mat_f_prime_trans = transposition(&mat_f_prime);
         let mat_bI = transposition(
             &I.iter()
@@ -505,7 +489,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let bI_field_pad = evals_to_arcpoly(&resize_eval(&bI_field, deepfold_prover_param.max_mu));
         let (com_bI, com_bI_advice) =
             DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&bI_field))?;
-        println!("DeepFold.Commit(B_I): {} s", start.elapsed().as_secs_f64());
+        end_timer!(timer);
 
         // Step 5
         let alpha1 = transcript
@@ -514,7 +498,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let alpha3 = transcript.get_and_append_challenge_vectors(b"alpha3", log_rs_len)?;
 
         // Step 6
-        let start = std::time::Instant::now();
+        let timer = start_timer!(|| "Open.Sumchecks");
         let mut bI_check = VirtualPolynomial::new(bI_field.len().ilog2() as usize);
         bI_check
             .add_mle_list(
@@ -672,10 +656,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let v_bI_r2_check_proof =
             <PolyIOP<F> as SumCheck<F>>::prove(v_bI_r2_check, transcript).unwrap();
         let r5 = v_bI_r2_check_proof.point.clone();
-        println!("Sumchecks: {} s", start.elapsed().as_secs_f64());
+        end_timer!(timer);
 
         // Step 11
-        let start = std::time::Instant::now();
         let polys = [
             &a_pad,
             &a_pad,
@@ -700,11 +683,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             &com_bI_advice,
             &com_bI_advice,
         ];
-        println!(
-            "DeepFold.Prepare polys: {} s",
-            start.elapsed().as_secs_f64()
-        );
-        let start = std::time::Instant::now();
+        let timer = start_timer!(|| "Open.DeepFold.Open");
         let points = [
             &z2,
             &r6,
@@ -727,8 +706,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
             &evals,
             transcript,
         )?;
-
-        println!("DeepFold.Open: {} s", start.elapsed().as_secs_f64());
+        end_timer!(timer);
 
         Ok(LigeSISProof {
             // commitments
@@ -801,7 +779,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         let eq_z1_0 = get_tensor(&z1_0);
 
         // Step 2
-        let start = std::time::Instant::now();
+        let timer = start_timer!(|| "DOpen.Step2");
         let a_k = (0..n)
             .map(|j| {
                 (0..m / num_party)
@@ -827,10 +805,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
                 DeepFoldProverCommitmentAdvice::default(),
             )
         };
-        println!("Step 2: {} s", start.elapsed().as_secs_f64());
+        end_timer!(timer);
 
         // Step 3
-        let start = std::time::Instant::now();
+        let timer = start_timer!(|| "DOpen.Step3");
         let I = if Net::am_master() {
             let I = transcript.get_and_append_challenge_indices(b"I", s_lambda, 2 * n)?;
             let msg = (0..num_party).map(|_| I.clone()).collect::<Vec<_>>();
@@ -839,10 +817,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         } else {
             Net::recv_from_master(None)
         };
-        println!("Step 3: {} s", start.elapsed().as_secs_f64());
+        end_timer!(timer);
 
         // Step 4
-        let start = std::time::Instant::now();
+        let timer = start_timer!(|| "DOpen.Step4");
         
         let mat_bI_k = {
             let mat_f_prime_trans = transposition(&mat_f_prime);
@@ -868,10 +846,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         } else {
             (vec![], Arc::default(), DeepFoldCommitment::default(), DeepFoldProverCommitmentAdvice::default())
         };
-        println!("Step 4: {} s", start.elapsed().as_secs_f64());
+        end_timer!(timer);
 
         // Step 5
-        let start = std::time::Instant::now();
+        let timer = start_timer!(|| "DOpen.Step5");
         let (alpha1, alpha2, alpha3) = if Net::am_master() {
             let alpha1 = transcript.get_and_append_challenge_vectors(
                 b"alpha1",
@@ -888,10 +866,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         } else {
             Net::recv_from_master(None)
         };
-        println!("Step 5: {} s", start.elapsed().as_secs_f64());
+        end_timer!(timer);
 
         // Step 6 (non-disbtributed)
-        let start = std::time::Instant::now();
+        let timer = start_timer!(|| "DOpen.Step6");
         let (bI_check_proof, r1) = if Net::am_master() {
             let mut bI_check = VirtualPolynomial::new(bI_field.len().ilog2() as usize);
             bI_check
@@ -910,11 +888,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         } else {
             (IOPProof::<F>::default(), vec![])
         };
-        println!("Step 6: {} s", start.elapsed().as_secs_f64());
-
+        end_timer!(timer);
 
         // Step 7
-        let start = std::time::Instant::now();
+        let timer = start_timer!(|| "DOpen.Step7");
         let (
             rs_a,
             rs_a_pad,
@@ -1001,10 +978,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
                 vec![],
             )
         };
-        println!("Step 7: {} s", start.elapsed().as_secs_f64());
+        end_timer!(timer);
 
         // Step 8
-        let start = std::time::Instant::now();
+        let timer = start_timer!(|| "DOpen.Step8");
         let (
             lookup_proof,
             eq_alpha2_a_bI_eval,
@@ -1104,10 +1081,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
                 vec![],
             )
         };
-        println!("Step 8: {} s", start.elapsed().as_secs_f64());
+        end_timer!(timer);
 
         // Step 9
-        let start = std::time::Instant::now();
+        let timer = start_timer!(|| "DOpen.Step9");
         let (bI_r2, alpha2_a_bI_r2_check_proof, r4) = if Net::am_master() {
             let alpha2_a = mat_mul(&vec![get_tensor(&alpha2)], &mat_a)[0].clone();
             let bI_r2 =
@@ -1126,10 +1103,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         } else {
             (vec![], IOPProof::<F>::default(), vec![])
         };
-        println!("Step 9: {} s", start.elapsed().as_secs_f64());
+        end_timer!(timer);
 
         // Step 10
-        let start = std::time::Instant::now();
+        let timer = start_timer!(|| "DOpen.Step10");
         let (v_bI_r2_check_proof, r5) = if Net::am_master() {
             let mut v_bI_r2_check = VirtualPolynomial::new(v.len().ilog2() as usize);
             v_bI_r2_check
@@ -1142,7 +1119,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         } else {
             (IOPProof::<F>::default(), vec![])
         };
-        println!("Step 10: {} s", start.elapsed().as_secs_f64());
+        end_timer!(timer);
 
         // Step 11
         if Net::am_master() {

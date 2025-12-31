@@ -6,8 +6,8 @@
 
 //! This module implements the sum check protocol.
 
-use crate::poly_iop::{
-    errors::PolyIOPErrors,
+use crate::{
+    iop_errors::PolyIOPErrors,
     structs::{IOPProof, IOPProverMessage, IOPProverState, IOPVerifierState},
     PolyIOP,
 };
@@ -15,7 +15,6 @@ use arithmetic::{math::Math, VPAuxInfo, VirtualPolynomial};
 use ark_ff::PrimeField;
 use ark_poly::DenseMultilinearExtension;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::{end_timer, start_timer};
 use std::{fmt::Debug, sync::Arc};
 use transcript::IOPTranscript;
 
@@ -158,25 +157,17 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
     type Transcript = IOPTranscript<F>;
 
     fn extract_sum(proof: &Self::SumCheckProof) -> F {
-        let start = start_timer!(|| "extract sum");
-        let res = proof.proofs[0].evaluations[0] + proof.proofs[0].evaluations[1];
-        end_timer!(start);
-        res
+        proof.proofs[0].evaluations[0] + proof.proofs[0].evaluations[1]
     }
 
     fn init_transcript() -> Self::Transcript {
-        let start = start_timer!(|| "init transcript");
-        let res = IOPTranscript::<F>::new(b"Initializing SumCheck transcript");
-        end_timer!(start);
-        res
+        IOPTranscript::<F>::new(b"Initializing SumCheck transcript")
     }
 
     fn prove(
         poly: Self::VirtualPolynomial,
         transcript: &mut Self::Transcript,
     ) -> Result<Self::SumCheckProof, PolyIOPErrors> {
-        let start = start_timer!(|| "sum check prove");
-
         transcript.append_serializable_element(b"aux info", &poly.aux_info)?;
 
         let num_vars = poly.aux_info.num_variables;
@@ -195,7 +186,6 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
             prover_state.challenges.push(p)
         };
 
-        end_timer!(start);
         Ok(IOPProof {
             point: prover_state.challenges,
             proofs: prover_msgs,
@@ -206,8 +196,6 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
         poly: Self::VirtualPolynomial,
         transcript: &mut Self::Transcript,
     ) -> Result<Option<Self::SumCheckProof>, PolyIOPErrors> {
-        let start = start_timer!(|| "sum check prove");
-
         let num_party_vars = Net::n_parties().log_2() as usize;
         if Net::am_master() {
             let mut aux_info = poly.aux_info.clone();
@@ -251,15 +239,11 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
             }
         }
 
-        let step = start_timer!(|| "Compute final mle");
-
         let final_mle_evals =
             IOPProverState::get_final_mle_evaluations(&mut prover_state, challenge.unwrap())?;
         let final_mle_evals = Net::send_to_master(&final_mle_evals);
 
         if !Net::am_master() {
-            end_timer!(step);
-            end_timer!(start);
             return Ok(None);
         }
 
@@ -280,8 +264,6 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
         poly.aux_info.num_variables = num_party_vars;
         poly.replace_mles(new_mles);
 
-        end_timer!(step);
-
         let mut old_challenges = prover_state.challenges.clone();
         let num_vars = poly.aux_info.num_variables;
         let mut prover_state = IOPProverState::prover_init(poly)?;
@@ -300,7 +282,6 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
 
         old_challenges.append(&mut prover_state.challenges);
 
-        end_timer!(start);
         Ok(Some(IOPProof {
             point: old_challenges,
             proofs: prover_msgs,
@@ -313,8 +294,6 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
         aux_info: &Self::VPAuxInfo,
         transcript: &mut Self::Transcript,
     ) -> Result<Self::SumCheckSubClaim, PolyIOPErrors> {
-        let start = start_timer!(|| "sum check verify");
-
         transcript.append_serializable_element(b"aux info", aux_info)?;
         let mut verifier_state = IOPVerifierState::verifier_init(aux_info);
         for i in 0..aux_info.num_variables {
@@ -327,10 +306,7 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
             )?;
         }
 
-        let res = IOPVerifierState::check_and_generate_subclaim(&verifier_state, &claimed_sum);
-
-        end_timer!(start);
-        res
+        IOPVerifierState::check_and_generate_subclaim(&verifier_state, &claimed_sum)
     }
 }
 

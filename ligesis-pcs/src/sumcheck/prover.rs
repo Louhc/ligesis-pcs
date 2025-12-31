@@ -9,14 +9,12 @@
 use super::SumCheckProver;
 use crate::{
     barycentric_weights, extrapolate,
-    poly_iop::{
-        errors::PolyIOPErrors,
-        structs::{IOPProverMessage, IOPProverState},
-    },
+    iop_errors::PolyIOPErrors,
+    structs::{IOPProverMessage, IOPProverState},
 };
 use arithmetic::{bind_poly_var_bot, bind_poly_var_bot_par, VirtualPolynomial};
 use ark_ff::PrimeField;
-use ark_std::{cfg_into_iter, end_timer, start_timer, vec::Vec};
+use ark_std::{cfg_into_iter, vec::Vec};
 use rayon::prelude::IntoParallelIterator;
 use std::sync::Arc;
 
@@ -30,13 +28,11 @@ impl<F: PrimeField> SumCheckProver<F> for IOPProverState<F> {
     /// Initialize the prover state to argue for the sum of the input polynomial
     /// over {0,1}^`num_vars`.
     fn prover_init(polynomial: Self::VirtualPolynomial) -> Result<Self, PolyIOPErrors> {
-        let start = start_timer!(|| "sum check prover init");
         if polynomial.aux_info.num_variables == 0 {
             return Err(PolyIOPErrors::InvalidParameters(
                 "Attempt to prove a constant.".to_string(),
             ));
         }
-        end_timer!(start);
 
         Ok(Self {
             challenges: Vec::with_capacity(polynomial.aux_info.num_variables),
@@ -60,16 +56,11 @@ impl<F: PrimeField> SumCheckProver<F> for IOPProverState<F> {
         &mut self,
         challenge: &Option<F>,
     ) -> Result<Self::ProverMessage, PolyIOPErrors> {
-        let start =
-            start_timer!(|| format!("sum check prove {}-th round and update state", self.round));
-
         if self.round >= self.poly.aux_info.num_variables {
             return Err(PolyIOPErrors::InvalidProver(
                 "Prover is not active".to_string(),
             ));
         }
-
-        let fix_argument = start_timer!(|| "fix argument");
 
         // Step 1:
         // fix argument and evaluate f(x) over x_m = r; where r is the challenge
@@ -106,12 +97,6 @@ impl<F: PrimeField> SumCheckProver<F> for IOPProverState<F> {
                 .iter_mut()
                 .for_each(|mle| bind_poly_var_bot(Arc::get_mut(mle).unwrap(), &r));
         }
-        // else if self.round > 0 {
-        //     return Err(PolyIOPErrors::InvalidProver(
-        //         "verifier message is empty".to_string(),
-        //     ));
-        // }
-        end_timer!(fix_argument);
 
         self.round += 1;
 
@@ -169,8 +154,6 @@ impl<F: PrimeField> SumCheckProver<F> for IOPProverState<F> {
                 .zip(sum.iter().chain(extraploation.iter()))
                 .for_each(|(products_sum, sum)| *products_sum += sum);
         });
-
-        end_timer!(start);
 
         Ok(IOPProverMessage {
             evaluations: products_sum,

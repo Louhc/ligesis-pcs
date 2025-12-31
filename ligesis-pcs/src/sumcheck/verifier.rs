@@ -7,13 +7,12 @@
 //! Verifier subroutines for a SumCheck protocol.
 
 use super::{SumCheckSubClaim, SumCheckVerifier};
-use crate::poly_iop::{
-    errors::PolyIOPErrors,
+use crate::{
+    iop_errors::PolyIOPErrors,
     structs::{IOPProverMessage, IOPVerifierState},
 };
 use arithmetic::{interpolate_uni_poly, VPAuxInfo};
 use ark_ff::PrimeField;
-use ark_std::{end_timer, start_timer};
 use transcript::IOPTranscript;
 
 #[cfg(feature = "parallel")]
@@ -28,17 +27,14 @@ impl<F: PrimeField> SumCheckVerifier<F> for IOPVerifierState<F> {
 
     /// Initialize the verifier's state.
     fn verifier_init(index_info: &Self::VPAuxInfo) -> Self {
-        let start = start_timer!(|| "sum check verifier init");
-        let res = Self {
+        Self {
             round: 1,
             num_vars: index_info.num_variables,
             max_degree: index_info.max_degree,
             finished: false,
             polynomials_received: Vec::with_capacity(index_info.num_variables),
             challenges: Vec::with_capacity(index_info.num_variables),
-        };
-        end_timer!(start);
-        res
+        }
     }
 
     /// Run verifier for the current round, given a prover message.
@@ -52,9 +48,6 @@ impl<F: PrimeField> SumCheckVerifier<F> for IOPVerifierState<F> {
         prover_msg: &Self::ProverMessage,
         transcript: &mut Self::Transcript,
     ) -> Result<Self::Challenge, PolyIOPErrors> {
-        let start =
-            start_timer!(|| format!("sum check verify {}-th round and update state", self.round));
-
         if self.finished {
             return Err(PolyIOPErrors::InvalidVerifier(
                 "Incorrect verifier state: Verifier is already finished.".to_string(),
@@ -82,7 +75,6 @@ impl<F: PrimeField> SumCheckVerifier<F> for IOPVerifierState<F> {
             self.round += 1;
         }
 
-        end_timer!(start);
         Ok(challenge)
     }
 
@@ -98,7 +90,6 @@ impl<F: PrimeField> SumCheckVerifier<F> for IOPVerifierState<F> {
         &self,
         asserted_sum: &F,
     ) -> Result<Self::SumCheckSubClaim, PolyIOPErrors> {
-        let start = start_timer!(|| "sum check check and generate subclaim");
         if !self.finished {
             return Err(PolyIOPErrors::InvalidVerifier(
                 "Incorrect verifier state: Verifier has not finished.".to_string(),
@@ -166,7 +157,6 @@ impl<F: PrimeField> SumCheckVerifier<F> for IOPVerifierState<F> {
                 ));
             }
         }
-        end_timer!(start);
         Ok(SumCheckSubClaim {
             point: self.challenges.clone(),
             // the last expected value (not checked within this function) will be included in the

@@ -1,4 +1,4 @@
-use crate::poly_iop::errors::PolyIOPErrors;
+use crate::iop_errors::PolyIOPErrors;
 use arithmetic::{
     bind_poly_var_bot_par, bit_decompose, build_eq_table, eq_eval,
     math::Math,
@@ -7,7 +7,6 @@ use arithmetic::{
 use ark_ff::{batch_inversion, PrimeField};
 use ark_poly::DenseMultilinearExtension;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::{end_timer, start_timer};
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
     IntoParallelRefMutIterator, ParallelIterator,
@@ -35,7 +34,6 @@ impl<F: PrimeField> SumcheckInstanceProof<F> {
     where
         Func: Fn(&[F]) -> F + std::marker::Sync,
     {
-        let start = start_timer!(|| "sum check step");
         // Vector storing evaluations of combined polynomials g(x) = P_0(x) * ...
         // P_{num_polys} (x) for points {0, ..., |g(x)|}
         let mut eval_points = vec![F::zero(); combined_degree + 1];
@@ -96,7 +94,6 @@ impl<F: PrimeField> SumcheckInstanceProof<F> {
                     .map(|mle| mle[poly_i])
                     .sum::<F>();
             });
-        end_timer!(start);
         eval_points
     }
 
@@ -133,9 +130,7 @@ impl<F: PrimeField> SumcheckInstanceProof<F> {
         for _round in 0..num_rounds {
             let mut eval_points = Self::prove_arbitrary_step(polys, &comb_func, combined_degree);
             eval_points[1] = previous_claim - eval_points[0];
-            let step = start_timer!(|| "from evals");
             let round_uni_poly = UniPoly::from_evals(&eval_points);
-            end_timer!(step);
 
             // append the prover's message to the transcript
             transcript
@@ -147,14 +142,12 @@ impl<F: PrimeField> SumcheckInstanceProof<F> {
             r.push(r_j);
 
             // bound all tables to the verifier's challenege
-            let step = start_timer!(|| "bind polys");
             let concurrency = (rayon::current_num_threads() * 2 + polys.len() - 1) / polys.len();
             polys.par_iter_mut().for_each(|poly| {
                 bind_poly_var_bot_par(Arc::get_mut(poly).unwrap(), &r_j, concurrency)
             });
             compressed_polys.push(round_uni_poly.compress());
             previous_claim = round_uni_poly.evaluate(&r_j);
-            end_timer!(step);
         }
 
         let final_evals = polys.iter().map(|poly| poly[0]).collect();
@@ -191,9 +184,7 @@ impl<F: PrimeField> SumcheckInstanceProof<F> {
                     });
                 eval_points[1] = previous_claim - eval_points[0];
 
-                let step = start_timer!(|| "from evals");
                 let round_uni_poly = UniPoly::from_evals(&eval_points);
-                end_timer!(step);
 
                 transcript
                     .append_serializable_element(b"poly", &round_uni_poly)
@@ -211,12 +202,10 @@ impl<F: PrimeField> SumcheckInstanceProof<F> {
             r.push(r_j);
 
             // bound all tables to the verifier's challenege
-            let step = start_timer!(|| "bind polys");
             let concurrency = (rayon::current_num_threads() * 2 + polys.len() - 1) / polys.len();
             polys.par_iter_mut().for_each(|poly| {
                 bind_poly_var_bot_par(Arc::get_mut(poly).unwrap(), &r_j, concurrency)
             });
-            end_timer!(step);
         }
 
         let final_evals = polys.iter().map(|poly| poly[0]).collect::<Vec<_>>();

@@ -1,7 +1,8 @@
 [workspace]
+resolver = "2"
 members = [
   "arithmetic",
-  "subroutines",
+  "ligesis-pcs",
   "transcript",
   "util",
   "deNetwork",
