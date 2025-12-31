@@ -34,7 +34,7 @@ print-trace = [
 
 [dev-dependencies]
 ark-bn254 = { version = "0.4.0", features = ["asm"] }
-structopt = "0.3"
+clap = { version = "4", features = ["derive"] }
 
 [[example]]
 name = "dLigesis"
