@@ -1,12 +1,8 @@
-use ark_ff::{Field, PrimeField};
+use ark_ff::Field;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::{cfg_into_iter, marker::PhantomData};
-use sha2::{digest, Digest, Sha256};
+use sha2::{Digest, Sha256};
 
 pub type Byte32 = [u8; 32];
-
-pub mod sis;
-pub use sis::*;
 
 pub fn serialize<F: Field>(data: &[F]) -> Vec<u8> {
     let mut serialized = Vec::new();

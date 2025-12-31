@@ -15,8 +15,6 @@ mod utils;
 
 pub mod prelude;
 
-// use ark_ec::pairing::Pairing;
-use ark_crypto_primitives::sponge::{Absorb, CryptographicSponge};
 use ark_ff::{Field, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::rand::Rng;
