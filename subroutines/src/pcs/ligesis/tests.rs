@@ -48,7 +48,6 @@ fn test_ligesis_pcs() {
 
     assert!(res);
     assert_eq!(eval_mle_poly(&poly.evaluations, &point), value);
-    assert!(false);
 }
 
 #[bench]

@@ -9,7 +9,6 @@ pub use crate::pcs::{
     deepfold::*,
     errors::PCSError,
     hash::*,
-    // structs::{/*Commitment,*/ BatchProof},
     ligero::*,
     ligesis::*,
     rand::*,

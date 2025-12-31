@@ -5,15 +5,12 @@
 // along with the HyperPlonk library. If not, see <https://mit-license.org/>.
 
 mod errors;
-// mod structs;
 mod deepfold;
-mod dummy;
 mod hash;
 mod ligero;
 mod ligesis;
 mod rand;
 mod rscode;
-mod trivial;
 mod utils;
 
 pub mod prelude;
