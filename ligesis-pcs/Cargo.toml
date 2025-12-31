@@ -39,3 +39,7 @@ structopt = "0.3"
 [[example]]
 name = "dLigesis"
 path = "dTests/dLigesis.rs"
+
+[[bench]]
+name = "ligesis_bench"
+harness = false

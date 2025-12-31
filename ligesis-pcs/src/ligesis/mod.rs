@@ -24,6 +24,7 @@ use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 
 mod types;
 use types::*;
+pub use types::FGoldilocks;
 
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq)]
 /// proof of lookup

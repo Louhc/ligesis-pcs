@@ -52,6 +52,22 @@ cargo test -p ligesis-pcs test_deepfold_pcs
 cargo test -p ligesis-pcs test_ligero_pcs
 ```
 
+## Benchmarking
+
+Run the LigeSIS PCS benchmark:
+```bash
+cargo bench --package ligesis-pcs --bench ligesis_bench --features print-trace
+```
+
+The benchmark parameters can be adjusted in `ligesis-pcs/benches/ligesis_bench.rs`:
+- `MU`: Number of polynomial variables (default: 18)
+- `ITERATIONS`: Number of iterations per operation (default: 1)
+
+For optimal benchmark performance:
+```bash
+RUSTFLAGS='-C target-cpu=native -C target-feature=+bmi2,+adx' cargo bench --package ligesis-pcs --bench ligesis_bench
+```
+
 ## Distributed Testing
 
 Run distributed LigeSIS test with 4 parties:
