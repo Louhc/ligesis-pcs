@@ -44,5 +44,9 @@ path = "dTests/dLigesis.rs"
 name = "ligesis_bench"
 harness = false
 
+[[bench]]
+name = "deepfold_bench"
+harness = false
+
 [lints.rust]
 warnings = "allow"

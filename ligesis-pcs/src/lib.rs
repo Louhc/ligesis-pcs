@@ -9,6 +9,7 @@
 mod errors;
 mod iop_errors;
 mod structs;
+mod types;
 
 // PCS implementations
 pub mod deepfold;
@@ -27,6 +28,7 @@ pub mod sumcheck;
 pub use errors::PCSError;
 pub use iop_errors::PolyIOPErrors;
 pub use structs::IOPProof;
+pub use types::FGoldilocks;
 
 pub use deepfold::*;
 pub use hash::{Byte32, MerkleTree, compute_sha256, compute_sha256_row};

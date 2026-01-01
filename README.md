@@ -1,37 +1,6 @@
 # LigeSIS-PCS
 
-A Rust implementation of **LigeSIS** (Ligero + SIS) Polynomial Commitment Scheme, based on the [HyperPlonk](https://github.com/EspressoSystems/hyperplonk) framework.
-
-## Project Structure
-
-```
-├── ligesis-pcs/          # Main PCS library
-│   ├── src/
-│   │   ├── ligesis/      # LigeSIS PCS implementation
-│   │   ├── deepfold/     # DeepFold PCS (used by LigeSIS)
-│   │   ├── ligero/       # Ligero PCS
-│   │   ├── sumcheck/     # SumCheck protocol
-│   │   ├── hash/         # Merkle tree utilities
-│   │   └── lib.rs
-│   └── dTests/           # Distributed testing
-├── arithmetic/           # Field arithmetic utilities
-├── transcript/           # Fiat-Shamir transcript
-├── deNetwork/            # Distributed networking
-└── util/                 # General utilities
-```
-
-## Building
-
-Requires **Rust Nightly**.
-
-```bash
-cargo build --release
-```
-
-For optimal performance:
-```bash
-RUSTFLAGS='-C target-cpu=native -C target-feature=+bmi2,+adx' cargo build --release
-```
+A Rust implementation of **Polynomial Commitment Schemes (PCS)** for multilinear polynomials, based on the [HyperPlonk](https://github.com/EspressoSystems/hyperplonk) framework.
 
 ## Testing
 
@@ -54,24 +23,37 @@ cargo test -p ligesis-pcs test_ligero_pcs
 
 ## Benchmarking
 
-Run the LigeSIS PCS benchmark:
+### LigeSIS Benchmark
+
 ```bash
 cargo bench --package ligesis-pcs --bench ligesis_bench --features print-trace
 ```
 
-Command line options:
+Options:
 - `-m, --mu <MU>`: Number of polynomial variables (default: 24)
 - `-i, --iterations <N>`: Number of iterations per operation (default: 1)
 
-Example with custom parameters:
 ```bash
 cargo bench --package ligesis-pcs --bench ligesis_bench -- --mu 20 --iterations 3
 ```
 
-For optimal performance:
+### DeepFold Benchmark
+
+Single polynomial benchmark:
 ```bash
-RUSTFLAGS='-C target-cpu=native -C target-feature=+bmi2,+adx' cargo bench --package ligesis-pcs --bench ligesis_bench -- -m 24
+cargo bench --package ligesis-pcs --bench deepfold_bench --features print-trace -- --mu 20
 ```
+
+Batch open/verify benchmark:
+```bash
+cargo bench --package ligesis-pcs --bench deepfold_bench -- --test-batch --num-polys 5 --mu 18
+```
+
+Options:
+- `-m, --mu <MU>`: Number of polynomial variables (default: 20)
+- `-i, --iterations <N>`: Number of iterations per operation (default: 1)
+- `--test-batch`: Run batch open/verify benchmark instead of single
+- `-n, --num-polys <N>`: Number of polynomials for batch benchmark (default: 3)
 
 ## Distributed Testing
 

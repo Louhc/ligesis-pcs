@@ -1,9 +1,13 @@
-use arithmetic::VirtualPolynomial;
+use arithmetic::{VPAuxInfo, VirtualPolynomial};
 use ark_ff::{BigInt, BigInteger, PrimeField};
 use ark_poly::DenseMultilinearExtension;
+use std::marker::PhantomData;
 use std::sync::Arc;
+use transcript::IOPTranscript;
 
-use crate::IOPProof;
+use crate::errors::PCSError;
+use crate::sumcheck::{SumCheck, SumCheckSubClaim};
+use crate::{IOPProof, PolyIOP};
 
 pub fn get_alpha_powers<F: PrimeField>(alpha: F, mu: usize) -> Vec<F> {
     let mut res = Vec::new();
@@ -356,6 +360,110 @@ pub fn resize_point<F: PrimeField>(point: &Vec<F>, new_mu: usize) -> Vec<F> {
     let mut new_point = point.clone();
     new_point.resize(new_mu, F::ZERO);
     new_point
+}
+
+// ============================================================================
+// SumCheck Helper Functions
+// ============================================================================
+
+/// Prove a sumcheck for a VirtualPolynomial.
+pub fn sumcheck_prove<F: PrimeField>(
+    poly: VirtualPolynomial<F>,
+    transcript: &mut IOPTranscript<F>,
+) -> Result<IOPProof<F>, PCSError> {
+    <PolyIOP<F> as SumCheck<F>>::prove(poly, transcript)
+        .map_err(|e| PCSError::SumCheckError(format!("{:?}", e)))
+}
+
+/// Verify a sumcheck proof and return the subclaim.
+pub fn sumcheck_verify<F: PrimeField>(
+    proof: &IOPProof<F>,
+    transcript: &mut IOPTranscript<F>,
+) -> Result<SumCheckSubClaim<F>, PCSError> {
+    let num_variables = proof.proofs.len();
+    let max_degree = proof.proofs[0].evaluations.len() - 1;
+    let sum = <PolyIOP<F> as SumCheck<F>>::extract_sum(proof);
+    <PolyIOP<F> as SumCheck<F>>::verify(
+        sum,
+        proof,
+        &VPAuxInfo {
+            max_degree,
+            num_variables,
+            phantom: PhantomData::<F>::default(),
+        },
+        transcript,
+    )
+    .map_err(|e| PCSError::SumCheckError(format!("{:?}", e)))
+}
+
+/// Extract sum from a sumcheck proof.
+pub fn sumcheck_extract_sum<F: PrimeField>(proof: &IOPProof<F>) -> F {
+    <PolyIOP<F> as SumCheck<F>>::extract_sum(proof)
+}
+
+/// Helper to create a VirtualPolynomial and add MLEs.
+pub struct SumCheckBuilder<F: PrimeField> {
+    poly: VirtualPolynomial<F>,
+}
+
+impl<F: PrimeField> SumCheckBuilder<F> {
+    /// Create a new SumCheckBuilder with the given number of variables.
+    pub fn new(num_vars: usize) -> Self {
+        Self {
+            poly: VirtualPolynomial::new(num_vars),
+        }
+    }
+
+    /// Add a product of MLEs (as Arc) with a coefficient.
+    pub fn add_mle_list(
+        mut self,
+        mles: impl IntoIterator<Item = Arc<DenseMultilinearExtension<F>>>,
+        coeff: F,
+    ) -> Result<Self, PCSError> {
+        self.poly
+            .add_mle_list(mles, coeff)
+            .map_err(|e| PCSError::VirtualPolynomialError(format!("{:?}", e)))?;
+        Ok(self)
+    }
+
+    /// Add a product of evaluation vectors with a coefficient.
+    /// Automatically converts Vec<F> to Arc<DenseMultilinearExtension<F>>.
+    pub fn add_evals<const N: usize>(
+        mut self,
+        evals: [&Vec<F>; N],
+        coeff: F,
+    ) -> Result<Self, PCSError> {
+        let mles: Vec<_> = evals.into_iter().map(|e| evals_to_arcpoly(e)).collect();
+        self.poly
+            .add_mle_list(mles, coeff)
+            .map_err(|e| PCSError::VirtualPolynomialError(format!("{:?}", e)))?;
+        Ok(self)
+    }
+
+    /// Add a product of owned evaluation vectors with a coefficient.
+    /// Automatically converts Vec<F> to Arc<DenseMultilinearExtension<F>>.
+    /// This version takes ownership of the vectors, avoiding the need for temporary variables.
+    pub fn add_evals_owned<const N: usize>(
+        mut self,
+        evals: [Vec<F>; N],
+        coeff: F,
+    ) -> Result<Self, PCSError> {
+        let mles: Vec<_> = evals.into_iter().map(|e| evals_to_arcpoly(&e)).collect();
+        self.poly
+            .add_mle_list(mles, coeff)
+            .map_err(|e| PCSError::VirtualPolynomialError(format!("{:?}", e)))?;
+        Ok(self)
+    }
+
+    /// Prove the sumcheck.
+    pub fn prove(self, transcript: &mut IOPTranscript<F>) -> Result<IOPProof<F>, PCSError> {
+        sumcheck_prove(self.poly, transcript)
+    }
+
+    /// Get the underlying VirtualPolynomial.
+    pub fn build(self) -> VirtualPolynomial<F> {
+        self.poly
+    }
 }
 
 #[cfg(test)]

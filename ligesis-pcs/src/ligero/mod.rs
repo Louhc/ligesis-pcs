@@ -1,17 +1,20 @@
-use crate::{errors::PCSError, hash::*, rscode::*, utils::*, PolynomialCommitmentScheme};
+use crate::{errors::PCSError, hash::*, rand::*, rscode::*, utils::*, PolynomialCommitmentScheme};
 use ark_ff::PrimeField;
 use ark_poly::DenseMultilinearExtension;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{borrow::Borrow, cmp::min, marker::PhantomData, rand::Rng, sync::Arc, vec, vec::Vec};
 use transcript::IOPTranscript;
 
-mod rand;
-use rand::*;
-
 /// Ligero Polynomial Commitment Scheme
 pub struct LigeroPCS<F: PrimeField> {
     #[doc(hidden)]
     phantom: PhantomData<F>,
+}
+
+#[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq, Default)]
+pub struct LigeroCommitment {
+    pub num_vars: usize,
+    pub root: Byte32,
 }
 
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq)]
@@ -41,7 +44,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
     type Point = Vec<F>;
     type Evaluation = F;
     // Commitments and proofs
-    type Commitment = Byte32; // merkle tree root
+    type Commitment = LigeroCommitment; // merkle tree root with num_vars
     type Proof = LigeroProof<F>; // merkle tree paths, columes of `E`
     type BatchProof = (); //
 
@@ -67,8 +70,16 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
         let &(log_n, log_m0, rs_len) = prover_param.borrow();
         let log_m1 = log_n - log_m0;
         let (n, m0, m1) = (1 << log_n, 1 << log_m0, 1 << log_m1);
-        assert!(log_n == log_m0 + log_m1 && poly.num_vars == log_n);
-        let mat_a = reshape(&poly.evaluations, m0, m1);
+
+        // Record original num_vars and pad if needed
+        let num_vars = poly.num_vars;
+        assert!(num_vars <= log_n);
+        let poly_evals = if num_vars < log_n {
+            resize_eval(&poly.evaluations, log_n)
+        } else {
+            poly.evaluations.clone()
+        };
+        let mat_a = reshape(&poly_evals, m0, m1);
 
         // encode `A`
         let rs = ReedSolomon::new(m1, rs_len);
@@ -80,7 +91,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
             .collect::<Vec<_>>();
         let mt = MerkleTree::new(&hash_cols);
 
-        Ok((mt.root().clone(), mt))
+        Ok((LigeroCommitment { num_vars, root: mt.root().clone() }, mt))
     }
 
     fn open(
@@ -94,8 +105,16 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
         let &(log_n, log_m0, rs_len) = prover_param.borrow();
         let log_m1 = log_n - log_m0;
         let (n, m0, m1) = (1 << log_n, 1 << log_m0, 1 << log_m1);
-        assert!(log_n == log_m0 + log_m1 && poly.num_vars == log_n);
-        let mat_a = reshape(&poly.evaluations, m0, m1);
+
+        assert!(poly.num_vars <= log_n);
+        // Pad polynomial and point if needed
+        let poly_evals = if poly.num_vars < log_n {
+            resize_eval(&poly.evaluations, log_n)
+        } else {
+            poly.evaluations.clone()
+        };
+        let point = resize_point(point, log_n);
+        let mat_a = reshape(&poly_evals, m0, m1);
 
         // encode `A`
         let rs = ReedSolomon::new(m1, rs_len);
@@ -149,6 +168,13 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
         let &(log_n, log_m0, rs_len) = verifier_param;
         let log_m1 = log_n - log_m0;
         let (n, m0, m1) = (1 << log_n, 1 << log_m0, 1 << log_m1);
+
+        // Extract num_vars and root from commitment
+        let LigeroCommitment { num_vars, root } = com.clone();
+
+        // Pad point if needed
+        let point = resize_point(point, log_n);
+
         let f0 = proof.f0.clone();
         let f1 = proof.f1.clone();
 
@@ -191,7 +217,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
         // check merkle paths
         for i in 0..idx.len() {
             if !MerkleTree::verify(
-                com,
+                &root,
                 idx[i],
                 &compute_sha256_row(&proof.cols[i]),
                 &proof.mt_proofs[i],
