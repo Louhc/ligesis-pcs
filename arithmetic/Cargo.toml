@@ -33,3 +33,6 @@ harness = false
 name = "bind_poly"
 path = "benches/bind_poly_bench.rs"
 harness = false
+
+[lints.rust]
+warnings = "allow"

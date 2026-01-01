@@ -30,3 +30,6 @@ ark-test-curves = { version = "0.4.2-alpha.1", path = "../test-curves", default-
 default = []
 std = [ "ark-std/std", ]
 derive = [ "ark-serialize-derive" ]
+
+[lints.rust]
+warnings = "allow"

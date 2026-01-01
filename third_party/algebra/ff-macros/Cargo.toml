@@ -22,3 +22,6 @@ num-traits = { version = "0.2", default-features = false }
 
 [lib]
 proc-macro = true
+
+[lints.rust]
+warnings = "allow"

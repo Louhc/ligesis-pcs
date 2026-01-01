@@ -9,7 +9,7 @@ fn test_ligero_pcs() {
     let srs = LigeroPCS::<F>::gen_srs_for_testing(&mut rng, 18).unwrap();
     let mut transcript = IOPTranscript::<F>::new(b"ligero_pcs_test");
     let mut transcript_clone = transcript.clone();
-    let (pp, vp) = LigeroPCS::<F>::setup(&srs, 0.into(), 0.into()).unwrap();
+    let (pp, vp) = LigeroPCS::<F>::setup(&srs).unwrap();
     let poly = Arc::new(DenseMultilinearExtension::<F>::rand(18, &mut rng));
 
     let (com, advice) = LigeroPCS::<F>::commit(&pp, &poly).unwrap();

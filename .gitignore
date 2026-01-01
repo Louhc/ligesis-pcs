@@ -1,4 +1,4 @@
-backup/
+.claude
 
 .*.sw*
 .DS_Store

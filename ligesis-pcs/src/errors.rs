@@ -29,6 +29,12 @@ pub enum PCSError {
     TranscriptError(TranscriptError),
     /// ArithErrors error {0}
     ArithErrors(ArithErrors),
+    /// SumCheck proof failed: {0}
+    SumCheckError(String),
+    /// VirtualPolynomial operation failed: {0}
+    VirtualPolynomialError(String),
+    /// Unexpected None value: {0}
+    UnexpectedNone(String),
 }
 
 impl From<SerializationError> for PCSError {

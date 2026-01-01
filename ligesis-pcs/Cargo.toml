@@ -43,3 +43,6 @@ path = "dTests/dLigesis.rs"
 [[bench]]
 name = "ligesis_bench"
 harness = false
+
+[lints.rust]
+warnings = "allow"

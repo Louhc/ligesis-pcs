@@ -91,8 +91,6 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
     /// Setup parameters from SRS.
     fn setup(
         srs: impl Borrow<Self::SRS>,
-        supported_degree: Option<usize>,
-        supported_num_vars: Option<usize>,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError>;
 
     /// Generate a commitment for a polynomial.
@@ -152,8 +150,8 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
         unimplemented!()
     }
 
-    /// Multi-open for multiple polynomials.
-    fn multi_open(
+    /// Batch open for multiple polynomials.
+    fn batch_open(
         _prover_param: impl Borrow<Self::ProverParam>,
         _polynomials: Vec<Self::Polynomial>,
         _advices: &[&Self::ProverCommitmentAdvice],
@@ -164,8 +162,8 @@ pub trait PolynomialCommitmentScheme<F: PrimeField> {
         unimplemented!()
     }
 
-    /// Distributed multi-open.
-    fn d_multi_open(
+    /// Distributed batch open.
+    fn d_batch_open(
         _prover_param: impl Borrow<Self::ProverParam>,
         _polynomials: Vec<Self::Polynomial>,
         _advices: &[&Self::ProverCommitmentAdvice],

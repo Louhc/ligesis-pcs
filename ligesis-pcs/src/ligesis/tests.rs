@@ -21,7 +21,7 @@ fn test_ligesis_pcs() {
     let mut transcript = IOPTranscript::<F>::new(b"ligesis_pcs_test");
     let mut transcript_clone = transcript.clone();
 
-    let (pp, vp) = LigeSISPCS::<F>::setup(&srs, 0.into(), 0.into()).unwrap();
+    let (pp, vp) = LigeSISPCS::<F>::setup(&srs).unwrap();
     let poly = Arc::new(DenseMultilinearExtension::<F>::rand(mu, &mut rng));
 
     let (com, advice) = LigeSISPCS::<F>::commit(&pp, &poly).unwrap();

@@ -22,7 +22,7 @@ fn test_multi<F: PrimeField>() -> Result<(), PCSError> {
         let srs = LigeSISPCS::<F>::gen_srs_for_testing(&mut rng, mu)?;
         Net::recv_from_master_uniform(Some(srs.clone()));
         println!(">   master: srs distributed ({} s)", start.elapsed().as_secs_f64());
-        let (pp, vp) = LigeSISPCS::<F>::setup(&srs, None, None)?;
+        let (pp, vp) = LigeSISPCS::<F>::setup(&srs)?;
         
         let num_party = Net::n_parties();
         let num_party_vars = num_party.ilog2() as usize;
@@ -61,7 +61,7 @@ fn test_multi<F: PrimeField>() -> Result<(), PCSError> {
         let srs = Net::recv_from_master_uniform::<LigeSISSRS<F>>(None);
         println!(">   server({}): srs received ({} s)", Net::party_id(), start.elapsed().as_secs_f64());
 
-        let (pp, vp) = LigeSISPCS::<F>::setup(&srs, None, None)?;
+        let (pp, vp) = LigeSISPCS::<F>::setup(&srs)?;
         let mu = srs.mu;
         let num_party = Net::n_parties();
         let num_party_vars = num_party.ilog2() as usize;

@@ -55,8 +55,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeroPCS<F> {
 
     fn setup(
         srs: impl Borrow<Self::SRS>,
-        _supported_degree: Option<usize>,
-        _supported_num_vars: Option<usize>,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError> {
         Ok((srs.borrow().clone(), srs.borrow().clone()))
     }

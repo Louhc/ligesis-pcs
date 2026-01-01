@@ -59,13 +59,18 @@ Run the LigeSIS PCS benchmark:
 cargo bench --package ligesis-pcs --bench ligesis_bench --features print-trace
 ```
 
-The benchmark parameters can be adjusted in `ligesis-pcs/benches/ligesis_bench.rs`:
-- `MU`: Number of polynomial variables (default: 18)
-- `ITERATIONS`: Number of iterations per operation (default: 1)
+Command line options:
+- `-m, --mu <MU>`: Number of polynomial variables (default: 24)
+- `-i, --iterations <N>`: Number of iterations per operation (default: 1)
 
-For optimal benchmark performance:
+Example with custom parameters:
 ```bash
-RUSTFLAGS='-C target-cpu=native -C target-feature=+bmi2,+adx' cargo bench --package ligesis-pcs --bench ligesis_bench
+cargo bench --package ligesis-pcs --bench ligesis_bench -- --mu 20 --iterations 3
+```
+
+For optimal performance:
+```bash
+RUSTFLAGS='-C target-cpu=native -C target-feature=+bmi2,+adx' cargo bench --package ligesis-pcs --bench ligesis_bench -- -m 24
 ```
 
 ## Distributed Testing

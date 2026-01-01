@@ -11,7 +11,7 @@ fn test_deepfold_pcs() {
     let mut transcript_clone = transcript.clone();
 
     let srs = DeepFoldPCS::<F>::gen_srs_for_testing(&mut rng, mu).unwrap();
-    let (pp, vp) = DeepFoldPCS::<F>::setup(srs, Some(mu), Some(mu)).unwrap();
+    let (pp, vp) = DeepFoldPCS::<F>::setup(srs).unwrap();
 
     let poly = random_field_vector_from_rng::<F>(1 << mu, &mut rng);
 

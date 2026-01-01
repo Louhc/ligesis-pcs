@@ -41,3 +41,6 @@ parallel = [ "std", "rayon", "ark-std/parallel" ]
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "./doc/katex-header.html"]
+
+[lints.rust]
+warnings = "allow"

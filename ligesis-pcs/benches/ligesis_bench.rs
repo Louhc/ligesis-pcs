@@ -23,6 +23,10 @@ struct Args {
     /// 每个操作的迭代次数
     #[arg(short, long, default_value_t = 1)]
     iterations: usize,
+
+    /// cargo bench 自动添加的参数，忽略
+    #[arg(long, hide = true)]
+    bench: bool,
 }
 
 fn main() {
@@ -40,7 +44,7 @@ fn main() {
     // Setup
     let start = Instant::now();
     let srs = LigeSISPCS::<F>::gen_srs_for_testing(&mut rng, mu).unwrap();
-    let (pp, vp) = LigeSISPCS::<F>::setup(&srs, 0.into(), 0.into()).unwrap();
+    let (pp, vp) = LigeSISPCS::<F>::setup(&srs).unwrap();
     println!("Setup: {:?}", start.elapsed());
 
     let poly = Arc::new(DenseMultilinearExtension::<F>::rand(mu, &mut rng));

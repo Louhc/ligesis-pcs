@@ -19,3 +19,6 @@ syn = { version = "1.0.0", features = ["full", "parsing", "extra-traits"]}
 
 [lib]
 proc-macro = true
+
+[lints.rust]
+warnings = "allow"

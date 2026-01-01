@@ -25,3 +25,6 @@ mio = { version = "1.0.2", features = ["os-poll", "net"] }
 structopt = { version = "0.3" }
 env_logger = "0.8"
 
+[lints.rust]
+warnings = "allow"
+

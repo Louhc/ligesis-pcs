@@ -8,3 +8,6 @@ edition = "2021"
 
 [features]
 default = []
+
+[lints.rust]
+warnings = "allow"

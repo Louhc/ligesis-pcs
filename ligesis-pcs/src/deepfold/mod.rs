@@ -118,8 +118,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
 
     fn setup(
         srs: impl Borrow<Self::SRS>,
-        _supported_degree: Option<usize>,
-        _supported_num_vars: Option<usize>,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), PCSError> {
         let srs = srs.borrow();
         Ok((
@@ -258,7 +256,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         })
     }
 
-    fn multi_open(
+    fn batch_open(
         prover_param: impl Borrow<Self::ProverParam>,
         polynomials: Vec<Self::Polynomial>,
         advices: &[&Self::ProverCommitmentAdvice],
@@ -287,9 +285,9 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
                     ],
                     r.pow([i as u64]),
                 )
-                .unwrap();
+                .map_err(|e| PCSError::VirtualPolynomialError(format!("{:?}", e)))?;
         }
-        let sum_check_proof = <PolyIOP<F> as SumCheck<F>>::prove(sum_check, transcript).unwrap();
+        let sum_check_proof = <PolyIOP<F> as SumCheck<F>>::prove(sum_check, transcript).map_err(|e| PCSError::SumCheckError(format!("{:?}", e)))?;
         let point = sum_check_proof.point.clone();
         let sum_check_evals = polynomials
             .iter()
@@ -514,7 +512,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
             },
             transcript,
         )
-        .unwrap();
+        .map_err(|e| PCSError::SumCheckError(format!("{:?}", e)))?;
         let point = sum_check_proof.point.clone();
         if sum_check_claim.expected_evaluation
             != (0..num_poly)
