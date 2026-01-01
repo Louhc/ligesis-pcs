@@ -1,0 +1,12 @@
+{
+    "servers": [
+        {"host": "10.128.0.2", "ssh_host": "35.202.139.171"},
+        {"host": "10.128.0.3", "ssh_host": "104.197.202.243"},
+        {"host": "10.128.0.4", "ssh_host": "34.72.91.60"},
+        {"host": "10.128.0.5", "ssh_host": "34.69.184.100"}
+    ],
+    "user": "ubuntu",
+    "ssh_key": "~/.ssh/id_ed25519",
+    "remote_dir": "~/ligesis-pcs",
+    "network_port": 18000
+}

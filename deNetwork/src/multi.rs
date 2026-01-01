@@ -194,18 +194,16 @@ fn send_thread(
                         .enumerate()
                         .filter(|p| p.0 != own_id)
                         .for_each(|(_, stream)| {
-                            stream
+                            let _ = stream
                                 .as_ref()
                                 .unwrap()
-                                .shutdown(std::net::Shutdown::Both)
-                                .unwrap();
+                                .shutdown(std::net::Shutdown::Both);
                         })
                 } else {
-                    streams[0]
+                    let _ = streams[0]
                         .as_ref()
                         .unwrap()
-                        .shutdown(std::net::Shutdown::Both)
-                        .unwrap();
+                        .shutdown(std::net::Shutdown::Both);
                 }
                 return;
             }

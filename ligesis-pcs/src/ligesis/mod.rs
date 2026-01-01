@@ -789,8 +789,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         };
         end_timer!(timer);
 
-        // Step 3
-        let timer = start_timer!(|| "DOpen.Step3");
+        // Step 3: receive challenge indices
         let I = if Net::am_master() {
             let I = transcript.get_and_append_challenge_indices(b"I", s_lambda, 2 * n)?;
             let msg = (0..num_party).map(|_| I.clone()).collect::<Vec<_>>();
@@ -799,7 +798,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         } else {
             Net::recv_from_master(None)
         };
-        end_timer!(timer);
 
         // Step 4
         let timer = start_timer!(|| "DOpen.Step4");
@@ -830,8 +828,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         };
         end_timer!(timer);
 
-        // Step 5
-        let timer = start_timer!(|| "DOpen.Step5");
+        // Step 5: receive challenge vectors
         let (alpha1, alpha2, alpha3) = if Net::am_master() {
             let alpha1 = transcript.get_and_append_challenge_vectors(
                 b"alpha1",
@@ -848,7 +845,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         } else {
             Net::recv_from_master(None)
         };
-        end_timer!(timer);
 
         // Step 6 (non-disbtributed)
         let timer = start_timer!(|| "DOpen.Step6");
@@ -936,83 +932,22 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         };
         end_timer!(timer);
 
-        // Step 8 - Lookup Argument (TODO: currently incorrect, commented out)
-        let timer = start_timer!(|| "DOpen.Step8");
+        // Step 8 - Lookup Argument (TODO: currently placeholder)
         let (r2, r3, v) = if Net::am_master() {
-            // let eq_alpha2_a_bI = mat_mul(
-            //     &vec![get_tensor(&alpha2)],
-            //     &field_mat_mul_bool_mat(&mat_a, &mat_bI),
-            // )
-            // .concat();
             let v = otimes(
                 &get_tensor(&z1),
                 &(0..eta)
                     .map(|i| F::from(2u64).pow([i as u64]))
                     .collect::<Vec<_>>(),
             );
-            // let v_bI = field_mat_mul_bool_mat(&vec![v.clone()], &mat_bI).concat();
-            // let eq_alpha2_h = mat_mul(&vec![get_tensor(&alpha2)], &mat_h).concat();
-
-            // Lookup Argument for (I, eq_alpha2_a_bI, v_bI) in ([2n], eq_alpha2_h, rs_a)
-            // let gamma = transcript.get_and_append_challenge_vectors(b"gamma", 1)?[0];
-            // let r = transcript.get_and_append_challenge_vectors(b"r", s_lambda.ilog2() as usize)?;
-            // let eq_r = get_tensor(&r);
-
-            // let mut lookup_check = VirtualPolynomial::new(s_lambda.ilog2() as usize);
-            // let mut eq_alpha2_h_circ_I = vec![F::ZERO; s_lambda];
-            // let mut rs_a_circ_I = vec![F::ZERO; s_lambda];
-            // for i in 0..s_lambda {
-            //     eq_alpha2_h_circ_I[i] = eq_alpha2_h[I[i]];
-            //     rs_a_circ_I[i] = rs_a[I[i]];
-            // }
-
-            // lookup_check
-            //     .add_mle_list(
-            //         [evals_to_arcpoly(&eq_r), evals_to_arcpoly(&eq_alpha2_a_bI)],
-            //         F::ONE,
-            //     )
-            //     .map_err(|e| PCSError::VirtualPolynomialError(format!("{:?}", e)))?;
-            // lookup_check
-            //     .add_mle_list(
-            //         [
-            //             evals_to_arcpoly(&eq_r),
-            //             evals_to_arcpoly(&eq_alpha2_h_circ_I),
-            //         ],
-            //         -F::ONE,
-            //     )
-            //     .map_err(|e| PCSError::VirtualPolynomialError(format!("{:?}", e)))?;
-            // lookup_check
-            //     .add_mle_list([evals_to_arcpoly(&eq_r), evals_to_arcpoly(&v_bI)], gamma)
-            //     .map_err(|e| PCSError::VirtualPolynomialError(format!("{:?}", e)))?;
-            // lookup_check
-            //     .add_mle_list(
-            //         [evals_to_arcpoly(&eq_r), evals_to_arcpoly(&rs_a_circ_I)],
-            //         -gamma,
-            //     )
-            //     .map_err(|e| PCSError::VirtualPolynomialError(format!("{:?}", e)))?;
-
-            // let lookup_proof = LigeSISLookupProof {
-            //     sumcheck_proof: <PolyIOP<F> as SumCheck<F>>::prove(lookup_check, transcript)
-            //         .map_err(|e| PCSError::SumCheckError(format!("{:?}", e)))?,
-            // };
-
-            // let r_lookup = lookup_proof.sumcheck_proof.point.clone();
-            // let eq_alpha2_a_bI_eval = eval_mle_poly(&eq_alpha2_a_bI, &r_lookup);
-            // let eq_alpha2_h_circ_I_eval = eval_mle_poly(&eq_alpha2_h_circ_I, &r_lookup);
-            // let v_bI_eval = eval_mle_poly(&v_bI, &r_lookup);
-            // let rs_a_circ_I_eval = eval_mle_poly(&rs_a_circ_I, &r_lookup);
-
-            // Replacement: get r2 from transcript instead of from lookup proof
             let r2 = transcript.get_and_append_challenge_vectors(b"r2", s_lambda.ilog2() as usize)?;
             let r3 = transcript.get_and_append_challenge_vectors(b"r3", (2 * n).ilog2() as usize)?;
             (r2, r3, v)
         } else {
             (vec![], vec![], vec![])
         };
-        end_timer!(timer);
 
         // Step 9
-        let timer = start_timer!(|| "DOpen.Step9");
         let (bI_r2, alpha2_a_bI_r2_check_proof, r4) = if Net::am_master() {
             let alpha2_a = mat_mul(&vec![get_tensor(&alpha2)], &mat_a)[0].clone();
             let bI_r2 =
@@ -1025,10 +960,8 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         } else {
             (vec![], IOPProof::<F>::default(), vec![])
         };
-        end_timer!(timer);
 
         // Step 10
-        let timer = start_timer!(|| "DOpen.Step10");
         let (v_bI_r2_check_proof, r5) = if Net::am_master() {
             let v_bI_r2_check_proof = SumCheckBuilder::new(v.len().ilog2() as usize)
                 .add_evals_owned([v, bI_r2], F::ONE)?
@@ -1038,7 +971,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         } else {
             (IOPProof::<F>::default(), vec![])
         };
-        end_timer!(timer);
 
         // Step 11
         if Net::am_master() {

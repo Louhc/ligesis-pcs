@@ -4,28 +4,31 @@ use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 use ark_ff::PrimeField;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use std::{ops::FnOnce, path::PathBuf, sync::Arc};
-use structopt::StructOpt;
+use clap::Parser;
 use rand::{rngs::StdRng, SeedableRng};
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "example", about = "An example of StructOpt usage.")]
-struct Opt {
-    /// Id
-    id: usize,
+#[derive(Debug, Parser)]
+#[command(name = "distributed_test")]
+pub struct Opt {
+    /// Party ID
+    pub id: usize,
 
-    /// Input file
-    #[structopt(parse(from_os_str))]
-    input: PathBuf,
+    /// Network config file path
+    pub input: PathBuf,
+
+    /// Number of polynomial variables
+    #[arg(short, long, default_value_t = 20)]
+    pub mu: usize,
 }
 
 pub(super) fn network_run<F>(func: F)
 where
-    F: FnOnce() -> (),
+    F: FnOnce(Opt) -> (),
 {
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
     Net::init_from_file(opt.input.to_str().unwrap(), opt.id);
 
-    func();
+    func(opt);
 
     Net::deinit();
 }

@@ -2,93 +2,131 @@ use arithmetic::math::Math;
 use ark_ff::{PrimeField, UniformRand};
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use std::sync::Arc;
+use std::time::Instant;
 use ligesis_pcs::{LigeSISPCS, LigeSISSRS, PCSError, PolynomialCommitmentScheme};
 use transcript::IOPTranscript;
 
 use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 
 mod common;
-use common::test_rng;
+use common::{test_rng, Opt};
 mod types;
 use types::FGoldilocks as F;
 
-fn test_multi<F: PrimeField>() -> Result<(), PCSError> {
+fn test_multi<F: PrimeField>(mu: usize) -> Result<(), PCSError> {
     let mut rng = test_rng();
-    let start = std::time::Instant::now();
-    
+    let num_party = Net::n_parties();
+    let num_party_vars = num_party.ilog2() as usize;
+    let party_id = Net::party_id();
+    let should_print = party_id == 0 || party_id == 1;
+    let global_start = Instant::now();
+
+    macro_rules! log {
+        ($($arg:tt)*) => {
+            if should_print {
+                print!("[P{}] ", party_id);
+                println!($($arg)*);
+            }
+        };
+    }
+
+    macro_rules! log_step {
+        ($step:expr, $elapsed:expr) => {
+            if should_print {
+                println!("[P{}] {:12} {:>10.3?}  (@ {:.3?})", party_id, $step, $elapsed, global_start.elapsed());
+            }
+        };
+    }
+
     if Net::am_master() {
-        let mu = 28;
-        println!(">   master: start ({} s)", start.elapsed().as_secs_f64());
+        log!("========================================");
+        log!("LigeSIS Distributed Test");
+        log!("  mu = {}, parties = {}", mu, num_party);
+        log!("========================================");
+
+        // Gen SRS
+        let start = Instant::now();
         let srs = LigeSISPCS::<F>::gen_srs_for_testing(&mut rng, mu)?;
+        log_step!("Gen SRS", start.elapsed());
+
+        // Distribute SRS
+        let start = Instant::now();
         Net::recv_from_master_uniform(Some(srs.clone()));
-        println!(">   master: srs distributed ({} s)", start.elapsed().as_secs_f64());
+        log_step!("Dist SRS", start.elapsed());
+
+        // Setup
+        let start = Instant::now();
         let (pp, vp) = LigeSISPCS::<F>::setup(&srs)?;
-        
-        let num_party = Net::n_parties();
-        let num_party_vars = num_party.ilog2() as usize;
+        log_step!("Setup", start.elapsed());
+
+        // Generate poly and point
         let poly_k = Arc::new(DenseMultilinearExtension::<F>::rand(mu - num_party_vars, &mut rng));
-        
-
-        println!(">   master: poly distrbuted ({} s)", start.elapsed().as_secs_f64());
-
-        let point = (0..mu).map(|_| F::rand(&mut rng)).collect::<Vec<_>>();
+        let point: Vec<F> = (0..mu).map(|_| F::rand(&mut rng)).collect();
         Net::recv_from_master_uniform(Some(point.clone()));
 
-        println!(">   master: point distributed ({} s)", start.elapsed().as_secs_f64());
-
-        println!(">   master: start commit ({} s)", start.elapsed().as_secs_f64());
+        // Commit
+        log!("--- Commit Phase ---");
+        let start = Instant::now();
         let (com, advice) = LigeSISPCS::d_commit(&pp, &poly_k).unwrap();
-        println!(">   master: finish commit ({} s)", start.elapsed().as_secs_f64());
+        log_step!("Commit", start.elapsed());
 
-        // println!(">   master: commit without distribution");
-        // let start = std::time::Instant::now();
-        // let (com0, advice0) = LigeSISPCS::commit(&pp, &Arc::new(poly)).unwrap();
-        // println!(">   master: finish commit without distribution, {} s", start.elapsed().as_secs_f64());
-
+        // Open
+        log!("--- Open Phase ---");
+        let start = Instant::now();
         let mut transcript = IOPTranscript::<F>::new(b"test");
-        let mut transcript_clone = transcript.clone();
-        println!(">   master: start open ({} s)", start.elapsed().as_secs_f64());
         let proof = LigeSISPCS::d_open(&pp, &poly_k, &advice, &point, &mut transcript).unwrap().unwrap();
-        println!(">   master: finish open ({} s)", start.elapsed().as_secs_f64());
+        log_step!("Open", start.elapsed());
+
+        // Verify
+        log!("--- Verify Phase ---");
+        let start = Instant::now();
+        let mut transcript = IOPTranscript::<F>::new(b"test");
         let value = LigeSISPCS::<F>::compute_value_from_proof(mu - mu / 2, &point, &proof);
-        let result = LigeSISPCS::verify(&vp, &com.unwrap(), &point, &value, &proof, &mut transcript_clone)?;
-        println!(">   master: done ({} s)", start.elapsed().as_secs_f64());
-        println!("result = {}", result);
+        let result = LigeSISPCS::verify(&vp, &com.unwrap(), &point, &value, &proof, &mut transcript)?;
+        log_step!("Verify", start.elapsed());
+
+        log!("========================================");
+        log!("Total: {:.3?}", global_start.elapsed());
+        log!("Result: {}", if result { "PASS" } else { "FAIL" });
+        log!("========================================");
         assert!(result);
     } else {
-        println!(">   server({}): start ({} s)", Net::party_id(), start.elapsed().as_secs_f64());
-        // let srs = LigeSISPCS::<F>::gen_srs_for_testing(&mut rng, mu)?;
+        // Non-master parties
+        log!("--- Setup Phase ---");
+
+        let start = Instant::now();
         let srs = Net::recv_from_master_uniform::<LigeSISSRS<F>>(None);
-        println!(">   server({}): srs received ({} s)", Net::party_id(), start.elapsed().as_secs_f64());
+        log_step!("Recv SRS", start.elapsed());
 
-        let (pp, vp) = LigeSISPCS::<F>::setup(&srs)?;
+        let start = Instant::now();
+        let (pp, _vp) = LigeSISPCS::<F>::setup(&srs)?;
+        log_step!("Setup", start.elapsed());
+
         let mu = srs.mu;
-        let num_party = Net::n_parties();
-        let num_party_vars = num_party.ilog2() as usize;
-
         let poly_k = Arc::new(DenseMultilinearExtension::<F>::rand(mu - num_party_vars, &mut rng));
-        // let poly_k: DenseMultilinearExtension<F> = Net::recv_from_master(None);
-        // let poly_k: Arc<DenseMultilinearExtension<F>> = Arc::new(poly_k);
-        println!(">   server({}): poly received ({} s)", Net::party_id(), start.elapsed().as_secs_f64());
-        
         let point: Vec<F> = Net::recv_from_master_uniform(None);
-        println!(">   server({}): point received ({} s)", Net::party_id(), start.elapsed().as_secs_f64());
 
-        println!(">   server({}): start commit ({} s)", Net::party_id(), start.elapsed().as_secs_f64());
+        log!("--- Commit Phase ---");
+        let start = Instant::now();
         let (_, advice) = LigeSISPCS::d_commit(&pp, &poly_k).unwrap();
-        println!(">   server({}): finish commit ({} s)", Net::party_id(), start.elapsed().as_secs_f64());
+        log_step!("Commit", start.elapsed());
 
+        log!("--- Open Phase ---");
+        let start = Instant::now();
         let mut transcript = IOPTranscript::<F>::new(b"test");
-        println!(">   server: start open ({} s)", start.elapsed().as_secs_f64());
         LigeSISPCS::d_open(&pp, &poly_k, &advice, &point, &mut transcript).unwrap();
-        println!(">   server: finish open ({} s)", start.elapsed().as_secs_f64());
+        log_step!("Open", start.elapsed());
+
+        log!("========================================");
+        log!("Total: {:.3?}", global_start.elapsed());
+        log!("========================================");
     };
 
     Ok(())
 }
 
 fn main() {
-    common::network_run(|| {
-        test_multi::<F>().unwrap();
+    common::network_run(|opt: Opt| {
+        test_multi::<F>(opt.mu).unwrap();
     });
 }

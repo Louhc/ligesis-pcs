@@ -9,11 +9,6 @@ Run all tests:
 cargo test
 ```
 
-Run tests with timing output:
-```bash
-cargo test -p ligesis-pcs --features print-trace -- --nocapture
-```
-
 Run specific PCS tests:
 ```bash
 cargo test -p ligesis-pcs test_ligesis_pcs
@@ -57,13 +52,73 @@ Options:
 
 ## Distributed Testing
 
-Run distributed LigeSIS test with 4 parties:
+### Local Mode
+
+Run distributed LigeSIS test locally:
 ```bash
-cd ligesis-pcs
-./dTests/run.sh dLigesis
+cd ligesis-pcs/dTests
+python run.py dLigesis              # 4 parties (default)
+python run.py dLigesis -n 8         # 8 parties
+python run.py dLigesis -m 24        # mu=24
+python run.py dLigesis --trace      # Enable internal timing
 ```
 
-The distributed test configuration is in `ligesis-pcs/dTests/data/4`.
+Options:
+- `-n, --num-parties <N>`: Number of parties (default: 4, must be power of 2)
+- `-m, --mu <MU>`: Number of polynomial variables (default: 20)
+- `--trace`: Enable internal timing output
+- `--port <PORT>`: Base port (default: 18000)
+
+### Remote Mode (Multi-Server)
+
+1. Create a `servers.json` config file:
+```json
+{
+    "servers": [
+        {"host": "10.128.0.2", "ssh_host": "35.202.139.171"},
+        {"host": "10.128.0.3", "ssh_host": "104.197.202.243"},
+        {"host": "10.128.0.4", "ssh_host": "34.72.91.60"},
+        {"host": "10.128.0.5", "ssh_host": "34.69.184.100"}
+    ],
+    "user": "ubuntu",
+    "ssh_key": "~/.ssh/id_ed25519",
+    "remote_dir": "~/ligesis-pcs",
+    "network_port": 18000
+}
+```
+
+Config fields:
+- `host`: Internal IP for inter-node communication
+- `ssh_host`: (Optional) Public IP for SSH access (defaults to `host`)
+- `user`: SSH username (global, can be overridden per-server)
+- `ssh_key`: (Optional) Path to SSH private key
+- `remote_dir`: Code location on remote servers
+- `network_port`: Port for distributed protocol communication
+
+2. Run the test:
+```bash
+# Sync code + build + run
+python run.py dLigesis --servers servers.json --sync --build -m 24
+
+# Sync and run (if already built)
+python run.py dLigesis --servers servers.json --sync -m 24
+
+# Run only (if code already synced and built)
+python run.py dLigesis --servers servers.json -m 24
+
+# With internal timing output
+python run.py dLigesis --servers servers.json -m 24 --trace
+```
+
+Remote mode options:
+- `--sync`: Sync local code to all remote servers
+- `--build`: Build on remote servers before running
+- `--trace`: Enable internal timing output
+
+Requirements:
+- SSH key-based authentication to all servers
+- Rust toolchain installed on all servers
+- Network connectivity between servers on the specified port
 
 ## Features
 
