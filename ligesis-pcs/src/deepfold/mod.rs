@@ -836,6 +836,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
 
         // Initialize structures for all parties
         let mt0_list = advices.iter().map(|advice| &advice.mt0).collect::<Vec<_>>();
+        let upper_tree0_list = advices.iter().map(|advice| &advice.upper_tree).collect::<Vec<_>>();
         let mut l = vec![l0];
         l.append(
             &mut (1..mu + 1)
@@ -844,8 +845,11 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
         );
 
         // All parties need these for distributed Merkle tree construction
-        let mut mt: Vec<MerkleTree> = Vec::new();
+        let mut local_mts: Vec<MerkleTree> = Vec::new();
+        let mut upper_mts: Vec<Option<MerkleTree>> = Vec::new();
+        let mut is_distributed: Vec<bool> = Vec::new();
         let mut mt_roots: Vec<Byte32> = Vec::new();
+        let mut r = vec![F::ZERO];
 
         // Master-only data
         let mut a = vec![Vec::new()];
@@ -915,10 +919,17 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
             a[0].push(point.clone());
         }
 
-        // Step 2: Main loop - all parties participate in dMerkle
+        // Step 2: Main loop - all parties participate in distributed Merkle tree
         for i in 1..mu + 1 {
-            // Get challenges (all parties must sync on transcript)
-            alpha.push(transcript.get_and_append_challenge(b"alpha")?);
+            // Step 2.a: Get alpha challenge - master generates and broadcasts
+            let alpha_i = if Net::am_master() {
+                let a = transcript.get_and_append_challenge(b"alpha")?;
+                Net::recv_from_master_uniform(Some(a));
+                a
+            } else {
+                Net::recv_from_master_uniform(None)
+            };
+            alpha.push(alpha_i);
 
             if Net::am_master() {
                 a[i - 1].push(get_alpha_powers::<F>(alpha[i], mu - i + 1));
@@ -942,8 +953,10 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
                     a.push(a[i - 1].iter().map(|w| w[1..].to_vec()).collect::<Vec<_>>());
                 }
 
-                // Get r challenge
+                // Get r challenge - master generates and broadcasts
                 let ri = transcript.get_and_append_challenge(b"r")?;
+                Net::recv_from_master_uniform(Some(ri));
+                r.push(ri);
 
                 // Compute f[i] and f_tilde[i]
                 f.push(vector_add(&fe, &scalar_vector_product(ri, &fo)));
@@ -959,90 +972,210 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
                 if i == mu {
                     f_mu = v[i][0];
                 } else {
-                    // Build full Merkle tree on master for proof generation
-                    let mti = build_merkle_tree(&vi);
-                    mt_roots.push(mti.root().clone());
-                    mt.push(mti);
+                    // Check if we can use distributed Merkle tree
+                    let (all_leaves, leaf_size) = compute_leaf_hashes(&vi);
+                    let can_distribute = all_leaves.len() >= num_party;
 
-                    // Workers still need to sync on leaf_size broadcast
-                    let leaf_size = LEAF_SIZE.min(vi.len());
-                    Net::recv_from_master_uniform(Some(leaf_size));
+                    // First broadcast can_distribute flag
+                    Net::recv_from_master_uniform(Some(can_distribute));
+
+                    if can_distribute {
+                        // Distribute leaf hashes for distributed Merkle tree
+                        let chunk_size = all_leaves.len() / num_party;
+                        let leaf_chunks: Vec<Vec<Byte32>> = (0..num_party)
+                            .map(|j| all_leaves[j * chunk_size..(j + 1) * chunk_size].to_vec())
+                            .collect();
+
+                        let local_leaves: Vec<Byte32> = Net::recv_from_master(Some(leaf_chunks));
+                        Net::recv_from_master_uniform(Some(leaf_size));
+
+                        // Build local Merkle tree
+                        let local_mt = MerkleTree::with_leaf_size(&local_leaves, leaf_size);
+                        let local_root = local_mt.root();
+                        local_mts.push(local_mt);
+
+                        // Gather local roots to build upper tree
+                        let all_roots: Vec<Byte32> = Net::send_to_master(&local_root).unwrap();
+                        let upper_tree = MerkleTree::with_leaf_size(&all_roots, leaf_size);
+                        mt_roots.push(upper_tree.root());
+                        upper_mts.push(Some(upper_tree));
+                        is_distributed.push(true);
+                    } else {
+                        // Too few leaves for distribution - master builds full tree alone
+                        let full_mt = MerkleTree::with_leaf_size(&all_leaves, leaf_size);
+                        mt_roots.push(full_mt.root());
+                        local_mts.push(full_mt);
+                        upper_mts.push(None);
+                        is_distributed.push(false);
+                    }
                 }
             } else {
-                // Workers: sync on transcript challenges
-                let _ri = transcript.get_and_append_challenge(b"r")?;
+                // Workers: receive r challenge from master
+                let ri: F = Net::recv_from_master_uniform(None);
+                r.push(ri);
 
+                // Workers: participate in distributed Merkle tree construction
                 if i != mu {
-                    // Receive leaf_size to stay in sync
-                    let _leaf_size: usize = Net::recv_from_master_uniform(None);
+                    // First receive can_distribute flag
+                    let can_distribute: bool = Net::recv_from_master_uniform(None);
 
-                    mt_roots.push(Byte32::default());
-                    mt.push(MerkleTree::default());
+                    if can_distribute {
+                        // Receive leaf hashes for distributed Merkle tree
+                        let local_leaves: Vec<Byte32> = Net::recv_from_master(None);
+                        let leaf_size: usize = Net::recv_from_master_uniform(None);
+
+                        // Build local Merkle tree
+                        let local_mt = MerkleTree::with_leaf_size(&local_leaves, leaf_size);
+                        let local_root = local_mt.root();
+                        local_mts.push(local_mt);
+
+                        // Send local root to master
+                        Net::send_to_master(&local_root);
+
+                        // Workers don't have upper trees
+                        upper_mts.push(None);
+                        is_distributed.push(true);
+                    } else {
+                        // Non-distributed mode: workers just push placeholders
+                        local_mts.push(MerkleTree::default());
+                        upper_mts.push(None);
+                        is_distributed.push(false);
+                    }
                 }
             }
         }
         end_timer!(timer);
 
-        // Only master generates proofs
-        if !Net::am_master() {
-            return Ok(None);
-        }
-
-        // Step 4: Generate merkle proofs
+        // Step 4: Generate merkle proofs - all parties participate in d_prove
         let timer = start_timer!(|| "DBatchOpen.GenProofs");
         let mut mt_proofs = Vec::new();
         for t in 0..s {
-            let mut beta = transcript.get_and_append_challenge_indices(b"beta", 1, l[0].size())?[0];
-            mt_proofs.push(Vec::new());
-
-            // For i=0, store values without merkle proof
-            let leaf_size = LEAF_SIZE.min(v[0].len());
-            let step = v[0].len() / leaf_size;
-            let local_beta = beta % step;
-            let beta_prime = if beta >= v[0].len() / 2 {
-                beta - v[0].len() / 2
+            // All parties sync on beta challenge
+            let mut beta = if Net::am_master() {
+                let b = transcript.get_and_append_challenge_indices(b"beta", 1, l[0].size())?[0];
+                Net::recv_from_master_uniform(Some(b));
+                b
             } else {
-                beta + v[0].len() / 2
+                Net::recv_from_master_uniform(None)
             };
-            mt_proofs[t].push((
-                beta,
-                (v[0][beta], v[0][beta_prime]),
-                get_leaf_elements(&v[0], local_beta, step, leaf_size),
-                vec![],
-            ));
+
+            let mut proofs_for_t = Vec::new();
+
+            // For i=0, no merkle proof needed (handled by mt0 proofs)
+            if Net::am_master() {
+                let leaf_size = LEAF_SIZE.min(v[0].len());
+                let step = v[0].len() / leaf_size;
+                let local_beta = beta % step;
+                let beta_prime = if beta >= v[0].len() / 2 {
+                    beta - v[0].len() / 2
+                } else {
+                    beta + v[0].len() / 2
+                };
+                proofs_for_t.push((
+                    beta,
+                    (v[0][beta], v[0][beta_prime]),
+                    get_leaf_elements(&v[0], local_beta, step, leaf_size),
+                    vec![],
+                ));
+            }
             if beta >= l[1].size() {
                 beta -= l[1].size();
             }
 
+            // For i=1..mu, use distributed proof generation
             for i in 1..mu {
-                mt_proofs[t].push(open_merkle_tree_at_conjugate_points(&mt[i - 1], &v[i], beta));
+                let vi_len = l[i].size();
+                let leaf_size = local_mts[i - 1].leaf_size();
+                let step = vi_len / leaf_size;
+                let local_beta = beta % step;
+
+                if is_distributed[i - 1] {
+                    // Use d_prove for distributed proof generation
+                    let proof_opt = MerkleTree::d_prove(local_beta, &local_mts[i - 1], upper_mts[i - 1].as_ref());
+
+                    if Net::am_master() {
+                        let merkle_proof = proof_opt.unwrap();
+                        let beta_prime = if beta >= vi_len / 2 {
+                            beta - vi_len / 2
+                        } else {
+                            beta + vi_len / 2
+                        };
+                        let leaf_elements = get_leaf_elements(&v[i], local_beta, step, leaf_size);
+                        proofs_for_t.push((beta, (v[i][beta], v[i][beta_prime]), leaf_elements, merkle_proof));
+                    }
+                } else if Net::am_master() {
+                    // Non-distributed: master uses regular prove
+                    let merkle_proof = local_mts[i - 1].prove(local_beta);
+                    let beta_prime = if beta >= vi_len / 2 {
+                        beta - vi_len / 2
+                    } else {
+                        beta + vi_len / 2
+                    };
+                    let leaf_elements = get_leaf_elements(&v[i], local_beta, step, leaf_size);
+                    proofs_for_t.push((beta, (v[i][beta], v[i][beta_prime]), leaf_elements, merkle_proof));
+                }
+
                 if beta >= l[i + 1].size() {
                     beta -= l[i + 1].size();
                 }
             }
+            if Net::am_master() {
+                mt_proofs.push(proofs_for_t);
+            }
         }
         end_timer!(timer);
 
-        // Additional proofs for individual mt0s
+        // Additional proofs for individual mt0s - all parties participate in d_prove
         let timer = start_timer!(|| "DBatchOpen.Mt0Proofs");
         let mut mt_proofs_for_mt0 = Vec::new();
-        // Deduplicate based on mt0 roots (same as verifier uses commitments)
-        let idx = (0..num_poly)
-            .filter(|&i| (0..i).all(|j| advices[i].mt0.root() != advices[j].mt0.root()))
-            .collect::<Vec<_>>();
-        for t in 0..s {
-            mt_proofs_for_mt0.push(Vec::new());
-            let x0 = mt_proofs[t][0].0;
 
-            for (_, &k) in idx.iter().enumerate() {
+        // Master computes deduplication and broadcasts info
+        let idx: Vec<usize> = if Net::am_master() {
+            let idx: Vec<usize> = (0..num_poly)
+                .filter(|&i| (0..i).all(|j| advices[i].mt0.root() != advices[j].mt0.root()))
+                .collect();
+            Net::recv_from_master_uniform(Some(idx.clone()));
+            idx
+        } else {
+            Net::recv_from_master_uniform(None)
+        };
+
+        for t in 0..s {
+            // Master broadcasts x0 for this round
+            let x0: usize = if Net::am_master() {
+                let x = mt_proofs[t][0].0;
+                Net::recv_from_master_uniform(Some(x));
+                x
+            } else {
+                Net::recv_from_master_uniform(None)
+            };
+
+            let mut proofs_for_t = Vec::new();
+
+            for &k in &idx {
+                // All parties participate in d_prove using the same index k
                 let leaf_size = mt0_list[k].leaf_size();
                 let step = l0.size() / leaf_size;
                 let local_x0 = x0 % step;
-                mt_proofs_for_mt0[t].push((
-                    get_leaf_elements(&advices[k].v0, local_x0, step, leaf_size),
-                    mt0_list[k].prove(local_x0),
-                ));
+
+                let proof_opt = MerkleTree::d_prove(local_x0, mt0_list[k], upper_tree0_list[k].as_ref());
+
+                if Net::am_master() {
+                    let merkle_proof = proof_opt.unwrap();
+                    let leaf_elements = get_leaf_elements(&advices[k].v0, local_x0, step, leaf_size);
+                    proofs_for_t.push((leaf_elements, merkle_proof));
+                }
             }
+
+            if Net::am_master() {
+                mt_proofs_for_mt0.push(proofs_for_t);
+            }
+        }
+        end_timer!(timer);
+
+        // Non-master parties return after participating in all d_prove calls
+        if !Net::am_master() {
+            return Ok(None);
         }
 
         // Compute evals: evaluation of each polynomial at its corresponding point
@@ -1051,8 +1184,6 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
             .zip(points.iter())
             .map(|(poly_evals, pt)| eval_mle_poly(poly_evals, pt))
             .collect();
-
-        end_timer!(timer);
 
         Ok(Some(Self::BatchProof {
             deepfold_proof: DeepFoldProof {

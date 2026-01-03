@@ -1,21 +1,17 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use ark_poly::DenseMultilinearExtension;
 use ark_std::test_rng;
 use std::sync::Arc;
-use ark_poly::EvaluationDomain;
 
 use clap::Parser;
 use ligesis_pcs::{
     deepfold::DeepFoldPCS,
-    deepfold::utils::build_merkle_tree,
     random_field_vector_from_rng,
     eval_mle_poly,
-    evals_to_coeffs,
     PolynomialCommitmentScheme,
 };
 use transcript::IOPTranscript;
 
-// Goldilocks field (same as distributed tests)
 mod goldilocks {
     use ark_ff::fields::{Fp64, MontBackend, MontConfig};
 
@@ -31,25 +27,30 @@ type F = goldilocks::Fld;
 #[command(name = "deepfold_bench")]
 #[command(about = "DeepFold PCS Benchmark")]
 struct Args {
-    /// 多项式变量数
     #[arg(short, long, default_value_t = 20)]
     mu: usize,
 
-    /// 每个操作的迭代次数
     #[arg(short, long, default_value_t = 1)]
     iterations: usize,
 
-    /// 测试 batch open/verify（默认测试 single）
     #[arg(long = "test-batch")]
     test_batch: bool,
 
-    /// batch open 的多项式数量
     #[arg(short, long, default_value_t = 3)]
     num_polys: usize,
 
-    /// cargo bench 自动添加的参数，忽略
     #[arg(long, hide = true)]
     bench: bool,
+}
+
+fn fmt_duration(d: Duration) -> String {
+    if d.as_secs() > 0 {
+        format!("{:.3}s", d.as_secs_f64())
+    } else if d.as_millis() > 0 {
+        format!("{:.3}ms", d.as_secs_f64() * 1000.0)
+    } else {
+        format!("{:.3}us", d.as_secs_f64() * 1_000_000.0)
+    }
 }
 
 fn bench_single(mu: usize, iterations: usize) {
@@ -57,34 +58,21 @@ fn bench_single(mu: usize, iterations: usize) {
 
     println!("========================================");
     println!("DeepFold PCS Benchmark (Single)");
-    println!("mu = {}, iterations = {}", mu, iterations);
-    println!("========================================\n");
+    println!("  mu = {}, iterations = {}", mu, iterations);
+    println!("========================================");
 
     // Setup
     let start = Instant::now();
     let srs = DeepFoldPCS::<F>::gen_srs_for_testing(&mut rng, mu).unwrap();
     let (pp, vp) = DeepFoldPCS::<F>::setup(&srs).unwrap();
-    println!("Setup: {:?}", start.elapsed());
+    println!("Setup:    {}", fmt_duration(start.elapsed()));
 
+    // Prepare polynomial and point
     let evals = random_field_vector_from_rng::<F>(1 << mu, &mut rng);
-    let poly = Arc::new(DenseMultilinearExtension::<F>::from_evaluations_vec(mu, evals.clone()));
+    let poly = Arc::new(DenseMultilinearExtension::<F>::from_evaluations_vec(mu, evals));
     let point = random_field_vector_from_rng::<F>(mu, &mut rng);
 
-    // Detailed Commit breakdown
-    println!("\n--- Commit Breakdown ---");
-    let start = Instant::now();
-    let f0 = evals_to_coeffs(mu, &evals);
-    println!("  evals_to_coeffs: {:?}", start.elapsed());
-
-    let start = Instant::now();
-    let v0 = pp.l0.fft(&f0);
-    println!("  FFT (l0.fft): {:?}", start.elapsed());
-
-    let start = Instant::now();
-    let _mt0 = build_merkle_tree(&v0);
-    println!("  build_merkle_tree: {:?}", start.elapsed());
-
-    // Full Commit
+    // Commit
     let start = Instant::now();
     let mut com = None;
     let mut advice = None;
@@ -93,13 +81,8 @@ fn bench_single(mu: usize, iterations: usize) {
         com = Some(c);
         advice = Some(a);
     }
-    let commit_time = start.elapsed();
-    println!(
-        "\nCommit (x{}): {:?} (avg: {:?})",
-        iterations,
-        commit_time,
-        commit_time / iterations as u32
-    );
+    let commit_time = start.elapsed() / iterations as u32;
+    println!("Commit:   {}", fmt_duration(commit_time));
 
     let com = com.unwrap();
     let advice = advice.unwrap();
@@ -112,13 +95,8 @@ fn bench_single(mu: usize, iterations: usize) {
         let p = DeepFoldPCS::<F>::open(&pp, &poly, &advice, &point, &mut transcript).unwrap();
         proof = Some(p);
     }
-    let open_time = start.elapsed();
-    println!(
-        "Open (x{}): {:?} (avg: {:?})",
-        iterations,
-        open_time,
-        open_time / iterations as u32
-    );
+    let open_time = start.elapsed() / iterations as u32;
+    println!("Open:     {}", fmt_duration(open_time));
 
     let proof = proof.unwrap();
     let value = DeepFoldPCS::<F>::compute_value_from_proof(&point, &proof);
@@ -127,20 +105,14 @@ fn bench_single(mu: usize, iterations: usize) {
     let start = Instant::now();
     for _ in 0..iterations {
         let mut transcript = IOPTranscript::<F>::new(b"deepfold_bench");
-        let res =
-            DeepFoldPCS::<F>::verify(&vp, &com, &point, &value, &proof, &mut transcript).unwrap();
+        let res = DeepFoldPCS::<F>::verify(&vp, &com, &point, &value, &proof, &mut transcript).unwrap();
         assert!(res);
     }
-    let verify_time = start.elapsed();
-    println!(
-        "Verify (x{}): {:?} (avg: {:?})",
-        iterations,
-        verify_time,
-        verify_time / iterations as u32
-    );
+    let verify_time = start.elapsed() / iterations as u32;
+    println!("Verify:   {}", fmt_duration(verify_time));
 
-    println!("\n========================================");
-    println!("Total: {:?}", commit_time + open_time + verify_time);
+    println!("----------------------------------------");
+    println!("Total:    {}", fmt_duration(commit_time + open_time + verify_time));
     println!("========================================");
 }
 
@@ -149,16 +121,16 @@ fn bench_batch(mu: usize, iterations: usize, num_polys: usize) {
 
     println!("========================================");
     println!("DeepFold PCS Benchmark (Batch)");
-    println!("mu = {}, iterations = {}, num_polys = {}", mu, iterations, num_polys);
-    println!("========================================\n");
+    println!("  mu = {}, iterations = {}, num_polys = {}", mu, iterations, num_polys);
+    println!("========================================");
 
     // Setup
     let start = Instant::now();
     let srs = DeepFoldPCS::<F>::gen_srs_for_testing(&mut rng, mu).unwrap();
     let (pp, vp) = DeepFoldPCS::<F>::setup(srs).unwrap();
-    println!("Setup: {:?}", start.elapsed());
+    println!("Setup:       {}", fmt_duration(start.elapsed()));
 
-    // Create multiple polynomials
+    // Create polynomials
     let polys: Vec<_> = (0..num_polys)
         .map(|_| {
             let evals = random_field_vector_from_rng::<F>(1 << mu, &mut rng);
@@ -166,11 +138,16 @@ fn bench_batch(mu: usize, iterations: usize, num_polys: usize) {
         })
         .collect();
 
+    // Commit all
+    let start = Instant::now();
     let (coms, advices): (Vec<_>, Vec<_>) = polys
         .iter()
         .map(|poly| DeepFoldPCS::<F>::commit(&pp, poly).unwrap())
         .unzip();
+    let commit_time = start.elapsed();
+    println!("Commit:      {} ({}x)", fmt_duration(commit_time), num_polys);
 
+    // Create points and compute evals
     let points: Vec<Vec<F>> = (0..num_polys)
         .map(|_| random_field_vector_from_rng::<F>(mu, &mut rng))
         .collect();
@@ -194,17 +171,11 @@ fn bench_batch(mu: usize, iterations: usize, num_polys: usize) {
             &points,
             &evals,
             &mut transcript,
-        )
-        .unwrap();
+        ).unwrap();
         batch_proof = Some(p);
     }
-    let batch_open_time = start.elapsed();
-    println!(
-        "Batch Open (x{}): {:?} (avg: {:?})",
-        iterations,
-        batch_open_time,
-        batch_open_time / iterations as u32
-    );
+    let batch_open_time = start.elapsed() / iterations as u32;
+    println!("BatchOpen:   {}", fmt_duration(batch_open_time));
 
     let batch_proof = batch_proof.unwrap();
 
@@ -212,21 +183,14 @@ fn bench_batch(mu: usize, iterations: usize, num_polys: usize) {
     let start = Instant::now();
     for _ in 0..iterations {
         let mut transcript = IOPTranscript::<F>::new(b"deepfold_batch_bench");
-        let res =
-            DeepFoldPCS::<F>::batch_verify(&vp, &coms, &points, &batch_proof, &mut transcript)
-                .unwrap();
+        let res = DeepFoldPCS::<F>::batch_verify(&vp, &coms, &points, &batch_proof, &mut transcript).unwrap();
         assert!(res);
     }
-    let batch_verify_time = start.elapsed();
-    println!(
-        "Batch Verify (x{}): {:?} (avg: {:?})",
-        iterations,
-        batch_verify_time,
-        batch_verify_time / iterations as u32
-    );
+    let batch_verify_time = start.elapsed() / iterations as u32;
+    println!("BatchVerify: {}", fmt_duration(batch_verify_time));
 
-    println!("\n========================================");
-    println!("Total: {:?}", batch_open_time + batch_verify_time);
+    println!("----------------------------------------");
+    println!("Total:       {}", fmt_duration(commit_time + batch_open_time + batch_verify_time));
     println!("========================================");
 }
 
