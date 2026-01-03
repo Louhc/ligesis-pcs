@@ -3,14 +3,36 @@
 Distributed testing runner for ligesis-pcs.
 
 Local mode:
-    python run.py dLigesis              # Run with default 4 parties locally
-    python run.py dLigesis -n 8         # Run with 8 parties locally
-    python run.py dLigesis -m 24        # Run with mu=24
-    python run.py dLigesis --trace      # Enable internal timing output
+    python3 run.py dLigesis              # Run with default 4 parties locally
+    python3 run.py dLigesis -n 8         # Run with 8 parties locally
+    python3 run.py dLigesis -m 24        # Run with mu=24
+    python3 run.py dLigesis --trace      # Enable internal timing output
 
 Remote mode (multi-server):
-    python run.py dLigesis --servers servers.json    # Run on remote servers
-    python run.py dLigesis --servers servers.json --build   # Build on remote servers first
+    python3 run.py dLigesis --servers servers.json --sync --build -m 24  # Sync + build + run
+    python3 run.py dLigesis --servers servers.json --sync -m 24          # Sync + run
+    python3 run.py dLigesis --servers servers.json -m 24                 # Run only
+    python3 run.py dLigesis --servers servers.json -m 24 --trace         # With timing
+
+servers.json format:
+    {
+        "servers": [
+            {"host": "10.128.0.2", "ssh_host": "35.202.139.171"},
+            {"host": "10.128.0.3", "ssh_host": "104.197.202.243"},
+            ...
+        ],
+        "user": "ubuntu",
+        "ssh_key": "~/.ssh/id_ed25519",
+        "remote_dir": "~/ligesis-pcs",
+        "network_port": 18000
+    }
+
+    - host: Internal IP for inter-node communication
+    - ssh_host: (Optional) Public IP for SSH access
+    - user: SSH username
+    - ssh_key: (Optional) Path to SSH private key
+    - remote_dir: Code location on remote servers
+    - network_port: Port for distributed protocol
 """
 
 import argparse

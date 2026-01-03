@@ -1,17 +1,31 @@
 use std::time::Instant;
-use ark_bls12_381::Fr as F;
 use ark_poly::DenseMultilinearExtension;
 use ark_std::test_rng;
 use std::sync::Arc;
+use ark_poly::EvaluationDomain;
 
 use clap::Parser;
 use ligesis_pcs::{
     deepfold::DeepFoldPCS,
+    deepfold::utils::build_merkle_tree,
     random_field_vector_from_rng,
     eval_mle_poly,
+    evals_to_coeffs,
     PolynomialCommitmentScheme,
 };
 use transcript::IOPTranscript;
+
+// Goldilocks field (same as distributed tests)
+mod goldilocks {
+    use ark_ff::fields::{Fp64, MontBackend, MontConfig};
+
+    #[derive(MontConfig)]
+    #[modulus = "18446744069414584321"]
+    #[generator = "7"]
+    pub struct Config;
+    pub type Fld = Fp64<MontBackend<Config, 1>>;
+}
+type F = goldilocks::Fld;
 
 #[derive(Parser, Debug)]
 #[command(name = "deepfold_bench")]
@@ -49,14 +63,28 @@ fn bench_single(mu: usize, iterations: usize) {
     // Setup
     let start = Instant::now();
     let srs = DeepFoldPCS::<F>::gen_srs_for_testing(&mut rng, mu).unwrap();
-    let (pp, vp) = DeepFoldPCS::<F>::setup(srs).unwrap();
+    let (pp, vp) = DeepFoldPCS::<F>::setup(&srs).unwrap();
     println!("Setup: {:?}", start.elapsed());
 
     let evals = random_field_vector_from_rng::<F>(1 << mu, &mut rng);
-    let poly = Arc::new(DenseMultilinearExtension::<F>::from_evaluations_vec(mu, evals));
+    let poly = Arc::new(DenseMultilinearExtension::<F>::from_evaluations_vec(mu, evals.clone()));
     let point = random_field_vector_from_rng::<F>(mu, &mut rng);
 
-    // Commit
+    // Detailed Commit breakdown
+    println!("\n--- Commit Breakdown ---");
+    let start = Instant::now();
+    let f0 = evals_to_coeffs(mu, &evals);
+    println!("  evals_to_coeffs: {:?}", start.elapsed());
+
+    let start = Instant::now();
+    let v0 = pp.l0.fft(&f0);
+    println!("  FFT (l0.fft): {:?}", start.elapsed());
+
+    let start = Instant::now();
+    let _mt0 = build_merkle_tree(&v0);
+    println!("  build_merkle_tree: {:?}", start.elapsed());
+
+    // Full Commit
     let start = Instant::now();
     let mut com = None;
     let mut advice = None;
@@ -67,7 +95,7 @@ fn bench_single(mu: usize, iterations: usize) {
     }
     let commit_time = start.elapsed();
     println!(
-        "Commit (x{}): {:?} (avg: {:?})",
+        "\nCommit (x{}): {:?} (avg: {:?})",
         iterations,
         commit_time,
         commit_time / iterations as u32

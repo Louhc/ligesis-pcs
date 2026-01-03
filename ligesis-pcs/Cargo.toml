@@ -27,6 +27,7 @@ sha2 = { version = "0.10.9" }
 
 [features]
 default = []
+debug = []
 print-trace = [
     "arithmetic/print-trace",
     "ark-std/print-trace",
@@ -39,6 +40,18 @@ clap = { version = "4", features = ["derive"] }
 [[example]]
 name = "dLigesis"
 path = "dTests/dLigesis.rs"
+
+[[example]]
+name = "dDeepFold"
+path = "dTests/dDeepFold.rs"
+
+[[example]]
+name = "dDeepFoldBatch"
+path = "dTests/dDeepFoldBatch.rs"
+
+[[example]]
+name = "dMerkle"
+path = "dTests/dMerkle.rs"
 
 [[bench]]
 name = "ligesis_bench"

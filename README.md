@@ -57,10 +57,10 @@ Options:
 Run distributed LigeSIS test locally:
 ```bash
 cd ligesis-pcs/dTests
-python run.py dLigesis              # 4 parties (default)
-python run.py dLigesis -n 8         # 8 parties
-python run.py dLigesis -m 24        # mu=24
-python run.py dLigesis --trace      # Enable internal timing
+python3 run.py dLigesis              # 4 parties (default)
+python3 run.py dLigesis -n 8         # 8 parties
+python3 run.py dLigesis -m 24        # mu=24
+python3 run.py dLigesis --trace      # Enable internal timing
 ```
 
 Options:
@@ -98,16 +98,16 @@ Config fields:
 2. Run the test:
 ```bash
 # Sync code + build + run
-python run.py dLigesis --servers servers.json --sync --build -m 24
+python3 run.py dLigesis --servers servers.json --sync --build -m 24
 
 # Sync and run (if already built)
-python run.py dLigesis --servers servers.json --sync -m 24
+python3 run.py dLigesis --servers servers.json --sync -m 24
 
 # Run only (if code already synced and built)
-python run.py dLigesis --servers servers.json -m 24
+python3 run.py dLigesis --servers servers.json -m 24
 
 # With internal timing output
-python run.py dLigesis --servers servers.json -m 24 --trace
+python3 run.py dLigesis --servers servers.json -m 24 --trace
 ```
 
 Remote mode options:
