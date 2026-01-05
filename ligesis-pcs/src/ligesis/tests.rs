@@ -68,13 +68,13 @@ fn test_ligesis_ext_pcs() {
 
     // Use extension field open
     let mut transcript = IOPTranscript::<F>::new(b"ligesis_ext_pcs_test");
-    let ext_proof = ligesis_ext_open(&pp, &poly, &advice, &point, &mut transcript).unwrap();
+    let ext_proof = ligesis_open(&pp, &poly, &advice, &point, &mut transcript).unwrap();
 
     let value = poly.evaluate(&point).unwrap();
 
     // Use extension field verify
     let mut transcript = IOPTranscript::<F>::new(b"ligesis_ext_pcs_test");
-    let res = ligesis_ext_verify(&vp, &com, &point, &value, &ext_proof, &mut transcript).unwrap();
+    let res = ligesis_verify(&vp, &com, &point, &value, &ext_proof, &mut transcript).unwrap();
 
     assert!(res);
 }

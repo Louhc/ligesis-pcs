@@ -64,18 +64,21 @@ pub fn deepfold_d_commit<F: PrimeField>(
     end_timer!(timer);
 
     // Step 2: Master computes full f0, v0, and distributes leaf hashes
-    let timer = start_timer!(|| "DCommit.FFT");
     let (f0, v0, f_tilde, local_leaves, leaf_size): (Vec<F>, Vec<F>, Vec<F>, Vec<Byte32>, usize) =
         if Net::am_master() {
             let all_evals: Vec<Vec<F>> = all_evals_opt.unwrap();
             let full_evals: Vec<F> = all_evals.into_iter().flatten().collect();
 
             // Compute full coefficients and FFT
+            let timer = start_timer!(|| "DCommit.FFT");
             let f0 = evals_to_coeffs(mu, &full_evals);
             let v0 = l0.fft(&f0);
+            end_timer!(timer);
 
             // Compute leaf hashes from v0
+            let timer = start_timer!(|| "DCommit.LeafHashes");
             let (all_leaves, leaf_size) = compute_leaf_hashes(&v0);
+            end_timer!(timer);
 
             // Split leaf hashes into chunks for each party
             let chunk_size = all_leaves.len() / num_party;
@@ -96,7 +99,6 @@ pub fn deepfold_d_commit<F: PrimeField>(
             let leaf_size: usize = Net::recv_from_master_uniform(None);
             (vec![], vec![], vec![], local_leaves, leaf_size)
         };
-    end_timer!(timer);
 
     // Step 3: Each party builds local subtree
     let timer = start_timer!(|| "DCommit.DMerkle");

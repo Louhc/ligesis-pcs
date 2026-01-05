@@ -67,9 +67,11 @@ pub fn ligesis_commit<F: PrimeField>(
     end_timer!(timer);
 
     // compute com(H)
+    let timer = start_timer!(|| "Commit.DeepFoldCommit(H)");
     let mat_h_pad =
         evals_to_arcpoly(&resize_eval(&mat_h.concat(), deepfold_prover_param.max_mu));
     let (com_mat_h, com_mat_h_advice) = DeepFoldPCS::commit(deepfold_prover_param, &mat_h_pad)?;
+    end_timer!(timer);
 
     Ok((
         LigeSISCommitment { num_vars, com_mat_h },

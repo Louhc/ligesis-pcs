@@ -12,7 +12,7 @@ use crate::{
     ext_sumcheck::ExtSumCheckProof,
     types::{HasQuadraticExtension, FieldExtension},
 };
-use ark_ff::{BigInteger, PrimeField};
+use ark_ff::{BigInteger, Field, PrimeField};
 use ark_poly::DenseMultilinearExtension;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{
@@ -36,6 +36,11 @@ pub use crate::FGoldilocks;
 /// - `m_rows`: Number of rows in mat_f_prime (can be m or m/num_party for distributed)
 ///
 /// Returns `mat_h` of shape `c x cols`
+///
+/// Optimized using:
+/// - Fixed-size array [u64; 8] for lookup table entries (cache-friendly)
+/// - Direct byte extraction from u64 (avoids to_bytes_le() allocation)
+/// - Row-first iteration for better memory access patterns
 fn compute_sis_hash<F: PrimeField>(
     mat_a: &[Vec<F>],
     mat_f_prime: &[Vec<F>],
@@ -44,38 +49,92 @@ fn compute_sis_hash<F: PrimeField>(
 ) -> Vec<Vec<F>> {
     let c = mat_a.len();
     let cols = mat_f_prime[0].len();
+    let num_bytes = eta / 8; // 8 bytes for 64-bit field
 
-    // Precompute byte buckets for mat_a
-    let mat_a_prime: Vec<Vec<Vec<F>>> = mat_a
-        .iter()
-        .map(|row| {
-            (0..eta * m_rows / 8)
-                .map(|i| get_mat_a_byte_bucket(&row[i * 8..(i + 1) * 8].to_vec()))
-                .collect()
+    // Precompute lookup table: a[byte_position * 256 + byte_value] -> [u64; 8]
+    // All c values stored together for cache locality when accessed
+    let a: Vec<[u64; 8]> = (0..m_rows * num_bytes * 256)
+        .map(|idx| {
+            let byte_position = idx / 256;
+            let byte_val = idx % 256;
+            let i = byte_position / num_bytes;
+            let byte_idx = byte_position % num_bytes;
+
+            let mut result = [0u64; 8];
+            for (c_idx, row) in mat_a.iter().enumerate().take(8) {
+                let elem_base = i * num_bytes * 8 + byte_idx * 8;
+                let mut sum = 0u64;
+                for bit in 0..8 {
+                    if (byte_val >> bit) & 1 == 1 {
+                        sum = sum.wrapping_add(row[elem_base + bit].into_bigint().as_ref()[0]);
+                    }
+                }
+                result[c_idx] = sum;
+            }
+            result
         })
         .collect();
 
-    // Compute H using SIS hash
-    mat_a_prime
-        .iter()
-        .map(|row| {
-            (0..cols)
-                .map(|j| {
-                    (0..m_rows)
-                        .map(|i| {
-                            mat_f_prime[i][j]
-                                .into_bigint()
-                                .to_bytes_le()
-                                .iter()
-                                .enumerate()
-                                .map(|(k, x)| row[eta * i / 8 + k][*x as usize])
-                                .sum::<F>()
-                        })
-                        .sum::<F>()
-                })
-                .collect()
-        })
-        .collect()
+    // Get modulus for final reduction
+    let modulus = F::MODULUS.as_ref()[0];
+
+    // Compute H: process row by row, all columns at once
+    let mut hashes: Vec<[u64; 8]> = vec![[0u64; 8]; cols];
+
+    for i in 0..m_rows {
+        let base_cnt = i * num_bytes * 256;
+        let row = &mat_f_prime[i];
+        for j in 0..cols {
+            // Get raw u64 value directly (faster than to_bytes_le())
+            let val = row[j].into_bigint().as_ref()[0];
+            // Extract bytes manually
+            let b0 = (val & 0xFF) as usize;
+            let b1 = ((val >> 8) & 0xFF) as usize;
+            let b2 = ((val >> 16) & 0xFF) as usize;
+            let b3 = ((val >> 24) & 0xFF) as usize;
+            let b4 = ((val >> 32) & 0xFF) as usize;
+            let b5 = ((val >> 40) & 0xFF) as usize;
+            let b6 = ((val >> 48) & 0xFF) as usize;
+            let b7 = ((val >> 56) & 0xFF) as usize;
+
+            let h = &mut hashes[j];
+            let l0 = &a[base_cnt + b0];
+            let l1 = &a[base_cnt + 256 + b1];
+            let l2 = &a[base_cnt + 512 + b2];
+            let l3 = &a[base_cnt + 768 + b3];
+            let l4 = &a[base_cnt + 1024 + b4];
+            let l5 = &a[base_cnt + 1280 + b5];
+            let l6 = &a[base_cnt + 1536 + b6];
+            let l7 = &a[base_cnt + 1792 + b7];
+
+            h[0] = h[0].wrapping_add(l0[0]).wrapping_add(l1[0]).wrapping_add(l2[0]).wrapping_add(l3[0])
+                       .wrapping_add(l4[0]).wrapping_add(l5[0]).wrapping_add(l6[0]).wrapping_add(l7[0]);
+            h[1] = h[1].wrapping_add(l0[1]).wrapping_add(l1[1]).wrapping_add(l2[1]).wrapping_add(l3[1])
+                       .wrapping_add(l4[1]).wrapping_add(l5[1]).wrapping_add(l6[1]).wrapping_add(l7[1]);
+            h[2] = h[2].wrapping_add(l0[2]).wrapping_add(l1[2]).wrapping_add(l2[2]).wrapping_add(l3[2])
+                       .wrapping_add(l4[2]).wrapping_add(l5[2]).wrapping_add(l6[2]).wrapping_add(l7[2]);
+            h[3] = h[3].wrapping_add(l0[3]).wrapping_add(l1[3]).wrapping_add(l2[3]).wrapping_add(l3[3])
+                       .wrapping_add(l4[3]).wrapping_add(l5[3]).wrapping_add(l6[3]).wrapping_add(l7[3]);
+            h[4] = h[4].wrapping_add(l0[4]).wrapping_add(l1[4]).wrapping_add(l2[4]).wrapping_add(l3[4])
+                       .wrapping_add(l4[4]).wrapping_add(l5[4]).wrapping_add(l6[4]).wrapping_add(l7[4]);
+            h[5] = h[5].wrapping_add(l0[5]).wrapping_add(l1[5]).wrapping_add(l2[5]).wrapping_add(l3[5])
+                       .wrapping_add(l4[5]).wrapping_add(l5[5]).wrapping_add(l6[5]).wrapping_add(l7[5]);
+            h[6] = h[6].wrapping_add(l0[6]).wrapping_add(l1[6]).wrapping_add(l2[6]).wrapping_add(l3[6])
+                       .wrapping_add(l4[6]).wrapping_add(l5[6]).wrapping_add(l6[6]).wrapping_add(l7[6]);
+            h[7] = h[7].wrapping_add(l0[7]).wrapping_add(l1[7]).wrapping_add(l2[7]).wrapping_add(l3[7])
+                       .wrapping_add(l4[7]).wrapping_add(l5[7]).wrapping_add(l6[7]).wrapping_add(l7[7]);
+        }
+    }
+
+    // Convert to field elements with modular reduction
+    let mut mat_h: Vec<Vec<F>> = vec![vec![F::ZERO; cols]; c];
+    for j in 0..cols {
+        for k in 0..c {
+            mat_h[k][j] = F::from(hashes[j][k] % modulus);
+        }
+    }
+
+    mat_h
 }
 
 // TODO: Lookup code is currently incorrect, commented out for now
