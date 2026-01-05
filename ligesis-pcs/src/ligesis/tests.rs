@@ -53,3 +53,28 @@ fn test_ligesis_pcs_variable_size() {
     assert!(res);
     assert_eq!(eval_mle_poly(&poly.evaluations, &point), value);
 }
+
+#[test]
+fn test_ligesis_ext_pcs() {
+    let mut rng = test_rng();
+    let mu = 18;
+
+    let srs = LigeSISPCS::<F>::gen_srs_for_testing(&mut rng, mu).unwrap();
+    let (pp, vp) = LigeSISPCS::<F>::setup(&srs).unwrap();
+
+    let poly = Arc::new(DenseMultilinearExtension::<F>::rand(mu, &mut rng));
+    let (com, advice) = LigeSISPCS::<F>::commit(&pp, &poly).unwrap();
+    let point: Vec<F> = (0..mu).map(|_| F::rand(&mut rng)).collect();
+
+    // Use extension field open
+    let mut transcript = IOPTranscript::<F>::new(b"ligesis_ext_pcs_test");
+    let ext_proof = ligesis_ext_open(&pp, &poly, &advice, &point, &mut transcript).unwrap();
+
+    let value = poly.evaluate(&point).unwrap();
+
+    // Use extension field verify
+    let mut transcript = IOPTranscript::<F>::new(b"ligesis_ext_pcs_test");
+    let res = ligesis_ext_verify(&vp, &com, &point, &value, &ext_proof, &mut transcript).unwrap();
+
+    assert!(res);
+}

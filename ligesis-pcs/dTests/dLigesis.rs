@@ -3,17 +3,17 @@ use ark_ff::{PrimeField, UniformRand};
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use std::sync::Arc;
 use std::time::Instant;
-use ligesis_pcs::{LigeSISPCS, LigeSISSRS, PCSError, PolynomialCommitmentScheme};
+use ligesis_pcs::{LigeSISPCS, LigeSISSRS, PCSError, PolynomialCommitmentScheme, HasQuadraticExtension};
 use transcript::IOPTranscript;
 
 use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 
 mod common;
 use common::{test_rng, Opt};
-mod types;
-use types::FGoldilocks as F;
+// Use FGoldilocks from ligesis_pcs which has HasQuadraticExtension implemented
+use ligesis_pcs::FGoldilocks as F;
 
-fn test_multi<F: PrimeField>(mu: usize) -> Result<(), PCSError> {
+fn test_multi<F: PrimeField + HasQuadraticExtension>(mu: usize) -> Result<(), PCSError> {
     let mut rng = test_rng();
     let num_party = Net::n_parties();
     let num_party_vars = num_party.ilog2() as usize;

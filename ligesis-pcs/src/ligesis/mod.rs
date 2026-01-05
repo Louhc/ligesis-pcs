@@ -1,26 +1,29 @@
+mod commit;
+mod open;
+mod verify;
+
+pub use commit::{ligesis_commit, ligesis_d_commit};
+pub use open::{ligesis_open, ligesis_d_open};
+pub use verify::ligesis_verify;
+
 use crate::{
     deepfold::*, errors::PCSError, rand::*, rscode::*, utils::*,
-    IOPProof, PolyIOP, PolynomialCommitmentScheme,
-    sumcheck::SumCheck,
+    PolynomialCommitmentScheme,
+    ext_sumcheck::ExtSumCheckProof,
+    types::{HasQuadraticExtension, FieldExtension},
 };
-use arithmetic::{math::Math, VirtualPolynomial};
 use ark_ff::{BigInteger, PrimeField};
 use ark_poly::DenseMultilinearExtension;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{
     borrow::Borrow,
     cmp::{max, min},
-    end_timer,
     marker::PhantomData,
     rand::Rng,
-    start_timer,
     sync::Arc,
-    vec,
     vec::Vec,
 };
 use transcript::IOPTranscript;
-
-use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 
 pub use crate::FGoldilocks;
 
@@ -91,13 +94,9 @@ pub struct LigeSISPCS<F: PrimeField> {
     phantom: PhantomData<F>,
 }
 
-impl<F: PrimeField> LigeSISPCS<F> {
-    pub fn compute_value_from_proof(log_n: usize, point: &Vec<F>, proof: &LigeSISProof<F>) -> F {
-        proof.deepfold_batched_proof.evals[0]
-        // DeepFoldPCS::compute_value_from_proof(
-        //     &point[..log_n].to_vec(),
-        //     &proof.com_a_proof,
-        // )
+impl<F: PrimeField + HasQuadraticExtension> LigeSISPCS<F> {
+    pub fn compute_value_from_proof(_log_n: usize, _point: &Vec<F>, proof: &LigeSISProof<F>) -> F {
+        F::ext_real(&proof.deepfold_batched_proof.evals[0])
     }
 }
 
@@ -142,26 +141,31 @@ pub struct LigeSISVerifierParam<F: PrimeField> {
     deepfold_verifier_param: DeepFoldVerifierParam<F>,
 }
 
-#[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq)]
-/// proof of opening
-pub struct LigeSISProof<F: PrimeField> {
+/// Extension field SumCheck proof (direct, no reduction needed)
+/// Used with direct extension field opening in DeepFold (128-bit soundness)
+#[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
+pub struct ExtSumCheckWithReductionProof<F: PrimeField + HasQuadraticExtension> {
+    /// Extension field SumCheck proof (contains the extension field point)
+    pub ext_proof: ExtSumCheckProof<F::Extension>,
+}
+
+/// Proof for Ligesis - provides 128-bit soundness
+/// Uses extension field SumCheck and direct extension field opening in DeepFold
+#[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
+pub struct LigeSISProof<F: PrimeField + HasQuadraticExtension> {
     pub com_a: <DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::Commitment,
     pub com_bI: <DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::Commitment,
     pub com_rs_a: <DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::Commitment,
-    pub bI_check_proof: IOPProof<F>,
-    pub alpha2_a_bI_r2_check_proof: IOPProof<F>,
-    pub v_bI_r2_check_proof: IOPProof<F>,
-    pub rs_a_check_proof: IOPProof<F>,
-    pub mat_g_check_proofs: Vec<IOPProof<F>>,
 
-    // TODO: Lookup code is currently incorrect, commented out for now
-    // pub eq_alpha2_a_bI_eval: F,
-    // pub eq_alpha2_h_circ_I_eval: F,
-    // pub v_bI_eval: F,
-    // pub rs_a_circ_I_eval: F,
-    // pub lookup_proof: LigeSISLookupProof<F>,
+    /// Extension field SumCheck proofs (no reduction needed)
+    pub bI_check_proof: ExtSumCheckWithReductionProof<F>,
+    pub alpha2_a_bI_r2_check_proof: ExtSumCheckWithReductionProof<F>,
+    pub v_bI_r2_check_proof: ExtSumCheckWithReductionProof<F>,
+    pub rs_a_check_proof: ExtSumCheckWithReductionProof<F>,
+    pub mat_g_check_proofs: Vec<ExtSumCheckWithReductionProof<F>>,
 
-    pub deepfold_batched_proof: <DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::BatchProof,
+    /// Extension field DeepFold batch proof (direct extension field opening)
+    pub deepfold_batched_proof: DeepFoldExtBatchedProof<F>,
 }
 
 #[derive(CanonicalSerialize, CanonicalDeserialize, Debug, PartialEq, Eq, Default)]
@@ -189,7 +193,7 @@ pub struct LigeSISCommitment<F: PrimeField> {
     pub com_mat_h: <DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::Commitment,
 }
 
-impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
+impl<F: PrimeField + HasQuadraticExtension> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
     // Parameters
     type ProverParam = LigeSISProverParam<F>;
     type VerifierParam = LigeSISVerifierParam<F>;
@@ -299,156 +303,14 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         prover_param: impl Borrow<Self::ProverParam>,
         poly: &Self::Polynomial,
     ) -> Result<(Self::Commitment, Self::ProverCommitmentAdvice), PCSError> {
-        // trim parameters
-        let &LigeSISProverParam {
-            eta,
-            s_lambda,
-            mu,
-            log_m,
-            log_n,
-            c,
-            ref rs,
-            ref mat_a,
-            ref mat_a_pad,
-            ref com_mat_a_advice,
-            ref deepfold_prover_param,
-        } = prover_param.borrow();
-        let (m, n) = (1 << log_m, 1 << log_n);
-
-        // Record original num_vars and pad if needed
-        let num_vars = poly.num_vars;
-        let poly_evals = if num_vars < mu {
-            resize_eval(&poly.evaluations, mu)
-        } else {
-            poly.evaluations.clone()
-        };
-        let mat_f = reshape(&poly_evals, m, n);
-
-        // encode `F`
-        let timer = start_timer!(|| "Commit.RS");
-        let mat_f_prime = mat_f.iter().map(|row| rs.encode(row)).collect::<Vec<_>>();
-        end_timer!(timer);
-
-        // compute `H`
-        let timer = start_timer!(|| "Commit.SISHash");
-        let mat_h = compute_sis_hash(mat_a, &mat_f_prime, eta, m);
-        end_timer!(timer);
-
-        // compute com(H)
-        let mat_h_pad =
-            evals_to_arcpoly(&resize_eval(&mat_h.concat(), deepfold_prover_param.max_mu));
-        let (com_mat_h, com_mat_h_advice) = DeepFoldPCS::commit(deepfold_prover_param, &mat_h_pad)?;
-
-        Ok((
-            LigeSISCommitment { num_vars, com_mat_h },
-            LigeSISProverCommitmentAdvice {
-                mat_f_prime,
-                mat_h,
-                mat_h_pad,
-                com_mat_h_advice,
-            },
-        ))
+        ligesis_commit(prover_param.borrow(), poly)
     }
 
     fn d_commit(
         prover_param: impl Borrow<Self::ProverParam>,
         poly: &Self::Polynomial,
     ) -> Result<(Option<Self::Commitment>, Self::ProverCommitmentAdvice), PCSError> {
-        // trim parameters
-        let num_party = Net::n_parties();
-        let num_party_vars = Net::n_parties().log_2() as usize;
-        let party_id = Net::party_id();
-
-        let &LigeSISProverParam {
-            eta,
-            s_lambda,
-            mu,
-            log_m,
-            log_n,
-            c,
-            ref rs,
-            ref mat_a,
-            ref mat_a_pad,
-            ref com_mat_a_advice,
-            ref deepfold_prover_param,
-        } = prover_param.borrow();
-        let (m, n) = (1 << log_m, 1 << log_n);
-
-        // Record original num_vars (for distributed case, actual num_vars = poly.num_vars + num_party_vars)
-        let num_vars = poly.num_vars + num_party_vars;
-        let mat_f = reshape(&poly.evaluations, m / num_party, n);
-        // encode `F`
-        let mat_f_prime = mat_f.iter().map(|row| rs.encode(row)).collect::<Vec<_>>();
-
-        // compute `H`
-        let mat_a_k: Vec<Vec<F>> = mat_a.iter().map(
-            |row| row[party_id * eta * m / num_party..(party_id + 1) * eta * m / num_party].to_vec()
-        ).collect();
-
-        let timer = start_timer!(|| format!("Commit.DistributedSIS({}x{}x{})", c, m / num_party * eta, n * 2));
-        let mat_h_i = compute_sis_hash(&mat_a_k, &mat_f_prime, eta, m / num_party);
-        end_timer!(timer);
-
-        let all_mat_h = Net::send_to_master(&mat_h_i);
-
-        // Master computes full mat_h and distributes portions to workers for d_commit
-        let mat_h = if Net::am_master() {
-            let all_mat_h = all_mat_h.ok_or(PCSError::UnexpectedNone("all_mat_h".into()))?;
-            (0..c)
-                .map(|i| {
-                    (0..2 * n)
-                        .map(|j| (0..num_party).map(|k| all_mat_h[k][i][j]).sum::<F>())
-                        .collect::<Vec<_>>()
-                })
-                .collect::<Vec<_>>()
-        } else {
-            vec![]
-        };
-
-        // Distribute mat_h_pad portions for distributed DeepFold commit
-        let mat_h_full = if Net::am_master() {
-            resize_eval(&mat_h.concat(), deepfold_prover_param.max_mu)
-        } else {
-            vec![]
-        };
-
-        // Each party gets their portion of mat_h_pad for d_commit
-        let local_mat_h_size = (1 << deepfold_prover_param.max_mu) / num_party;
-        let local_mat_h: Vec<F> = if Net::am_master() {
-            let chunks: Vec<Vec<F>> = (0..num_party)
-                .map(|k| mat_h_full[k * local_mat_h_size..(k + 1) * local_mat_h_size].to_vec())
-                .collect();
-            Net::recv_from_master(Some(chunks))
-        } else {
-            Net::recv_from_master(None)
-        };
-
-        // All parties call d_commit
-        let mat_h_pad = evals_to_arcpoly(&local_mat_h);
-        let (com_mat_h_opt, com_mat_h_advice) =
-            DeepFoldPCS::d_commit(deepfold_prover_param, &mat_h_pad)?;
-
-        if Net::am_master() {
-            Ok((
-                Some(LigeSISCommitment { num_vars, com_mat_h: com_mat_h_opt.unwrap() }),
-                LigeSISProverCommitmentAdvice {
-                    mat_f_prime,
-                    mat_h,
-                    mat_h_pad,  // Use local-size mat_h_pad for consistency with workers
-                    com_mat_h_advice,
-                },
-            ))
-        } else {
-            Ok((
-                None,
-                LigeSISProverCommitmentAdvice {
-                    mat_f_prime,
-                    mat_h: mat_h_i,
-                    mat_h_pad,
-                    com_mat_h_advice,
-                },
-            ))
-        }
+        ligesis_d_commit(prover_param.borrow(), poly)
     }
 
     fn open(
@@ -458,280 +320,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         point: &Self::Point,
         transcript: &mut IOPTranscript<F>,
     ) -> Result<Self::Proof, PCSError> {
-        let &LigeSISProverParam {
-            eta,
-            s_lambda,
-            mu,
-            log_m,
-            log_n,
-            c,
-            ref rs,
-            ref mat_a,
-            ref mat_a_pad,
-            ref com_mat_a_advice,
-            ref deepfold_prover_param,
-        } = prover_param.borrow();
-        let (m, n) = (1 << log_m, 1 << log_n);
-        let rs_len = rs.get_k();
-        let log_rs_len = rs_len.ilog2() as usize;
-
-        assert_eq!(mu, log_m + log_n);
-        assert!(poly.num_vars <= mu);
-
-        // Pad polynomial and point if needed
-        let poly_evals = if poly.num_vars < mu {
-            resize_eval(&poly.evaluations, mu)
-        } else {
-            poly.evaluations.clone()
-        };
-        let point = resize_point(point, mu);
-
-        let mat_f = reshape(&poly_evals, m, n);
-
-        let LigeSISProverCommitmentAdvice {
-            mat_f_prime,
-            mat_h,
-            mat_h_pad,
-            com_mat_h_advice,
-        } = advice;
-
-        // Step 1
-        let (z1, z2) = (point[log_n..].to_vec(), point[..log_n].to_vec());
-        let eq_z1 = get_tensor(&z1);
-
-        // Step 2
-        let timer = start_timer!(|| "Open.DeepFold.CommitA");
-        let a = (0..n)
-            .map(|j| (0..m).map(|i| eq_z1[i] * mat_f[i][j]).sum())
-            .collect::<Vec<F>>();
-        let a_pad = evals_to_arcpoly(&resize_eval(&a, deepfold_prover_param.max_mu));
-        let (com_a, com_a_advice) = DeepFoldPCS::commit(deepfold_prover_param, &a_pad)?;
-        end_timer!(timer);
-
-        // Step 3
-        let I = transcript.get_and_append_challenge_indices(b"I", s_lambda, 2 * n)?;
-
-        // Step 4
-        // let mat_b_trans = transposition(&mat_b);
-        let timer = start_timer!(|| "Open.DeepFold.CommitBI");
-        let mat_f_prime_trans = transposition(&mat_f_prime);
-        let mat_bI = transposition(
-            &I.iter()
-                .map(|&i| decompose_vector(&mat_f_prime_trans[i]))
-                .collect::<Vec<_>>(),
-        );
-        let bI_field = bool_vec_to_field_vec(&mat_bI.concat());
-        let bI_field_pad = evals_to_arcpoly(&resize_eval(&bI_field, deepfold_prover_param.max_mu));
-        let (com_bI, com_bI_advice) =
-            DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&bI_field))?;
-        end_timer!(timer);
-
-        // Step 5
-        let alpha1 = transcript
-            .get_and_append_challenge_vectors(b"alpha1", (m * eta * s_lambda).ilog2() as usize)?;
-        let alpha2 = transcript.get_and_append_challenge_vectors(b"alpha2", c.ilog2() as usize)?;
-        let alpha3 = transcript.get_and_append_challenge_vectors(b"alpha3", log_rs_len)?;
-
-        // Step 6
-        let timer = start_timer!(|| "Open.Sumchecks");
-        let bI_field_minus_one: Vec<F> = bI_field.iter().map(|&x| x - F::ONE).collect();
-        let tensor_alpha1 = get_tensor(&alpha1);
-        let bI_check_proof = SumCheckBuilder::new(bI_field.len().ilog2() as usize)
-            .add_evals([&bI_field, &bI_field_minus_one, &tensor_alpha1], F::ONE)?
-            .prove(transcript)?;
-        let r1 = bI_check_proof.point.clone();
-
-        // Step 7 Check rs_a
-        let rs_a = rs.encode(&a);
-        let g = rs.get_generator();
-        let rs_a_pad = evals_to_arcpoly(&resize_eval(&rs_a, deepfold_prover_param.max_mu));
-        let (com_rs_a, com_rs_a_advice) = DeepFoldPCS::commit(deepfold_prover_param, &rs_a_pad)?;
-
-        // Step 7.1 check eq_alpha3^T * G * a = eq_alpha3^T * rs_a
-        //  \sum_i alpha3_mat_g(i) * a(i) = eq_alpha3^T * rs_a
-        // reduce to alpha3_mat_g(r6), a(r6)
-        let alpha3_mat_g = compute_alpha_mat_g(log_rs_len as usize, log_n, &g, &alpha3);
-        let alpha3_mat_g_n = alpha3_mat_g[log_rs_len][..n].to_vec();
-        let rs_a_check_proof = SumCheckBuilder::new(log_n)
-            .add_evals([&alpha3_mat_g_n, &a], F::ONE)?
-            .prove(transcript)?;
-        let r6 = rs_a_check_proof.point.clone();
-
-        // Step 7.2 check alpha3_mat_g(r6)
-        let mut cur_p = vec![r6.clone(), vec![F::ZERO; log_rs_len - log_n]].concat();
-        let mut mat_g_check_proofs = Vec::new();
-        for i in (2..=log_rs_len).rev() {
-            let (x, b) = (cur_p[..i - 1].to_vec(), cur_p[i - 1]);
-            let gi = g.pow([1u64 << (log_rs_len - i)]);
-            let w: Vec<F> = (0..1 << (i - 1))
-                .map(|z| {
-                    F::ONE - alpha3[log_rs_len - i]
-                        + alpha3[log_rs_len - i]
-                            * (gi.pow([z]) * (F::ONE - b) + gi.pow([z + (1 << (i - 1))]) * b)
-                })
-                .collect();
-            let tensor_x = get_tensor(&x);
-            let mat_g_check_proof = SumCheckBuilder::new(i - 1)
-                .add_evals([&tensor_x, &alpha3_mat_g[i - 1], &w], F::ONE)?
-                .prove(transcript)?;
-
-            cur_p = mat_g_check_proof.point.clone();
-            mat_g_check_proofs.push(mat_g_check_proof);
-        }
-
-        // Step 8 - Lookup Argument (TODO: currently incorrect, commented out)
-        // let eq_alpha2_a_bI = mat_mul(
-        //     &vec![get_tensor(&alpha2)],
-        //     &field_mat_mul_bool_mat(&mat_a, &mat_bI),
-        // )
-        // .concat();
-        let v = otimes(
-            &get_tensor(&z1),
-            &(0..eta)
-                .map(|i| F::from(2u64).pow([i as u64]))
-                .collect::<Vec<_>>(),
-        );
-        // let v_bI = field_mat_mul_bool_mat(&vec![v.clone()], &mat_bI).concat();
-        // let eq_alpha2_h = mat_mul(&vec![get_tensor(&alpha2)], &mat_h).concat();
-
-        // Lookup Argument for (I, eq_alpha2_a_bI, v_bI) in ([2n], eq_alpha2_h, rs_a)
-        // let gamma = transcript.get_and_append_challenge_vectors(b"gamma", 1)?[0];
-        // let r = transcript.get_and_append_challenge_vectors(b"r", s_lambda.ilog2() as usize)?;
-        // let eq_r = get_tensor(&r);
-
-        // let mut lookup_check = VirtualPolynomial::new(s_lambda.ilog2() as usize);
-        // let mut eq_alpha2_h_circ_I = vec![F::ZERO; s_lambda];
-        // let mut rs_a_circ_I = vec![F::ZERO; s_lambda];
-        // for i in 0..s_lambda {
-        //     eq_alpha2_h_circ_I[i] = eq_alpha2_h[I[i]];
-        //     rs_a_circ_I[i] = rs_a[I[i]];
-        // }
-
-        // lookup_check
-        //     .add_mle_list(
-        //         [evals_to_arcpoly(&eq_r), evals_to_arcpoly(&eq_alpha2_a_bI)],
-        //         F::ONE,
-        //     )
-        //     .map_err(|e| PCSError::VirtualPolynomialError(format!("{:?}", e)))?;
-        // lookup_check
-        //     .add_mle_list(
-        //         [
-        //             evals_to_arcpoly(&eq_r),
-        //             evals_to_arcpoly(&eq_alpha2_h_circ_I),
-        //         ],
-        //         -F::ONE,
-        //     )
-        //     .map_err(|e| PCSError::VirtualPolynomialError(format!("{:?}", e)))?;
-        // lookup_check
-        //     .add_mle_list([evals_to_arcpoly(&eq_r), evals_to_arcpoly(&v_bI)], gamma)
-        //     .map_err(|e| PCSError::VirtualPolynomialError(format!("{:?}", e)))?;
-        // lookup_check
-        //     .add_mle_list(
-        //         [evals_to_arcpoly(&eq_r), evals_to_arcpoly(&rs_a_circ_I)],
-        //         -gamma,
-        //     )
-        //     .map_err(|e| PCSError::VirtualPolynomialError(format!("{:?}", e)))?;
-
-        // let lookup_proof = LigeSISLookupProof {
-        //     sumcheck_proof: <PolyIOP<F> as SumCheck<F>>::prove(lookup_check, transcript).map_err(|e| PCSError::SumCheckError(format!("{:?}", e)))?,
-        // };
-
-        // let r_lookup = lookup_proof.sumcheck_proof.point.clone();
-        // let eq_alpha2_a_bI_eval = eval_mle_poly(&eq_alpha2_a_bI, &r_lookup);
-        // let eq_alpha2_h_circ_I_eval = eval_mle_poly(&eq_alpha2_h_circ_I, &r_lookup);
-        // let v_bI_eval = eval_mle_poly(&v_bI, &r_lookup);
-        // let rs_a_circ_I_eval = eval_mle_poly(&rs_a_circ_I, &r_lookup);
-
-        // Replacement: get r2 from transcript instead of from lookup proof
-        let r2 = transcript.get_and_append_challenge_vectors(b"r2", s_lambda.ilog2() as usize)?;
-        let r3 = transcript.get_and_append_challenge_vectors(b"r3", (2 * n).ilog2() as usize)?;
-
-        // Step 9
-        let alpha2_a = mat_mul(&vec![get_tensor(&alpha2)], &mat_a)[0].clone();
-        let bI_r2 =
-            field_mat_mul_bool_mat(&vec![get_tensor(&r2)], &transposition(&mat_bI))[0].clone();
-        let alpha2_a_bI_r2_check_proof = SumCheckBuilder::new(mat_bI.len().ilog2() as usize)
-            .add_evals([&alpha2_a, &bI_r2], F::ONE)?
-            .prove(transcript)?;
-        let r4 = alpha2_a_bI_r2_check_proof.point.clone();
-
-        // Step 10
-        let v_bI_r2_check_proof = SumCheckBuilder::new(v.len().ilog2() as usize)
-            .add_evals([&v, &bI_r2], F::ONE)?
-            .prove(transcript)?;
-        let r5 = v_bI_r2_check_proof.point.clone();
-        end_timer!(timer);
-
-        // Step 11
-        let polys = [
-            &a_pad,
-            &a_pad,
-            &rs_a_pad,
-            &rs_a_pad,
-            &mat_h_pad,
-            &mat_a_pad,
-            &bI_field_pad,
-            &bI_field_pad,
-            &bI_field_pad,
-        ]
-        .map(|p| Arc::clone(p))
-        .to_vec();
-        let advices = [
-            &com_a_advice,
-            &com_a_advice,
-            &com_rs_a_advice,
-            &com_rs_a_advice,
-            &com_mat_h_advice,
-            &com_mat_a_advice,
-            &com_bI_advice,
-            &com_bI_advice,
-            &com_bI_advice,
-        ];
-        let timer = start_timer!(|| "Open.DeepFold.Open");
-        let points = [
-            &z2,
-            &r6,
-            &r3,
-            &alpha3,
-            &vec![r3.clone(), alpha2.clone()].concat(),
-            &vec![r4.clone(), alpha2.clone()].concat(),
-            &r1,
-            &vec![r2.clone(), r4.clone()].concat(),
-            &vec![r2.clone(), r5.clone()].concat(),
-        ]
-        .map(|p| resize_point(p, deepfold_prover_param.max_mu));
-        let evals = [F::ZERO; 9];
-
-        let deepfold_batched_proof = DeepFoldPCS::batch_open(
-            deepfold_prover_param,
-            polys,
-            &advices,
-            &points,
-            &evals,
-            transcript,
-        )?;
-        end_timer!(timer);
-
-        Ok(LigeSISProof {
-            // commitments
-            com_a,
-            com_bI,
-            com_rs_a,
-            // sumcheck proofs
-            bI_check_proof,
-            alpha2_a_bI_r2_check_proof,
-            v_bI_r2_check_proof,
-            rs_a_check_proof,
-            mat_g_check_proofs,
-            // lookup proof (TODO: currently incorrect, commented out)
-            // eq_alpha2_a_bI_eval,
-            // eq_alpha2_h_circ_I_eval,
-            // v_bI_eval,
-            // rs_a_circ_I_eval,
-            // lookup_proof,
-            // commitment proofs
-            deepfold_batched_proof,
-        })
+        ligesis_open(prover_param.borrow(), poly, advice, point, transcript)
     }
 
     fn d_open(
@@ -741,356 +330,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         point: &Self::Point,
         transcript: &mut IOPTranscript<F>,
     ) -> Result<Option<Self::Proof>, PCSError> {
-        // trim parameters
-        let &LigeSISProverParam {
-            eta,
-            s_lambda,
-            mu,
-            log_m,
-            log_n,
-            c,
-            ref rs,
-            ref mat_a,
-            ref mat_a_pad,
-            ref com_mat_a_advice,
-            ref deepfold_prover_param,
-        } = prover_param.borrow();
-        let num_party = Net::n_parties();
-        let num_party_vars = Net::n_parties().log_2() as usize;
-        let (m, n) = (1 << log_m, 1 << log_n);
-        let rs_len = rs.get_k();
-        let log_rs_len = rs_len.ilog2() as usize;
-        let local_poly_size = (1 << deepfold_prover_param.max_mu) / num_party;
-
-        assert_eq!(mu, log_m + log_n);
-        assert!(poly.num_vars <= mu - num_party_vars);
-
-        // Pad point if needed
-        let point = resize_point(point, mu);
-
-        let mat_f = reshape(&poly.evaluations, m / num_party, n);
-
-        let LigeSISProverCommitmentAdvice {
-            mat_f_prime,
-            mat_h,
-            mat_h_pad,
-            com_mat_h_advice,
-        } = advice;
-
-        // Step 1
-        let (z1, z2) = (point[log_n..].to_vec(), point[..log_n].to_vec());
-        let (z1_0, z1_1) = (
-            z1[log_m - num_party_vars..].to_vec(),
-            z1[..log_m - num_party_vars].to_vec(),
-        );
-        let eq_z1_1 = get_tensor(&z1_1);
-        let eq_z1_0 = get_tensor(&z1_0);
-
-        // Step 2: Compute a and d_commit
-        let timer = start_timer!(|| "DOpen.Step2");
-        let a_k = (0..n)
-            .map(|j| {
-                (0..m / num_party)
-                    .map(|i| eq_z1_1[i] * mat_f[i][j])
-                    .sum()
-            })
-            .collect::<Vec<F>>();
-        let a_k_list = Net::send_to_master(&a_k);
-
-        // Master computes full a and distributes for d_commit
-        let (a_full, a_saved): (Vec<F>, Vec<F>) = if Net::am_master() {
-            let a_k_list = a_k_list.ok_or(PCSError::UnexpectedNone("a_k_list".into()))?;
-            let a: Vec<F> = (0..n)
-                .map(|j| (0..num_party).map(|k| eq_z1_0[k] * a_k_list[k][j]).sum())
-                .collect();
-            (resize_eval(&a, deepfold_prover_param.max_mu), a)
-        } else {
-            (vec![], vec![])
-        };
-
-        // Distribute a for d_commit
-        let local_a: Vec<F> = if Net::am_master() {
-            let chunks: Vec<Vec<F>> = (0..num_party)
-                .map(|k| a_full[k * local_poly_size..(k + 1) * local_poly_size].to_vec())
-                .collect();
-            Net::recv_from_master(Some(chunks))
-        } else {
-            Net::recv_from_master(None)
-        };
-
-        let a_pad = evals_to_arcpoly(&local_a);
-        let (com_a_opt, com_a_advice) = DeepFoldPCS::d_commit(deepfold_prover_param, &a_pad)?;
-        let com_a = if Net::am_master() { com_a_opt.unwrap() } else { DeepFoldCommitment::default() };
-        end_timer!(timer);
-
-        // Step 3: receive challenge indices
-        let I = if Net::am_master() {
-            let I = transcript.get_and_append_challenge_indices(b"I", s_lambda, 2 * n)?;
-            Net::recv_from_master_uniform(Some(I.clone()));
-            I
-        } else {
-            Net::recv_from_master_uniform(None)
-        };
-
-        // Step 4: Compute bI and d_commit
-        let timer = start_timer!(|| "DOpen.Step4");
-
-        let mat_bI_k = {
-            let mat_f_prime_trans = transposition(&mat_f_prime);
-            transposition(
-            &I.iter()
-                    .map(|&i| decompose_vector(&mat_f_prime_trans[i]))
-                    .collect::<Vec<_>>(),
-            )
-        };
-        let mat_bI_k_list = Net::send_to_master(&mat_bI_k);
-        let (mat_bI, bI_field_full) = if Net::am_master() {
-            let mat_bI_k_list = mat_bI_k_list.ok_or(PCSError::UnexpectedNone("mat_bI_k_list".into()))?;
-            let mat_bI = mat_bI_k_list.concat();
-            let bI_field = bool_vec_to_field_vec(&mat_bI.concat());
-            let bI_field_full = resize_eval(&bI_field, deepfold_prover_param.max_mu);
-            (mat_bI, bI_field_full)
-        } else {
-            (vec![], vec![])
-        };
-
-        // Distribute bI for d_commit
-        let local_bI: Vec<F> = if Net::am_master() {
-            let chunks: Vec<Vec<F>> = (0..num_party)
-                .map(|k| bI_field_full[k * local_poly_size..(k + 1) * local_poly_size].to_vec())
-                .collect();
-            Net::recv_from_master(Some(chunks))
-        } else {
-            Net::recv_from_master(None)
-        };
-
-        let bI_field_pad = evals_to_arcpoly(&local_bI);
-        let (com_bI_opt, com_bI_advice) = DeepFoldPCS::d_commit(deepfold_prover_param, &bI_field_pad)?;
-        let com_bI = if Net::am_master() { com_bI_opt.unwrap() } else { DeepFoldCommitment::default() };
-        end_timer!(timer);
-
-        // Step 5: receive challenge vectors
-        let (alpha1, alpha2, alpha3) = if Net::am_master() {
-            let alpha1 = transcript.get_and_append_challenge_vectors(
-                b"alpha1",
-                (m * eta * s_lambda).ilog2() as usize,
-            )?;
-            let alpha2 =
-                transcript.get_and_append_challenge_vectors(b"alpha2", c.ilog2() as usize)?;
-            let alpha3 = transcript.get_and_append_challenge_vectors(b"alpha3", log_rs_len)?;
-            Net::recv_from_master_uniform(Some((alpha1.clone(), alpha2.clone(), alpha3.clone())));
-            (alpha1, alpha2, alpha3)
-        } else {
-            Net::recv_from_master_uniform(None)
-        };
-
-        // Step 6 (non-distributed sumcheck)
-        let timer = start_timer!(|| "DOpen.Step6");
-        let bI_field = if Net::am_master() {
-            bool_vec_to_field_vec(&mat_bI.concat())
-        } else {
-            vec![]
-        };
-        let (bI_check_proof, r1) = if Net::am_master() {
-            let bI_field_minus_one: Vec<F> = bI_field.iter().map(|&x| x - F::ONE).collect();
-            let tensor_alpha1 = get_tensor(&alpha1);
-            let bI_check_proof = SumCheckBuilder::new(bI_field.len().ilog2() as usize)
-                .add_evals([&bI_field, &bI_field_minus_one, &tensor_alpha1], F::ONE)?
-                .prove(transcript)?;
-            let r1 = bI_check_proof.point.clone();
-            (bI_check_proof, r1)
-        } else {
-            (IOPProof::<F>::default(), vec![])
-        };
-        end_timer!(timer);
-
-        // Step 7: Compute rs_a and d_commit
-        let timer = start_timer!(|| "DOpen.Step7");
-        let (rs_a_full, rs_a_check_proof, r6, mat_g_check_proofs) = if Net::am_master() {
-            let rs_a = rs.encode(&a_saved);
-            let g = rs.get_generator();
-
-            // Step 7.1 check eq_alpha3^T * G * a = eq_alpha3^T * rs_a
-            let alpha3_mat_g = compute_alpha_mat_g(log_rs_len as usize, log_n, &g, &alpha3);
-            let rs_a_check_proof = SumCheckBuilder::new(log_n)
-                .add_evals_owned([alpha3_mat_g[log_rs_len][..n].to_vec(), a_saved.clone()], F::ONE)?
-                .prove(transcript)?;
-            let r6 = rs_a_check_proof.point.clone();
-
-            // Step 7.2 check alpha3_mat_g(r6)
-            let mut cur_p = vec![r6.clone(), vec![F::ZERO; log_rs_len - log_n]].concat();
-            let mut mat_g_check_proofs = Vec::new();
-            for i in (2..=log_rs_len).rev() {
-                let (x, b) = (cur_p[..i - 1].to_vec(), cur_p[i - 1]);
-                let gi = g.pow([1u64 << (log_rs_len - i)]);
-                let w: Vec<F> = (0..1 << (i - 1))
-                    .map(|z| {
-                        F::ONE - alpha3[log_rs_len - i]
-                            + alpha3[log_rs_len - i]
-                                * (gi.pow([z]) * (F::ONE - b) + gi.pow([z + (1 << (i - 1))]) * b)
-                    })
-                    .collect();
-                let mat_g_check_proof = SumCheckBuilder::new(i - 1)
-                    .add_evals_owned([get_tensor(&x), alpha3_mat_g[i - 1].clone(), w], F::ONE)?
-                    .prove(transcript)?;
-
-                cur_p = mat_g_check_proof.point.clone();
-                mat_g_check_proofs.push(mat_g_check_proof);
-            }
-
-            let rs_a_full = resize_eval(&rs_a, deepfold_prover_param.max_mu);
-            (rs_a_full, rs_a_check_proof, r6, mat_g_check_proofs)
-        } else {
-            (vec![], IOPProof::<F>::default(), vec![], vec![])
-        };
-
-        // Distribute rs_a for d_commit
-        let local_rs_a: Vec<F> = if Net::am_master() {
-            let chunks: Vec<Vec<F>> = (0..num_party)
-                .map(|k| rs_a_full[k * local_poly_size..(k + 1) * local_poly_size].to_vec())
-                .collect();
-            Net::recv_from_master(Some(chunks))
-        } else {
-            Net::recv_from_master(None)
-        };
-
-        let rs_a_pad = evals_to_arcpoly(&local_rs_a);
-        let (com_rs_a_opt, com_rs_a_advice) = DeepFoldPCS::d_commit(deepfold_prover_param, &rs_a_pad)?;
-        let com_rs_a = if Net::am_master() { com_rs_a_opt.unwrap() } else { DeepFoldCommitment::default() };
-        end_timer!(timer);
-
-        // Step 8 - Lookup Argument placeholder
-        let (r2, r3, v) = if Net::am_master() {
-            let v = otimes(
-                &get_tensor(&z1),
-                &(0..eta)
-                    .map(|i| F::from(2u64).pow([i as u64]))
-                    .collect::<Vec<_>>(),
-            );
-            let r2 = transcript.get_and_append_challenge_vectors(b"r2", s_lambda.ilog2() as usize)?;
-            let r3 = transcript.get_and_append_challenge_vectors(b"r3", (2 * n).ilog2() as usize)?;
-            (r2, r3, v)
-        } else {
-            (vec![], vec![], vec![])
-        };
-
-        // Step 9
-        let (alpha2_a_bI_r2_check_proof, r4) = if Net::am_master() {
-            let alpha2_a = mat_mul(&vec![get_tensor(&alpha2)], &mat_a)[0].clone();
-            let bI_r2 =
-                field_mat_mul_bool_mat(&vec![get_tensor(&r2)], &transposition(&mat_bI))[0].clone();
-            let alpha2_a_bI_r2_check_proof = SumCheckBuilder::new(mat_bI.len().ilog2() as usize)
-                .add_evals_owned([alpha2_a, bI_r2.clone()], F::ONE)?
-                .prove(transcript)?;
-            let r4 = alpha2_a_bI_r2_check_proof.point.clone();
-            (alpha2_a_bI_r2_check_proof, r4)
-        } else {
-            (IOPProof::<F>::default(), vec![])
-        };
-
-        // Step 10
-        let (v_bI_r2_check_proof, r5) = if Net::am_master() {
-            let bI_r2 =
-                field_mat_mul_bool_mat(&vec![get_tensor(&r2)], &transposition(&mat_bI))[0].clone();
-            let v_bI_r2_check_proof = SumCheckBuilder::new(v.len().ilog2() as usize)
-                .add_evals_owned([v, bI_r2], F::ONE)?
-                .prove(transcript)?;
-            let r5 = v_bI_r2_check_proof.point.clone();
-            (v_bI_r2_check_proof, r5)
-        } else {
-            (IOPProof::<F>::default(), vec![])
-        };
-
-        // Distribute mat_a_pad for d_batch_open (from prover_param, needs distribution)
-        let local_mat_a: Vec<F> = if Net::am_master() {
-            let mat_a_full = &mat_a_pad.evaluations;
-            let chunks: Vec<Vec<F>> = (0..num_party)
-                .map(|k| mat_a_full[k * local_poly_size..(k + 1) * local_poly_size].to_vec())
-                .collect();
-            Net::recv_from_master(Some(chunks))
-        } else {
-            Net::recv_from_master(None)
-        };
-        let local_mat_a_pad = evals_to_arcpoly(&local_mat_a);
-
-        // d_commit mat_a for all parties to have proper advice
-        let (_, com_mat_a_advice_dist) = DeepFoldPCS::d_commit(deepfold_prover_param, &local_mat_a_pad)?;
-
-        // Compute and broadcast points for d_batch_open
-        let points: Vec<Vec<F>> = if Net::am_master() {
-            let pts: Vec<Vec<F>> = [
-                z2,
-                r6,
-                r3.clone(),
-                alpha3,
-                vec![r3.clone(), alpha2.clone()].concat(),
-                vec![r4.clone(), alpha2.clone()].concat(),
-                r1,
-                vec![r2.clone(), r4.clone()].concat(),
-                vec![r2.clone(), r5.clone()].concat(),
-            ]
-            .into_iter()
-            .map(|p| resize_point(&p, deepfold_prover_param.max_mu))
-            .collect();
-            Net::recv_from_master_uniform(Some(pts.clone()));
-            pts
-        } else {
-            Net::recv_from_master_uniform(None)
-        };
-
-        // Step 11: d_batch_open with all parties participating
-        let timer = start_timer!(|| "DOpen.DeepFold.DBatchOpen");
-        let polys = [
-            &a_pad,
-            &a_pad,
-            &rs_a_pad,
-            &rs_a_pad,
-            &mat_h_pad,
-            &local_mat_a_pad,
-            &bI_field_pad,
-            &bI_field_pad,
-            &bI_field_pad,
-        ]
-        .map(|p| Arc::clone(p))
-        .to_vec();
-        let advices = [
-            &com_a_advice,
-            &com_a_advice,
-            &com_rs_a_advice,
-            &com_rs_a_advice,
-            &com_mat_h_advice,
-            &com_mat_a_advice_dist,
-            &com_bI_advice,
-            &com_bI_advice,
-            &com_bI_advice,
-        ];
-        let evals = [F::ZERO; 9];
-
-        let deepfold_batched_proof_opt = DeepFoldPCS::d_batch_open(
-            deepfold_prover_param,
-            polys,
-            &advices,
-            &points,
-            &evals,
-            transcript,
-        )?;
-        end_timer!(timer);
-
-        if Net::am_master() {
-            Ok(Some(LigeSISProof {
-                com_a,
-                com_bI,
-                com_rs_a,
-                bI_check_proof,
-                alpha2_a_bI_r2_check_proof,
-                v_bI_r2_check_proof,
-                rs_a_check_proof,
-                mat_g_check_proofs,
-                deepfold_batched_proof: deepfold_batched_proof_opt.unwrap(),
-            }))
-        } else {
-            Ok(None)
-        }
+        ligesis_d_open(prover_param.borrow(), poly, advice, point, transcript)
     }
 
     fn verify(
@@ -1101,207 +341,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
         proof: &Self::Proof,
         transcript: &mut IOPTranscript<F>,
     ) -> Result<bool, PCSError> {
-        // trim parameters
-        let LigeSISVerifierParam {
-            eta,
-            s_lambda,
-            mu,
-            log_m,
-            log_n,
-            rs_len,
-            c,
-            g,
-            com_mat_a,
-            deepfold_verifier_param,
-        } = verifier_param.borrow().clone();
-        let LigeSISCommitment { num_vars, com_mat_h } = com.clone();
-        let (m, n) = (1 << log_m, 1 << log_n);
-        let log_rs_len = rs_len.ilog2() as usize;
-
-        // Pad point if needed (use mu from verifier param as the target size)
-        let point = resize_point(point, mu);
-
-        let LigeSISProof {
-            com_a,
-            com_bI,
-            com_rs_a,
-            bI_check_proof,
-            alpha2_a_bI_r2_check_proof,
-            v_bI_r2_check_proof,
-            rs_a_check_proof,
-            mat_g_check_proofs,
-            // lookup proof (TODO: currently incorrect, commented out)
-            // eq_alpha2_a_bI_eval,
-            // eq_alpha2_h_circ_I_eval,
-            // v_bI_eval,
-            // rs_a_circ_I_eval,
-            // lookup_proof,
-            deepfold_batched_proof,
-        } = proof.clone();
-        let values = deepfold_batched_proof.evals.clone();
-
-        // Step 1
-        let (z1, z2): (Vec<F>, Vec<F>) = (point[log_n..].to_vec(), point[..log_n].to_vec());
-
-        // Step 2
-
-        // Step 3
-        let I = transcript.get_and_append_challenge_indices(b"I", s_lambda, 2 * n)?;
-
-        // Step 4
-
-        // Step 5
-        let alpha1 = transcript
-            .get_and_append_challenge_vectors(b"alpha1", (m * eta * s_lambda).ilog2() as usize)?;
-        let alpha2 = transcript.get_and_append_challenge_vectors(b"alpha2", c.ilog2() as usize)?;
-        let alpha3 =
-            transcript.get_and_append_challenge_vectors(b"alpha3", rs_len.ilog2() as usize)?;
-
-        // Step 6
-        let bI_check_claim = sumcheck_verify(&bI_check_proof, transcript)?;
-        let r1 = bI_check_proof.point.clone();
-        let bI_r1 = values[6];
-        if bI_check_claim.expected_evaluation
-            != bI_r1 * (bI_r1 - F::ONE) * eval_mle_eq(&alpha1, &r1)
-        {
-            return Ok(false);
-        }
-
-        // Step 7
-
-        // Step 7.1
-        let rs_a_check_claim = sumcheck_verify(&rs_a_check_proof, transcript)?;
-        let r6 = rs_a_check_proof.point.clone();
-        let a_r6 = values[1];
-        if sumcheck_extract_sum(&rs_a_check_proof) != values[3] {
-            return Ok(false);
-        }
-
-        // Step 7.2
-        let mut cur_p = vec![r6.clone(), vec![F::ZERO; log_rs_len - log_n]].concat();
-        let mut expected_eval = rs_a_check_claim.expected_evaluation / a_r6;
-        for i in (2..=log_rs_len).rev() {
-            let (x, b) = (cur_p[..i - 1].to_vec(), cur_p[i - 1]);
-            let mat_g_check_proof = &mat_g_check_proofs[log_rs_len - i];
-            let mat_g_check_claim = sumcheck_verify(mat_g_check_proof, transcript)?;
-            let mut r = mat_g_check_proof.point.clone();
-            r.push(b);
-            let v = (0..i)
-                .map(|k| F::ONE - r[k] + r[k] * g.pow([rs_len as u64 >> (i - k)]))
-                .product::<F>();
-            expected_eval = mat_g_check_claim.expected_evaluation
-                / eval_mle_eq(&mat_g_check_proof.point, &x)
-                / (F::ONE - alpha3[log_rs_len - i] + alpha3[log_rs_len - i] * v);
-            cur_p = mat_g_check_proof.point.clone();
-        }
-        if expected_eval
-            != F::ONE - alpha3[log_rs_len - 1]
-                + alpha3[log_rs_len - 1]
-                    * (F::ONE - cur_p[0] + cur_p[0] * g.pow([rs_len as u64 >> 1]))
-        {
-            return Ok(false);
-        }
-
-        // Step 8 - Lookup Argument (TODO: currently incorrect, commented out)
-        // let gamma = transcript.get_and_append_challenge_vectors(b"gamma", 1)?[0];
-        // let r = transcript.get_and_append_challenge_vectors(b"r", s_lambda.ilog2() as usize)?;
-        // let eq_r = get_tensor(&r);
-
-        // let LigeSISLookupProof {
-        //     sumcheck_proof: lookup_sumcheck_proof,
-        // } = lookup_proof;
-        // let lookup_sum = <PolyIOP<F> as SumCheck<F>>::extract_sum(&lookup_sumcheck_proof);
-        // if lookup_sum != F::ZERO {
-        //     return Ok(false);
-        // }
-
-        // let lookup_claim = <PolyIOP<F> as SumCheck<F>>::verify(
-        //     lookup_sum,
-        //     &lookup_sumcheck_proof,
-        //     &VPAuxInfo {
-        //         max_degree: 2,
-        //         num_variables: s_lambda.ilog2() as usize,
-        //         phantom: PhantomData::<F>::default(),
-        //     },
-        //     transcript,
-        // )
-        // .map_err(|e| PCSError::SumCheckError(format!("{:?}", e)))?;
-
-        // let r_lookup = lookup_sumcheck_proof.point.clone();
-
-        // // Verify the lookup_claim using the evaluations from the proof
-        // if lookup_claim.expected_evaluation
-        //     != (eq_alpha2_a_bI_eval - eq_alpha2_h_circ_I_eval) * eval_mle_eq(&r, &r_lookup)
-        //         + (v_bI_eval - rs_a_circ_I_eval) * eval_mle_eq(&r, &r_lookup) * gamma
-        // {
-        //     return Ok(false);
-        // }
-
-        // Replacement: get r2 from transcript instead of from lookup proof
-        let r2 = transcript.get_and_append_challenge_vectors(b"r2", s_lambda.ilog2() as usize)?;
-        let r3 = transcript.get_and_append_challenge_vectors(b"r3", (2 * n).ilog2() as usize)?;
-
-        // Step 9
-        let alpha2_a_bI_r2_check_claim =
-            sumcheck_verify(&alpha2_a_bI_r2_check_proof, transcript)?;
-        let r4 = alpha2_a_bI_r2_check_proof.point.clone();
-        let bI_r4_r2 = values[7];
-        let mat_a_alpha2_r_4 = values[5];
-        if alpha2_a_bI_r2_check_claim.expected_evaluation != bI_r4_r2 * mat_a_alpha2_r_4 {
-            return Ok(false);
-        }
-
-        // Step 10
-        let v_bI_r2_check_claim = sumcheck_verify(&v_bI_r2_check_proof, transcript)?;
-        let r5 = v_bI_r2_check_proof.point.clone();
-        let bI_r5_r2 = values[8];
-        let (r5_0, r5_1) = (
-            r5[..eta.ilog2() as usize].to_vec(),
-            r5[eta.ilog2() as usize..].to_vec(),
-        );
-        let t_r5_0 = get_tensor(&r5_0);
-        let powers = {
-            let mut res = vec![F::ONE];
-            for i in 1..eta {
-                res.push(res[i - 1] + res[i - 1])
-            }
-            res
-        };
-        let r5_0_p = (0..eta).map(|i| t_r5_0[i] * powers[i]).sum::<F>();
-        if v_bI_r2_check_claim.expected_evaluation != bI_r5_r2 * eval_mle_eq(&r5_1, &z1) * r5_0_p {
-            return Ok(false);
-        }
-
-        // Step 11
-        let coms = [
-            &com_a, &com_a, &com_rs_a, &com_rs_a, &com_mat_h, &com_mat_a, &com_bI, &com_bI, &com_bI,
-        ]
-        .map(|c| c.clone());
-        let points = [
-            z2,
-            r6,
-            r3.clone(),
-            alpha3.clone(),
-            vec![r3.clone(), alpha2.clone()].concat(),
-            vec![r4.clone(), alpha2.clone()].concat(),
-            r1,
-            vec![r2.clone(), r4.clone()].concat(),
-            vec![r2.clone(), r5.clone()].concat(),
-        ]
-        .map(|p| resize_point(&p, deepfold_verifier_param.max_mu));
-        if values[0] != *value {
-            return Ok(false);
-        }
-        if !DeepFoldPCS::batch_verify(
-            &deepfold_verifier_param,
-            &coms,
-            &points,
-            &deepfold_batched_proof,
-            transcript,
-        )? {
-            return Ok(false);
-        }
-
-        return Ok(true);
+        ligesis_verify(verifier_param, com, point, value, proof, transcript)
     }
 }
+

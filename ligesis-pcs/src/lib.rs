@@ -23,12 +23,13 @@ mod rscode;
 mod utils;
 mod poly_utils;
 pub mod sumcheck;
+pub mod ext_sumcheck;
 
 // Re-exports
 pub use errors::PCSError;
 pub use iop_errors::PolyIOPErrors;
 pub use structs::IOPProof;
-pub use types::FGoldilocks;
+pub use types::{FGoldilocks, EGoldilocks, FieldExtension, HasQuadraticExtension};
 
 pub use deepfold::*;
 pub use hash::{Byte32, MerkleTree, compute_sha256, compute_sha256_row};
