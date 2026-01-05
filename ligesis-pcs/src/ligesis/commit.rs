@@ -56,18 +56,14 @@ pub fn ligesis_commit<F: PrimeField>(
     };
     let mat_f = reshape(&poly_evals, m, n);
 
-    // encode `F`
-    let timer = start_timer!(|| "Commit.RS");
+    // encode `F` and compute `H`
+    let timer = start_timer!(|| "Ligesis.Commit.SISHash");
     let mat_f_prime = mat_f.iter().map(|row| rs.encode(row)).collect::<Vec<_>>();
-    end_timer!(timer);
-
-    // compute `H`
-    let timer = start_timer!(|| "Commit.SISHash");
     let mat_h = compute_sis_hash(mat_a, &mat_f_prime, eta, m);
     end_timer!(timer);
 
     // compute com(H)
-    let timer = start_timer!(|| "Commit.DeepFoldCommit(H)");
+    let timer = start_timer!(|| "Ligesis.Commit.DeepFold");
     let mat_h_pad =
         evals_to_arcpoly(&resize_eval(&mat_h.concat(), deepfold_prover_param.max_mu));
     let (com_mat_h, com_mat_h_advice) = DeepFoldPCS::commit(deepfold_prover_param, &mat_h_pad)?;
@@ -121,7 +117,7 @@ pub fn ligesis_d_commit<F: PrimeField>(
         |row| row[party_id * eta * m / num_party..(party_id + 1) * eta * m / num_party].to_vec()
     ).collect();
 
-    let timer = start_timer!(|| format!("Commit.DistributedSIS({}x{}x{})", c, m / num_party * eta, n * 2));
+    let timer = start_timer!(|| format!("DLigesis.Commit.SISHash({}x{}x{})", c, m / num_party, n * 2));
     let mat_h_i = compute_sis_hash(&mat_a_k, &mat_f_prime, eta, m / num_party);
     end_timer!(timer);
 
@@ -161,8 +157,10 @@ pub fn ligesis_d_commit<F: PrimeField>(
 
     // All parties call d_commit
     let mat_h_pad = evals_to_arcpoly(&local_mat_h);
+    let timer = start_timer!(|| "DLigesis.Commit.DeepFold");
     let (com_mat_h_opt, com_mat_h_advice) =
         DeepFoldPCS::d_commit(deepfold_prover_param, &mat_h_pad)?;
+    end_timer!(timer);
 
     if Net::am_master() {
         Ok((

@@ -282,7 +282,7 @@ pub fn deepfold_batch_open_at_ext_point<F: PrimeField + HasQuadraticExtension>(
     let mt0_list = advices.iter().map(|advice| &advice.mt0).collect::<Vec<_>>();
 
     // SumCheck Phase (base field SumCheck for batching)
-    let timer = start_timer!(|| "DeepFold.ExtSumcheck");
+    let timer = start_timer!(|| "DeepFold.Open.Sumcheck");
     let r_batch = transcript.get_and_append_challenge(b"batched_sumcheck")?;
 
     // Compute evaluations at extension field points
@@ -321,7 +321,7 @@ pub fn deepfold_batch_open_at_ext_point<F: PrimeField + HasQuadraticExtension>(
     end_timer!(timer);
 
     // Batched Open Phase
-    let timer = start_timer!(|| "DeepFold.ExtBatchedOpen");
+    let timer = start_timer!(|| "DeepFold.Open.Folding");
     let gamma = transcript.get_and_append_challenge_vectors(b"gamma", num_poly)?;
 
     // Combine polynomials (base field)
@@ -437,7 +437,6 @@ pub fn deepfold_batch_open_at_ext_point<F: PrimeField + HasQuadraticExtension>(
     end_timer!(timer);
 
     // mt0 proofs
-    let timer = start_timer!(|| "DeepFold.ExtMt0Proofs");
     let mut mt_proofs_for_mt0 = Vec::new();
     let idx: Vec<usize> = (0..num_poly)
         .filter(|&i| (0..i).all(|j| !Arc::ptr_eq(&polynomials[i], &polynomials[j])))
@@ -456,7 +455,6 @@ pub fn deepfold_batch_open_at_ext_point<F: PrimeField + HasQuadraticExtension>(
             ));
         }
     }
-    end_timer!(timer);
 
     Ok(DeepFoldExtBatchedProof {
         deepfold_proof: DeepFoldExtProof {
@@ -750,12 +748,10 @@ pub fn deepfold_d_batch_open_at_ext_point<F: PrimeField + HasQuadraticExtension>
     assert!(points.len() == num_poly && advices.len() == num_poly);
 
     // Step 1: Gather all polynomial evaluations to master
-    let timer = start_timer!(|| "DExtBatchOpen.GatherEvals");
     let all_poly_evals: Vec<Option<Vec<Vec<F>>>> = polynomials
         .iter()
         .map(|poly| Net::send_to_master(&poly.evaluations))
         .collect();
-    end_timer!(timer);
 
     // Initialize structures
     let mt0_list = advices.iter().map(|advice| &advice.mt0).collect::<Vec<_>>();
@@ -789,7 +785,7 @@ pub fn deepfold_d_batch_open_at_ext_point<F: PrimeField + HasQuadraticExtension>
     let mut full_poly_evals: Vec<Vec<F>> = Vec::new();
     let mut evals_ext: Vec<F::Extension> = Vec::new();
 
-    let timer = start_timer!(|| "DExtBatchOpen.Compute");
+    let timer = start_timer!(|| "DDeepFold.Open.Sumcheck");
     if Net::am_master() {
         // Reconstruct full polynomials on master
         full_poly_evals = all_poly_evals
@@ -868,7 +864,6 @@ pub fn deepfold_d_batch_open_at_ext_point<F: PrimeField + HasQuadraticExtension>
     end_timer!(timer);
 
     // Broadcast necessary data to all parties
-    let timer = start_timer!(|| "DExtBatchOpen.Broadcast");
     let broadcast_data: (Vec<F>, Vec<F>, Vec<F>) = if Net::am_master() {
         Net::recv_from_master_uniform(Some((sc_point.clone(), gamma.clone(), v[0].clone())));
         (sc_point.clone(), gamma.clone(), v[0].clone())
@@ -881,10 +876,9 @@ pub fn deepfold_d_batch_open_at_ext_point<F: PrimeField + HasQuadraticExtension>
         v = vec![broadcast_data.2];
         sc_point_ext = sc_point.iter().map(|&x| F::Extension::from_base(x)).collect();
     }
-    end_timer!(timer);
 
     // Folding loop - all parties participate
-    let timer = start_timer!(|| "DExtBatchOpen.Folding");
+    let timer = start_timer!(|| "DDeepFold.Open.Folding");
     for i in 1..mu + 1 {
         let alpha_i = if Net::am_master() {
             let a = transcript.get_and_append_challenge(b"alpha")?;
@@ -940,7 +934,6 @@ pub fn deepfold_d_batch_open_at_ext_point<F: PrimeField + HasQuadraticExtension>
     end_timer!(timer);
 
     // Generate Merkle proofs on master
-    let timer = start_timer!(|| "DExtBatchOpen.MerkleProofs");
     let mut mt_proofs = Vec::new();
     if Net::am_master() {
         for t in 0..s {
@@ -975,10 +968,8 @@ pub fn deepfold_d_batch_open_at_ext_point<F: PrimeField + HasQuadraticExtension>
             }
         }
     }
-    end_timer!(timer);
 
     // Additional proofs for individual mt0s - all parties participate in d_prove
-    let timer = start_timer!(|| "DExtBatchOpen.Mt0Proofs");
     let mut mt_proofs_for_mt0 = Vec::new();
 
     // Master computes deduplication and broadcasts info
@@ -1022,7 +1013,6 @@ pub fn deepfold_d_batch_open_at_ext_point<F: PrimeField + HasQuadraticExtension>
             mt_proofs_for_mt0.push(proofs_for_t);
         }
     }
-    end_timer!(timer);
 
     if Net::am_master() {
         Ok(Some(DeepFoldExtBatchedProof {

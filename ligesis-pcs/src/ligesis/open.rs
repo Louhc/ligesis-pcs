@@ -80,19 +80,16 @@ pub fn ligesis_open<F: PrimeField + HasQuadraticExtension>(
     let eq_z1 = get_tensor(&z1);
 
     // Step 2: Commit to a
-    let timer = start_timer!(|| "Open.DeepFold.CommitA");
     let a: Vec<F> = (0..n)
         .map(|j| (0..m).map(|i| eq_z1[i] * mat_f[i][j]).sum())
         .collect();
     let a_pad = evals_to_arcpoly(&resize_eval(&a, deepfold_prover_param.max_mu));
     let (com_a, com_a_advice) = DeepFoldPCS::commit(deepfold_prover_param, &a_pad)?;
-    end_timer!(timer);
 
     // Step 3
     let I = transcript.get_and_append_challenge_indices(b"I", s_lambda, 2 * n)?;
 
     // Step 4: Commit to bI
-    let timer = start_timer!(|| "Open.DeepFold.CommitBI");
     let mat_f_prime_trans = transposition(mat_f_prime);
     let mat_bI = transposition(
         &I.iter()
@@ -103,7 +100,6 @@ pub fn ligesis_open<F: PrimeField + HasQuadraticExtension>(
     let bI_field_pad = evals_to_arcpoly(&resize_eval(&bI_field, deepfold_prover_param.max_mu));
     let (com_bI, com_bI_advice) =
         DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&bI_field))?;
-    end_timer!(timer);
 
     // Step 5: Get challenges
     let alpha1 = transcript
@@ -112,7 +108,7 @@ pub fn ligesis_open<F: PrimeField + HasQuadraticExtension>(
     let alpha3 = transcript.get_and_append_challenge_vectors(b"alpha3", log_rs_len)?;
 
     // Step 6: Extension field SumCheck for bI check (no reduction needed)
-    let timer = start_timer!(|| "Open.ExtSumchecks");
+    let timer = start_timer!(|| "Ligesis.Open.ExtSumchecks");
     let bI_field_minus_one: Vec<F> = bI_field.iter().map(|&x| x - F::ONE).collect();
     let tensor_alpha1 = get_tensor(&alpha1);
 
@@ -238,7 +234,7 @@ pub fn ligesis_open<F: PrimeField + HasQuadraticExtension>(
     let alpha3_ext: Vec<F::Extension> = alpha3.iter().map(|&x| F::Extension::from_base(x)).collect();
     let r2_ext: Vec<F::Extension> = r2.iter().map(|&x| F::Extension::from_base(x)).collect();
 
-    let timer = start_timer!(|| "Open.DeepFold.ExtOpen");
+    let timer = start_timer!(|| "Ligesis.Open.DeepFold");
     let points_ext: Vec<Vec<F::Extension>> = [
         z2_ext.clone(),
         r6_ext.clone(),
@@ -360,7 +356,7 @@ pub fn ligesis_d_open<F: PrimeField + HasQuadraticExtension>(
     let eq_z1_0 = get_tensor(&z1_0);
 
     // Step 2: Compute a and d_commit
-    let timer = start_timer!(|| "DOpen.Step2");
+    let timer = start_timer!(|| "DLigesis.Open.CommitA");
     let a_k = (0..n)
         .map(|j| {
             (0..m / num_party)
@@ -406,7 +402,7 @@ pub fn ligesis_d_open<F: PrimeField + HasQuadraticExtension>(
     };
 
     // Step 4: Compute bI and d_commit
-    let timer = start_timer!(|| "DOpen.Step4");
+    let timer = start_timer!(|| "DLigesis.Open.CommitBI");
     let mat_bI_k = {
         let mat_f_prime_trans = transposition(&mat_f_prime);
         transposition(
@@ -457,7 +453,7 @@ pub fn ligesis_d_open<F: PrimeField + HasQuadraticExtension>(
     };
 
     // Step 6: Extension field SumCheck for bI check (on master)
-    let timer = start_timer!(|| "DOpen.ExtSumchecks");
+    let timer = start_timer!(|| "DLigesis.Open.ExtSumchecks");
     let bI_field = if Net::am_master() {
         bool_vec_to_field_vec(&mat_bI.concat())
     } else {
@@ -480,7 +476,7 @@ pub fn ligesis_d_open<F: PrimeField + HasQuadraticExtension>(
     end_timer!(timer);
 
     // Step 7: Compute rs_a and d_commit
-    let timer = start_timer!(|| "DOpen.Step7");
+    let timer = start_timer!(|| "DLigesis.Open.CommitRSA");
     let (rs_a_full, rs_a_check_proof, r6_ext, mat_g_check_proofs) = if Net::am_master() {
         let rs_a = rs.encode(&a_saved);
         let g = rs.get_generator();
@@ -623,7 +619,7 @@ pub fn ligesis_d_open<F: PrimeField + HasQuadraticExtension>(
     };
 
     // Step 11: d_batch_open at extension field points
-    let timer = start_timer!(|| "DOpen.DeepFold.DExtBatchOpen");
+    let timer = start_timer!(|| "DLigesis.Open.DeepFold");
     let polys = [
         &a_pad,
         &a_pad,

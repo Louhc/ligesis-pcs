@@ -152,7 +152,7 @@ pub fn deepfold_d_open<F: PrimeField>(
             .collect::<Vec<_>>(),
     );
 
-    let timer = start_timer!(|| "DOpen.ComputeProof");
+    let timer = start_timer!(|| "DDeepFold.Open.Folding");
 
     // Each party stores local subtrees, master also stores upper trees
     let mut local_mts: Vec<MerkleTree> = vec![mt0.clone()];
@@ -312,7 +312,6 @@ pub fn deepfold_d_open<F: PrimeField>(
     end_timer!(timer);
 
     // Step 4: Generate merkle proofs
-    let timer = start_timer!(|| "DOpen.GenProofs");
     let mut mt_proofs = Vec::new();
     for t in 0..s {
         // All parties need to participate in transcript to get beta
@@ -365,7 +364,6 @@ pub fn deepfold_d_open<F: PrimeField>(
             mt_proofs.push(proofs_for_t);
         }
     }
-    end_timer!(timer);
 
     if Net::am_master() {
         Ok(Some(DeepFoldProof {
