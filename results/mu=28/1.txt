@@ -1,0 +1,333 @@
+[P0] ========================================
+[P0] LigeSIS Distributed Test
+[P0]   mu = 28, parties = 4
+[P0] ========================================
+[P0] Gen SRS         3.899ms  (@ 3.947ms)
+[P0] Dist SRS        5.467ms  (@ 9.419ms)
+[P0] Setup         507.420ms  (@ 516.844ms)
+[P0] --- Commit Phase ---
+Start:   DLigesis.Commit.SISHash(8x256x524288)
+End:     DLigesis.Commit.SISHash(8x256x524288) .....................................2.537s
+Start:   DLigesis.Commit.DeepFold
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................393.122ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................22.354ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................50.130ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................387.190ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................25.490ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................43.863ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................399.953ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................23.983ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................43.712ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................392.794ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................21.481ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................48.718ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................389.167ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................23.522ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................45.864ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................390.416ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................23.643ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................46.572ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................390.310ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................23.487ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................46.623ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................388.219ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................23.524ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................46.252ms
+End:     DLigesis.Commit.DeepFold ..................................................4.015s
+[P0] Commit          22.676s  (@ 23.456s)
+[P0] --- Open Phase ---
+Start:   DLigesis.Open.CommitA
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................400.986ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................23.771ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................46.685ms
+End:     DLigesis.Open.CommitA .....................................................1.260s
+Start:   DLigesis.Open.CommitBI
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................353.746ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................24.307ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................47.843ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................351.451ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................23.462ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................45.739ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................350.837ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................24.287ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................46.802ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................353.443ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................22.791ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................51.260ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................355.722ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................24.567ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................44.604ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................350.290ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................24.967ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................45.891ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................378.642ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................24.760ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................43.392ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................394.425ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................24.615ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................43.913ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................380.412ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................24.748ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................42.623ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................381.704ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................25.156ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................42.182ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................383.848ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................24.719ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................42.055ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................381.517ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................24.945ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................42.182ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................386.662ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................24.965ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................41.197ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................379.772ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................25.302ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................43.748ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................383.375ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................25.454ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................44.553ms
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................382.423ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................25.380ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................44.041ms
+End:     DLigesis.Open.CommitBI ....................................................8.341s
+Start:   DLigesis.Open.ExtSumchecks
+End:     DLigesis.Open.ExtSumchecks ................................................1.966s
+Start:   DLigesis.Open.CommitRSA
+··Start:   DDeepFold.Commit.FFT
+··End:     DDeepFold.Commit.FFT ....................................................404.358ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................23.511ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................46.105ms
+End:     DLigesis.Open.CommitRSA ...................................................900.804ms
+Start:   DDeepFold.Commit.FFT
+End:     DDeepFold.Commit.FFT ......................................................412.033ms
+Start:   DDeepFold.Commit.LeafHash
+End:     DDeepFold.Commit.LeafHash .................................................21.651ms
+Start:   DDeepFold.Commit.Merkle
+End:     DDeepFold.Commit.Merkle ...................................................48.704ms
+Start:   DLigesis.Open.DeepFold
+··Start:   DDeepFold.Open.Sumcheck
+··End:     DDeepFold.Open.Sumcheck .................................................5.283s
+··Start:   DDeepFold.Open.Folding
+··End:     DDeepFold.Open.Folding ..................................................484.964ms
+End:     DLigesis.Open.DeepFold ....................................................6.382s
+[P0] Open            21.123s  (@ 44.579s)
+[P0] --- Verify Phase ---
+[P0] Verify        607.650ms  (@ 45.187s)
+[P0] ========================================
+[P0] Total: 45.187s
+[P0] Result: PASS
+[P0] ========================================
+[P1] --- Setup Phase ---
+[P1] Recv SRS       35.227ms  (@ 35.228ms)
+[P1] Setup         620.342ms  (@ 655.576ms)
+[P1] --- Commit Phase ---
+Start:   DLigesis.Commit.SISHash(8x256x524288)
+End:     DLigesis.Commit.SISHash(8x256x524288) .....................................3.183s
+Start:   DLigesis.Commit.DeepFold
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................23.015ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................7.009ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................25.533ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................6.552ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................23.143ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................7.235ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................24.672ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................7.633ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................23.592ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................7.924ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................24.992ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................7.944ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................22.724ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................7.562ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................24.307ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................7.650ms
+End:     DLigesis.Commit.DeepFold ..................................................4.006s
+[P1] Commit          22.486s  (@ 23.446s)
+[P1] --- Open Phase ---
+Start:   DLigesis.Open.CommitA
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................22.476ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................6.764ms
+End:     DLigesis.Open.CommitA .....................................................1.261s
+Start:   DLigesis.Open.CommitBI
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................21.506ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................6.979ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................21.634ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................7.054ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................21.509ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................7.016ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................21.923ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................6.842ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................22.080ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................7.164ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................22.663ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................6.794ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................21.039ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................6.950ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................21.963ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................6.856ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................22.562ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................6.979ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................22.232ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................6.961ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................21.786ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................7.049ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................22.438ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................7.056ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................21.706ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................6.568ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................21.931ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................6.588ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................21.315ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................6.680ms
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................21.707ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................6.727ms
+End:     DLigesis.Open.CommitBI ....................................................8.333s
+Start:   DLigesis.Open.ExtSumchecks
+End:     DLigesis.Open.ExtSumchecks ................................................505ns
+Start:   DLigesis.Open.CommitRSA
+··Start:   DDeepFold.Commit.LeafHash
+··End:     DDeepFold.Commit.LeafHash ...............................................23.616ms
+··Start:   DDeepFold.Commit.Merkle
+··End:     DDeepFold.Commit.Merkle .................................................7.018ms
+End:     DLigesis.Open.CommitRSA ...................................................2.858s
+Start:   DDeepFold.Commit.LeafHash
+End:     DDeepFold.Commit.LeafHash .................................................22.746ms
+Start:   DDeepFold.Commit.Merkle
+End:     DDeepFold.Commit.Merkle ...................................................7.051ms
+Start:   DLigesis.Open.DeepFold
+··Start:   DDeepFold.Open.Sumcheck
+··End:     DDeepFold.Open.Sumcheck .................................................140ns
+··Start:   DDeepFold.Open.Folding
+··End:     DDeepFold.Open.Folding ..................................................367.877ms
+End:     DLigesis.Open.DeepFold ....................................................6.381s
+[P1] Open            21.114s  (@ 44.560s)
+[P1] ========================================
+[P1] Total: 44.560s
+[P1] ========================================

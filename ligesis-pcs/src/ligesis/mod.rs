@@ -66,7 +66,7 @@ fn compute_sis_hash<F: PrimeField>(
                 let mut sum = 0u64;
                 for bit in 0..8 {
                     if (byte_val >> bit) & 1 == 1 {
-                        sum = sum.wrapping_add(row[elem_base + bit].into_bigint().as_ref()[0]);
+                        sum += row[elem_base + bit].into_bigint().as_ref()[0];
                     }
                 }
                 result[c_idx] = sum;
@@ -107,22 +107,14 @@ fn compute_sis_hash<F: PrimeField>(
             let l6 = &a[base_cnt + 1536 + b6];
             let l7 = &a[base_cnt + 1792 + b7];
 
-            h[0] = h[0].wrapping_add(l0[0]).wrapping_add(l1[0]).wrapping_add(l2[0]).wrapping_add(l3[0])
-                       .wrapping_add(l4[0]).wrapping_add(l5[0]).wrapping_add(l6[0]).wrapping_add(l7[0]);
-            h[1] = h[1].wrapping_add(l0[1]).wrapping_add(l1[1]).wrapping_add(l2[1]).wrapping_add(l3[1])
-                       .wrapping_add(l4[1]).wrapping_add(l5[1]).wrapping_add(l6[1]).wrapping_add(l7[1]);
-            h[2] = h[2].wrapping_add(l0[2]).wrapping_add(l1[2]).wrapping_add(l2[2]).wrapping_add(l3[2])
-                       .wrapping_add(l4[2]).wrapping_add(l5[2]).wrapping_add(l6[2]).wrapping_add(l7[2]);
-            h[3] = h[3].wrapping_add(l0[3]).wrapping_add(l1[3]).wrapping_add(l2[3]).wrapping_add(l3[3])
-                       .wrapping_add(l4[3]).wrapping_add(l5[3]).wrapping_add(l6[3]).wrapping_add(l7[3]);
-            h[4] = h[4].wrapping_add(l0[4]).wrapping_add(l1[4]).wrapping_add(l2[4]).wrapping_add(l3[4])
-                       .wrapping_add(l4[4]).wrapping_add(l5[4]).wrapping_add(l6[4]).wrapping_add(l7[4]);
-            h[5] = h[5].wrapping_add(l0[5]).wrapping_add(l1[5]).wrapping_add(l2[5]).wrapping_add(l3[5])
-                       .wrapping_add(l4[5]).wrapping_add(l5[5]).wrapping_add(l6[5]).wrapping_add(l7[5]);
-            h[6] = h[6].wrapping_add(l0[6]).wrapping_add(l1[6]).wrapping_add(l2[6]).wrapping_add(l3[6])
-                       .wrapping_add(l4[6]).wrapping_add(l5[6]).wrapping_add(l6[6]).wrapping_add(l7[6]);
-            h[7] = h[7].wrapping_add(l0[7]).wrapping_add(l1[7]).wrapping_add(l2[7]).wrapping_add(l3[7])
-                       .wrapping_add(l4[7]).wrapping_add(l5[7]).wrapping_add(l6[7]).wrapping_add(l7[7]);
+            h[0] += l0[0] + l1[0] + l2[0] + l3[0] + l4[0] + l5[0] + l6[0] + l7[0];
+            h[1] += l0[1] + l1[1] + l2[1] + l3[1] + l4[1] + l5[1] + l6[1] + l7[1];
+            h[2] += l0[2] + l1[2] + l2[2] + l3[2] + l4[2] + l5[2] + l6[2] + l7[2];
+            h[3] += l0[3] + l1[3] + l2[3] + l3[3] + l4[3] + l5[3] + l6[3] + l7[3];
+            h[4] += l0[4] + l1[4] + l2[4] + l3[4] + l4[4] + l5[4] + l6[4] + l7[4];
+            h[5] += l0[5] + l1[5] + l2[5] + l3[5] + l4[5] + l5[5] + l6[5] + l7[5];
+            h[6] += l0[6] + l1[6] + l2[6] + l3[6] + l4[6] + l5[6] + l6[6] + l7[6];
+            h[7] += l0[7] + l1[7] + l2[7] + l3[7] + l4[7] + l5[7] + l6[7] + l7[7];
         }
     }
 
@@ -213,7 +205,8 @@ pub struct ExtSumCheckWithReductionProof<F: PrimeField + HasQuadraticExtension> 
 #[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 pub struct LigeSISProof<F: PrimeField + HasQuadraticExtension> {
     pub com_a: <DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::Commitment,
-    pub com_bI: <DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::Commitment,
+    /// Commitments for bI chunks (may be 1 if no splitting needed)
+    pub com_bI_list: Vec<<DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::Commitment>,
     pub com_rs_a: <DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::Commitment,
 
     /// Extension field SumCheck proofs (no reduction needed)
@@ -231,8 +224,10 @@ pub struct LigeSISProof<F: PrimeField + HasQuadraticExtension> {
 pub struct LigeSISProverCommitmentAdvice<F: PrimeField> {
     pub mat_f_prime: Vec<Vec<F>>,
     pub mat_h: Vec<Vec<F>>,
-    pub mat_h_pad: Arc<DenseMultilinearExtension<F>>,
-    pub com_mat_h_advice: <DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::ProverCommitmentAdvice,
+    /// Chunk polynomials for mat_h (may be 1 if no splitting needed)
+    pub mat_h_chunks: Vec<Arc<DenseMultilinearExtension<F>>>,
+    /// Commitment advices for each chunk
+    pub com_mat_h_advices: Vec<<DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::ProverCommitmentAdvice>,
 }
 
 impl<F: PrimeField> Clone for LigeSISProverCommitmentAdvice<F> {
@@ -240,8 +235,8 @@ impl<F: PrimeField> Clone for LigeSISProverCommitmentAdvice<F> {
         LigeSISProverCommitmentAdvice {
             mat_f_prime: self.mat_f_prime.clone(),
             mat_h: self.mat_h.clone(),
-            mat_h_pad: Arc::clone(&self.mat_h_pad),
-            com_mat_h_advice: self.com_mat_h_advice.clone(),
+            mat_h_chunks: self.mat_h_chunks.iter().map(Arc::clone).collect(),
+            com_mat_h_advices: self.com_mat_h_advices.clone(),
         }
     }
 }
@@ -249,7 +244,8 @@ impl<F: PrimeField> Clone for LigeSISProverCommitmentAdvice<F> {
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq, Default)]
 pub struct LigeSISCommitment<F: PrimeField> {
     pub num_vars: usize,
-    pub com_mat_h: <DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::Commitment,
+    /// Commitments for mat_h chunks (may be 1 if no splitting needed)
+    pub com_mat_h_list: Vec<<DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::Commitment>,
 }
 
 impl<F: PrimeField + HasQuadraticExtension> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
@@ -279,17 +275,19 @@ impl<F: PrimeField + HasQuadraticExtension> PolynomialCommitmentScheme<F> for Li
         let log_n = mu - log_m;
         let log_s_lambda = lambda.ilog2() as usize;
 
-        let mat_a = random_field_vector_from_rng(c * (1 << log_m) * eta, rng)
-            .chunks(eta * (1 << log_m))
-            .map(|chunk| chunk.to_vec())
-            .collect::<Vec<_>>();
+        // Generate mat_a with values in [0, 2^40) to avoid overflow in SIS hash
+        let mat_a_bound = 1u64 << 40;
+        let mat_a: Vec<Vec<F>> = (0..c)
+            .map(|_| {
+                (0..eta * (1 << log_m))
+                    .map(|_| F::from(rng.gen::<u64>() % mat_a_bound))
+                    .collect()
+            })
+            .collect();
 
         let deepfold_srs = DeepFoldPCS::<F>::gen_srs_for_testing(
             rng,
-            max(
-                max(log_c, log_s_lambda) + log_m + log_eta,
-                log_c + 1 + log_n,
-            ),
+            log_m + 9,
         )?;
         Ok(LigeSISSRS {
             eta,

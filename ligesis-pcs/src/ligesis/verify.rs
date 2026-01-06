@@ -4,7 +4,8 @@
 //! - `ligesis_verify`: Extension field verification with 128-bit security
 
 use crate::{
-    deepfold::*, errors::PCSError, utils::*,
+    deepfold::{*, split_point_for_chunks, combine_chunk_values_ext},
+    errors::PCSError, utils::*,
     ext_sumcheck::ext_sumcheck_verify,
     types::{HasQuadraticExtension, FieldExtension},
     PolynomialCommitmentScheme,
@@ -45,7 +46,8 @@ pub fn ligesis_verify<F: PrimeField + HasQuadraticExtension>(
         com_mat_a,
         deepfold_verifier_param,
     } = verifier_param.borrow().clone();
-    let LigeSISCommitment { num_vars: _, com_mat_h } = com.clone();
+    let LigeSISCommitment { num_vars: _, com_mat_h_list } = com.clone();
+    let num_mat_h_chunks = com_mat_h_list.len();
     let (m, n) = (1 << log_m, 1 << log_n);
     let log_rs_len = rs_len.ilog2() as usize;
 
@@ -54,7 +56,7 @@ pub fn ligesis_verify<F: PrimeField + HasQuadraticExtension>(
 
     let LigeSISProof {
         com_a,
-        com_bI,
+        com_bI_list,
         com_rs_a,
         bI_check_proof,
         alpha2_a_bI_r2_check_proof,
@@ -63,6 +65,7 @@ pub fn ligesis_verify<F: PrimeField + HasQuadraticExtension>(
         mat_g_check_proofs,
         deepfold_batched_proof,
     } = proof.clone();
+    let num_bI_chunks = com_bI_list.len();
     // Extension field evaluations from DeepFold batch proof
     let values_ext = deepfold_batched_proof.evals.clone();
 
@@ -79,6 +82,13 @@ pub fn ligesis_verify<F: PrimeField + HasQuadraticExtension>(
     let alpha3 =
         transcript.get_and_append_challenge_vectors(b"alpha3", rs_len.ilog2() as usize)?;
 
+    // Index offsets based on number of mat_h and bI chunks
+    // values_ext layout: [a@z2, a@r6, rs_a@r3, rs_a@alpha3, mat_h_chunks..., mat_a@(r4,alpha2), bI_chunks@r1..., bI_chunks@(r2,r4)..., bI_chunks@(r2,r5)...]
+    let mat_a_idx = 4 + num_mat_h_chunks;
+    let bI_r1_start_idx = 5 + num_mat_h_chunks;
+    let bI_r2_r4_start_idx = bI_r1_start_idx + num_bI_chunks;
+    let bI_r2_r5_start_idx = bI_r2_r4_start_idx + num_bI_chunks;
+
     // Step 6: Verify extension field SumCheck for bI check
     // This proves: sum_x bI(x) * (bI(x) - 1) * tensor_alpha1(x) = 0
     let bI_num_vars = (m * eta * s_lambda).ilog2() as usize;
@@ -89,9 +99,15 @@ pub fn ligesis_verify<F: PrimeField + HasQuadraticExtension>(
         transcript,
     )?;
 
+    // Split r1 point to get high_point for combining chunks
+    let (_, r1_high_point) = split_point_for_chunks(&r1_ext, deepfold_verifier_param.max_mu);
+
     // Verify bI_check subclaim: bI(r1) * (bI(r1) - 1) * tensor_alpha1(r1) = expected
-    // values_ext[6] = bI(r1)
-    let bI_r1 = values_ext[6];
+    // Combine bI chunk values at r1
+    let bI_r1_chunk_values: Vec<F::Extension> = (0..num_bI_chunks)
+        .map(|i| values_ext[bI_r1_start_idx + i])
+        .collect();
+    let bI_r1 = combine_chunk_values_ext::<F>(&bI_r1_chunk_values, &r1_high_point);
     let tensor_alpha1_r1 = eval_tensor_at_ext_point::<F>(&alpha1, &r1_ext);
     let bI_check_computed = bI_r1 * (bI_r1 - F::Extension::from_base(F::ONE)) * tensor_alpha1_r1;
     if bI_check_computed != bI_check_expected {
@@ -160,6 +176,9 @@ pub fn ligesis_verify<F: PrimeField + HasQuadraticExtension>(
     let r2 = transcript.get_and_append_challenge_vectors(b"r2", s_lambda.ilog2() as usize)?;
     let r3 = transcript.get_and_append_challenge_vectors(b"r3", (2 * n).ilog2() as usize)?;
 
+    // Convert r2 to extension field early (needed for bI chunk combining)
+    let r2_ext: Vec<F::Extension> = r2.iter().map(|&x| F::Extension::from_base(x)).collect();
+
     // Step 9: Verify extension field SumCheck for alpha2_a_bI_r2 check
     // This proves: sum_x alpha2_a(x) * bI_r2(x) = <alpha2, H * r2_on_I>
     let (r4_ext, alpha2_a_bI_r2_expected) = verify_ext_sumcheck_with_subclaim::<F>(
@@ -170,10 +189,15 @@ pub fn ligesis_verify<F: PrimeField + HasQuadraticExtension>(
     )?;
 
     // Verify alpha2_a_bI_r2 subclaim: alpha2_a(r4) * bI_r2(r4) = expected
-    // alpha2_a(r4) = mat_a(r4, alpha2) = values_ext[5]
-    // bI_r2(r4) = bI(r2, r4) = values_ext[7]
-    let alpha2_a_r4 = values_ext[5];
-    let bI_r2_r4 = values_ext[7];
+    // alpha2_a(r4) = mat_a(r4, alpha2) = values_ext[mat_a_idx]
+    // bI_r2(r4) = bI(r2, r4) - combine chunk values
+    let alpha2_a_r4 = values_ext[mat_a_idx];
+    let bI_r2_r4_full_point: Vec<F::Extension> = vec![r2_ext.clone(), r4_ext.clone()].concat();
+    let (_, bI_r2_r4_high_point) = split_point_for_chunks(&bI_r2_r4_full_point, deepfold_verifier_param.max_mu);
+    let bI_r2_r4_chunk_values: Vec<F::Extension> = (0..num_bI_chunks)
+        .map(|i| values_ext[bI_r2_r4_start_idx + i])
+        .collect();
+    let bI_r2_r4 = combine_chunk_values_ext::<F>(&bI_r2_r4_chunk_values, &bI_r2_r4_high_point);
     let alpha2_a_bI_r2_computed = alpha2_a_r4 * bI_r2_r4;
     if alpha2_a_bI_r2_computed != alpha2_a_bI_r2_expected {
         return Ok(false);
@@ -191,7 +215,7 @@ pub fn ligesis_verify<F: PrimeField + HasQuadraticExtension>(
     // Verify v_bI_r2 subclaim: v(r5) * bI_r2(r5) = expected
     // v = tensor(z1) ⊗ [1, 2, 4, ..., 2^(eta-1)]
     // v(r5) can be computed from z1
-    // bI_r2(r5) = bI(r2, r5) = values_ext[8]
+    // bI_r2(r5) = bI(r2, r5) - combine chunk values
     let v: Vec<F> = otimes(
         &get_tensor(&z1),
         &(0..eta)
@@ -199,39 +223,69 @@ pub fn ligesis_verify<F: PrimeField + HasQuadraticExtension>(
             .collect::<Vec<_>>(),
     );
     let v_r5 = eval_vec_at_ext_point::<F>(&v, &r5_ext);
-    let bI_r2_r5 = values_ext[8];
+    let bI_r2_r5_full_point: Vec<F::Extension> = vec![r2_ext.clone(), r5_ext.clone()].concat();
+    let (_, bI_r2_r5_high_point) = split_point_for_chunks(&bI_r2_r5_full_point, deepfold_verifier_param.max_mu);
+    let bI_r2_r5_chunk_values: Vec<F::Extension> = (0..num_bI_chunks)
+        .map(|i| values_ext[bI_r2_r5_start_idx + i])
+        .collect();
+    let bI_r2_r5 = combine_chunk_values_ext::<F>(&bI_r2_r5_chunk_values, &bI_r2_r5_high_point);
     let v_bI_r2_computed = v_r5 * bI_r2_r5;
     if v_bI_r2_computed != v_bI_r2_expected {
         return Ok(false);
     }
 
     // Step 11: DeepFold batch verify at extension field points
-    let coms = [
-        &com_a, &com_a, &com_rs_a, &com_rs_a, &com_mat_h, &com_mat_a, &com_bI, &com_bI, &com_bI,
-    ]
-    .map(|c| c.clone());
-
     // Convert base field points to extension field
     let z2_ext: Vec<F::Extension> = z2.iter().map(|&x| F::Extension::from_base(x)).collect();
     let r3_ext: Vec<F::Extension> = r3.iter().map(|&x| F::Extension::from_base(x)).collect();
     let alpha2_ext: Vec<F::Extension> = alpha2.iter().map(|&x| F::Extension::from_base(x)).collect();
     let alpha3_ext: Vec<F::Extension> = alpha3.iter().map(|&x| F::Extension::from_base(x)).collect();
-    let r2_ext: Vec<F::Extension> = r2.iter().map(|&x| F::Extension::from_base(x)).collect();
+    // r2_ext was already defined earlier for bI chunk combining
 
-    let points_ext: Vec<Vec<F::Extension>> = [
-        z2_ext.clone(),
-        r6_ext.clone(),
-        r3_ext.clone(),
-        alpha3_ext.clone(),
-        vec![r3_ext.clone(), alpha2_ext.clone()].concat(),
-        vec![r4_ext.clone(), alpha2_ext.clone()].concat(),
-        r1_ext.clone(),
-        vec![r2_ext.clone(), r4_ext.clone()].concat(),
-        vec![r2_ext.clone(), r5_ext.clone()].concat(),
-    ]
-    .into_iter()
-    .map(|p| resize_point_ext::<F>(&p, deepfold_verifier_param.max_mu))
-    .collect();
+    // Build coms with expanded mat_h and bI chunks
+    let mut coms: Vec<DeepFoldCommitment> = vec![
+        com_a.clone(), com_a.clone(), com_rs_a.clone(), com_rs_a.clone(),
+    ];
+    coms.extend(com_mat_h_list.clone());
+    coms.push(com_mat_a.clone());
+    // Add bI chunks for each opening point (r1, (r2,r4), (r2,r5))
+    coms.extend(com_bI_list.clone());
+    coms.extend(com_bI_list.clone());
+    coms.extend(com_bI_list.clone());
+
+    // Build points_ext with expanded mat_h and bI chunk points
+    // Full point for mat_h is (r3, alpha2)
+    let mat_h_full_point_ext: Vec<F::Extension> = vec![r3_ext.clone(), alpha2_ext.clone()].concat();
+    let (mat_h_low_point, _mat_h_high_point) = split_point_for_chunks(&mat_h_full_point_ext, deepfold_verifier_param.max_mu);
+
+    // Get low points for bI openings
+    let (bI_r1_low_point, _) = split_point_for_chunks(&r1_ext, deepfold_verifier_param.max_mu);
+    let bI_r2_r4_full: Vec<F::Extension> = vec![r2_ext.clone(), r4_ext.clone()].concat();
+    let (bI_r2_r4_low_point, _) = split_point_for_chunks(&bI_r2_r4_full, deepfold_verifier_param.max_mu);
+    let bI_r2_r5_full: Vec<F::Extension> = vec![r2_ext.clone(), r5_ext.clone()].concat();
+    let (bI_r2_r5_low_point, _) = split_point_for_chunks(&bI_r2_r5_full, deepfold_verifier_param.max_mu);
+
+    let mut points_ext: Vec<Vec<F::Extension>> = vec![
+        resize_point_ext::<F>(&z2_ext, deepfold_verifier_param.max_mu),
+        resize_point_ext::<F>(&r6_ext, deepfold_verifier_param.max_mu),
+        resize_point_ext::<F>(&r3_ext, deepfold_verifier_param.max_mu),
+        resize_point_ext::<F>(&alpha3_ext, deepfold_verifier_param.max_mu),
+    ];
+    // Add mat_h chunk points (all chunks use the same low_point)
+    for _ in 0..num_mat_h_chunks {
+        points_ext.push(resize_point_ext::<F>(&mat_h_low_point, deepfold_verifier_param.max_mu));
+    }
+    points_ext.push(resize_point_ext::<F>(&vec![r4_ext.clone(), alpha2_ext.clone()].concat(), deepfold_verifier_param.max_mu));
+    // Add bI chunk points for each opening point
+    for _ in 0..num_bI_chunks {
+        points_ext.push(resize_point_ext::<F>(&bI_r1_low_point, deepfold_verifier_param.max_mu));
+    }
+    for _ in 0..num_bI_chunks {
+        points_ext.push(resize_point_ext::<F>(&bI_r2_r4_low_point, deepfold_verifier_param.max_mu));
+    }
+    for _ in 0..num_bI_chunks {
+        points_ext.push(resize_point_ext::<F>(&bI_r2_r5_low_point, deepfold_verifier_param.max_mu));
+    }
 
     // Check that the first evaluation (a at z2) equals the claimed value in extension field
     if F::ext_real(&values_ext[0]) != *value {

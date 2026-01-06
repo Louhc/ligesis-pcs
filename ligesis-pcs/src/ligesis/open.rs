@@ -5,7 +5,8 @@
 //! - `ligesis_d_open`: Distributed open with 128-bit security
 
 use crate::{
-    deepfold::*, errors::PCSError, rscode::*, utils::*,
+    deepfold::{*, split_point_for_chunks, expand_for_batch_open_ext},
+    errors::PCSError, rscode::*, utils::*,
     ext_sumcheck::ExtSumCheckBuilder,
     types::{HasQuadraticExtension, FieldExtension},
     PolynomialCommitmentScheme,
@@ -71,8 +72,8 @@ pub fn ligesis_open<F: PrimeField + HasQuadraticExtension>(
     let LigeSISProverCommitmentAdvice {
         mat_f_prime,
         mat_h: _,
-        mat_h_pad,
-        com_mat_h_advice,
+        mat_h_chunks,
+        com_mat_h_advices,
     } = advice;
 
     // Step 1
@@ -97,9 +98,10 @@ pub fn ligesis_open<F: PrimeField + HasQuadraticExtension>(
             .collect::<Vec<_>>(),
     );
     let bI_field = bool_vec_to_field_vec(&mat_bI.concat());
-    let bI_field_pad = evals_to_arcpoly(&resize_eval(&bI_field, deepfold_prover_param.max_mu));
-    let (com_bI, com_bI_advice) =
-        DeepFoldPCS::commit(deepfold_prover_param, &evals_to_arcpoly(&bI_field))?;
+    let bI_poly = evals_to_arcpoly(&bI_field);
+    let (com_bI_list, com_bI_advices, _bI_num_chunks_log2) =
+        multi_commit(deepfold_prover_param, &bI_poly)?;
+    let (bI_chunks, _) = split_polynomial(&bI_poly, deepfold_prover_param.max_mu);
 
     // Step 5: Get challenges
     let alpha1 = transcript
@@ -202,31 +204,6 @@ pub fn ligesis_open<F: PrimeField + HasQuadraticExtension>(
     end_timer!(timer);
 
     // Step 11: DeepFold batch open at extension field points
-    let polys = [
-        &a_pad,
-        &a_pad,
-        &rs_a_pad,
-        &rs_a_pad,
-        mat_h_pad,
-        mat_a_pad,
-        &bI_field_pad,
-        &bI_field_pad,
-        &bI_field_pad,
-    ]
-    .map(|p| Arc::clone(p))
-    .to_vec();
-    let advices = [
-        &com_a_advice,
-        &com_a_advice,
-        &com_rs_a_advice,
-        &com_rs_a_advice,
-        com_mat_h_advice,
-        com_mat_a_advice,
-        &com_bI_advice,
-        &com_bI_advice,
-        &com_bI_advice,
-    ];
-
     // Convert base field points to extension field
     let z2_ext: Vec<F::Extension> = z2.iter().map(|&x| F::Extension::from_base(x)).collect();
     let r3_ext: Vec<F::Extension> = r3.iter().map(|&x| F::Extension::from_base(x)).collect();
@@ -234,21 +211,97 @@ pub fn ligesis_open<F: PrimeField + HasQuadraticExtension>(
     let alpha3_ext: Vec<F::Extension> = alpha3.iter().map(|&x| F::Extension::from_base(x)).collect();
     let r2_ext: Vec<F::Extension> = r2.iter().map(|&x| F::Extension::from_base(x)).collect();
 
+    // Full point for mat_h is (r3, alpha2)
+    let mat_h_full_point_ext: Vec<F::Extension> = vec![r3_ext.clone(), alpha2_ext.clone()].concat();
+
+    // Expand mat_h chunks for batch_open
+    let (mat_h_chunk_polys, mat_h_chunk_advices, mat_h_chunk_points) =
+        expand_for_batch_open_ext::<F>(
+            mat_h_chunks,
+            com_mat_h_advices,
+            &mat_h_full_point_ext,
+            deepfold_prover_param.max_mu,
+        );
+
+    // Expand bI chunks for each opening point
+    // bI is opened at 3 points: r1, (r2, r4), (r2, r5)
+    let (bI_chunk_polys_r1, bI_chunk_advices_r1, bI_chunk_points_r1) =
+        expand_for_batch_open_ext::<F>(
+            &bI_chunks,
+            &com_bI_advices,
+            &r1_ext,
+            deepfold_prover_param.max_mu,
+        );
+    let bI_r2_r4_point: Vec<F::Extension> = vec![r2_ext.clone(), r4_ext.clone()].concat();
+    let (bI_chunk_polys_r2r4, bI_chunk_advices_r2r4, bI_chunk_points_r2r4) =
+        expand_for_batch_open_ext::<F>(
+            &bI_chunks,
+            &com_bI_advices,
+            &bI_r2_r4_point,
+            deepfold_prover_param.max_mu,
+        );
+    let bI_r2_r5_point: Vec<F::Extension> = vec![r2_ext.clone(), r5_ext.clone()].concat();
+    let (bI_chunk_polys_r2r5, bI_chunk_advices_r2r5, bI_chunk_points_r2r5) =
+        expand_for_batch_open_ext::<F>(
+            &bI_chunks,
+            &com_bI_advices,
+            &bI_r2_r5_point,
+            deepfold_prover_param.max_mu,
+        );
+
+    // Build polys, advices, points vectors with expanded mat_h and bI chunks
+    let mut polys: Vec<Arc<DenseMultilinearExtension<F>>> = vec![
+        Arc::clone(&a_pad),
+        Arc::clone(&a_pad),
+        Arc::clone(&rs_a_pad),
+        Arc::clone(&rs_a_pad),
+    ];
+    polys.extend(mat_h_chunk_polys);
+    polys.push(Arc::clone(mat_a_pad));
+    polys.extend(bI_chunk_polys_r1);
+    polys.extend(bI_chunk_polys_r2r4);
+    polys.extend(bI_chunk_polys_r2r5);
+
+    let mut advices: Vec<&DeepFoldProverCommitmentAdvice<F>> = vec![
+        &com_a_advice,
+        &com_a_advice,
+        &com_rs_a_advice,
+        &com_rs_a_advice,
+    ];
+    for advice in &mat_h_chunk_advices {
+        advices.push(advice);
+    }
+    advices.push(com_mat_a_advice);
+    for advice in &bI_chunk_advices_r1 {
+        advices.push(advice);
+    }
+    for advice in &bI_chunk_advices_r2r4 {
+        advices.push(advice);
+    }
+    for advice in &bI_chunk_advices_r2r5 {
+        advices.push(advice);
+    }
+
     let timer = start_timer!(|| "Ligesis.Open.DeepFold");
-    let points_ext: Vec<Vec<F::Extension>> = [
-        z2_ext.clone(),
-        r6_ext.clone(),
-        r3_ext.clone(),
-        alpha3_ext.clone(),
-        vec![r3_ext.clone(), alpha2_ext.clone()].concat(),
-        vec![r4_ext.clone(), alpha2_ext.clone()].concat(),
-        r1_ext.clone(),
-        vec![r2_ext.clone(), r4_ext.clone()].concat(),
-        vec![r2_ext.clone(), r5_ext.clone()].concat(),
-    ]
-    .into_iter()
-    .map(|p| resize_point_ext::<F>(&p, deepfold_prover_param.max_mu))
-    .collect();
+    let mut points_ext: Vec<Vec<F::Extension>> = vec![
+        resize_point_ext::<F>(&z2_ext, deepfold_prover_param.max_mu),
+        resize_point_ext::<F>(&r6_ext, deepfold_prover_param.max_mu),
+        resize_point_ext::<F>(&r3_ext, deepfold_prover_param.max_mu),
+        resize_point_ext::<F>(&alpha3_ext, deepfold_prover_param.max_mu),
+    ];
+    for point in mat_h_chunk_points {
+        points_ext.push(resize_point_ext::<F>(&point, deepfold_prover_param.max_mu));
+    }
+    points_ext.push(resize_point_ext::<F>(&vec![r4_ext.clone(), alpha2_ext.clone()].concat(), deepfold_prover_param.max_mu));
+    for point in bI_chunk_points_r1 {
+        points_ext.push(resize_point_ext::<F>(&point, deepfold_prover_param.max_mu));
+    }
+    for point in bI_chunk_points_r2r4 {
+        points_ext.push(resize_point_ext::<F>(&point, deepfold_prover_param.max_mu));
+    }
+    for point in bI_chunk_points_r2r5 {
+        points_ext.push(resize_point_ext::<F>(&point, deepfold_prover_param.max_mu));
+    }
 
     let deepfold_batched_proof = DeepFoldPCS::batch_open_at_ext_point(
         deepfold_prover_param,
@@ -261,7 +314,7 @@ pub fn ligesis_open<F: PrimeField + HasQuadraticExtension>(
 
     Ok(LigeSISProof {
         com_a,
-        com_bI,
+        com_bI_list,
         com_rs_a,
         bI_check_proof,
         alpha2_a_bI_r2_check_proof,
@@ -342,8 +395,8 @@ pub fn ligesis_d_open<F: PrimeField + HasQuadraticExtension>(
     let LigeSISProverCommitmentAdvice {
         mat_f_prime,
         mat_h: _,
-        mat_h_pad,
-        com_mat_h_advice,
+        mat_h_chunks,
+        com_mat_h_advices,
     } = advice;
 
     // Step 1
@@ -401,7 +454,7 @@ pub fn ligesis_d_open<F: PrimeField + HasQuadraticExtension>(
         Net::recv_from_master_uniform(None)
     };
 
-    // Step 4: Compute bI and d_commit
+    // Step 4: Compute bI and d_multi_commit
     let timer = start_timer!(|| "DLigesis.Open.CommitBI");
     let mat_bI_k = {
         let mat_f_prime_trans = transposition(&mat_f_prime);
@@ -412,29 +465,53 @@ pub fn ligesis_d_open<F: PrimeField + HasQuadraticExtension>(
         )
     };
     let mat_bI_k_list = Net::send_to_master(&mat_bI_k);
-    let (mat_bI, bI_field_full) = if Net::am_master() {
+
+    // On master: compute full bI and split into chunks
+    let (mat_bI, bI_chunks_master, bI_num_chunks) = if Net::am_master() {
         let mat_bI_k_list = mat_bI_k_list.ok_or(PCSError::UnexpectedNone("mat_bI_k_list".into()))?;
         let mat_bI = mat_bI_k_list.concat();
         let bI_field = bool_vec_to_field_vec(&mat_bI.concat());
-        let bI_field_full = resize_eval(&bI_field, deepfold_prover_param.max_mu);
-        (mat_bI, bI_field_full)
+        let bI_poly = evals_to_arcpoly(&bI_field);
+        let (chunks, _) = split_polynomial(&bI_poly, deepfold_prover_param.max_mu);
+        let num_chunks = chunks.len();
+        (mat_bI, chunks, num_chunks)
     } else {
-        (vec![], vec![])
+        (vec![], vec![], 0)
     };
 
-    // Distribute bI for d_commit
-    let local_bI: Vec<F> = if Net::am_master() {
-        let chunks: Vec<Vec<F>> = (0..num_party)
-            .map(|k| bI_field_full[k * local_poly_size..(k + 1) * local_poly_size].to_vec())
-            .collect();
-        Net::recv_from_master(Some(chunks))
+    // Broadcast number of bI chunks to all parties
+    let bI_num_chunks: usize = if Net::am_master() {
+        Net::recv_from_master_uniform(Some(bI_num_chunks))
     } else {
-        Net::recv_from_master(None)
+        Net::recv_from_master_uniform(None)
     };
 
-    let bI_field_pad = evals_to_arcpoly(&local_bI);
-    let (com_bI_opt, com_bI_advice) = DeepFoldPCS::d_commit(deepfold_prover_param, &bI_field_pad)?;
-    let com_bI = if Net::am_master() { com_bI_opt.unwrap() } else { DeepFoldCommitment::default() };
+    // d_commit each bI chunk
+    let mut com_bI_list = Vec::with_capacity(bI_num_chunks);
+    let mut com_bI_advices = Vec::with_capacity(bI_num_chunks);
+    let mut bI_chunks_local = Vec::with_capacity(bI_num_chunks);
+
+    for chunk_idx in 0..bI_num_chunks {
+        // Distribute this chunk's data
+        let local_chunk: Vec<F> = if Net::am_master() {
+            let chunk_full = &bI_chunks_master[chunk_idx].evaluations;
+            let chunks_for_parties: Vec<Vec<F>> = (0..num_party)
+                .map(|k| chunk_full[k * local_poly_size..(k + 1) * local_poly_size].to_vec())
+                .collect();
+            Net::recv_from_master(Some(chunks_for_parties))
+        } else {
+            Net::recv_from_master(None)
+        };
+
+        let local_chunk_poly = evals_to_arcpoly(&local_chunk);
+        let (com_opt, advice) = DeepFoldPCS::d_commit(deepfold_prover_param, &local_chunk_poly)?;
+
+        if Net::am_master() {
+            com_bI_list.push(com_opt.unwrap());
+        }
+        com_bI_advices.push(advice);
+        bI_chunks_local.push(local_chunk_poly);
+    }
     end_timer!(timer);
 
     // Step 5: receive challenge vectors
@@ -591,59 +668,115 @@ pub fn ligesis_d_open<F: PrimeField + HasQuadraticExtension>(
     let (_, com_mat_a_advice_dist) = DeepFoldPCS::d_commit(deepfold_prover_param, &local_mat_a_pad)?;
 
     // Compute and broadcast extension field points for d_batch_open
-    let points_ext: Vec<Vec<F::Extension>> = if Net::am_master() {
-        let z2_ext: Vec<F::Extension> = z2.iter().map(|&x| F::Extension::from_base(x)).collect();
-        let r3_ext: Vec<F::Extension> = r3.iter().map(|&x| F::Extension::from_base(x)).collect();
-        let alpha2_ext: Vec<F::Extension> = alpha2.iter().map(|&x| F::Extension::from_base(x)).collect();
-        let alpha3_ext: Vec<F::Extension> = alpha3.iter().map(|&x| F::Extension::from_base(x)).collect();
-        let r2_ext: Vec<F::Extension> = r2.iter().map(|&x| F::Extension::from_base(x)).collect();
+    // Including expanded mat_h chunk points
+    let z2_ext: Vec<F::Extension> = z2.iter().map(|&x| F::Extension::from_base(x)).collect();
+    let r3_ext: Vec<F::Extension> = r3.iter().map(|&x| F::Extension::from_base(x)).collect();
+    let alpha2_ext: Vec<F::Extension> = alpha2.iter().map(|&x| F::Extension::from_base(x)).collect();
+    let alpha3_ext: Vec<F::Extension> = alpha3.iter().map(|&x| F::Extension::from_base(x)).collect();
+    let r2_ext: Vec<F::Extension> = r2.iter().map(|&x| F::Extension::from_base(x)).collect();
 
-        let pts: Vec<Vec<F::Extension>> = [
-            z2_ext.clone(),
-            r6_ext.clone(),
-            r3_ext.clone(),
-            alpha3_ext.clone(),
-            vec![r3_ext.clone(), alpha2_ext.clone()].concat(),
-            vec![r4_ext.clone(), alpha2_ext.clone()].concat(),
-            r1_ext.clone(),
-            vec![r2_ext.clone(), r4_ext.clone()].concat(),
-            vec![r2_ext.clone(), r5_ext.clone()].concat(),
-        ]
-        .into_iter()
-        .map(|p| resize_point_ext::<F>(&p, deepfold_prover_param.max_mu))
-        .collect();
-        Net::recv_from_master_uniform(Some(pts.clone()));
-        pts
+    // Full point for mat_h is (r3, alpha2)
+    let mat_h_full_point_ext: Vec<F::Extension> = vec![r3_ext.clone(), alpha2_ext.clone()].concat();
+
+    // Expand mat_h chunks for batch_open (works for all parties since they have their local chunks)
+    let (mat_h_chunk_polys, mat_h_chunk_advices, mat_h_chunk_points) =
+        expand_for_batch_open_ext::<F>(
+            mat_h_chunks,
+            com_mat_h_advices,
+            &mat_h_full_point_ext,
+            deepfold_prover_param.max_mu,
+        );
+
+    // Expand bI chunks for each opening point
+    // bI is opened at 3 points: r1, (r2, r4), (r2, r5)
+    let (bI_chunk_polys_r1, bI_chunk_advices_r1, bI_chunk_points_r1) =
+        expand_for_batch_open_ext::<F>(
+            &bI_chunks_local,
+            &com_bI_advices,
+            &r1_ext,
+            deepfold_prover_param.max_mu,
+        );
+    let bI_r2_r4_point: Vec<F::Extension> = vec![r2_ext.clone(), r4_ext.clone()].concat();
+    let (bI_chunk_polys_r2r4, bI_chunk_advices_r2r4, bI_chunk_points_r2r4) =
+        expand_for_batch_open_ext::<F>(
+            &bI_chunks_local,
+            &com_bI_advices,
+            &bI_r2_r4_point,
+            deepfold_prover_param.max_mu,
+        );
+    let bI_r2_r5_point: Vec<F::Extension> = vec![r2_ext.clone(), r5_ext.clone()].concat();
+    let (bI_chunk_polys_r2r5, bI_chunk_advices_r2r5, bI_chunk_points_r2r5) =
+        expand_for_batch_open_ext::<F>(
+            &bI_chunks_local,
+            &com_bI_advices,
+            &bI_r2_r5_point,
+            deepfold_prover_param.max_mu,
+        );
+
+    // Build polys, advices vectors with expanded mat_h and bI chunks
+    let mut polys: Vec<Arc<DenseMultilinearExtension<F>>> = vec![
+        Arc::clone(&a_pad),
+        Arc::clone(&a_pad),
+        Arc::clone(&rs_a_pad),
+        Arc::clone(&rs_a_pad),
+    ];
+    polys.extend(mat_h_chunk_polys);
+    polys.push(Arc::clone(&local_mat_a_pad));
+    polys.extend(bI_chunk_polys_r1);
+    polys.extend(bI_chunk_polys_r2r4);
+    polys.extend(bI_chunk_polys_r2r5);
+
+    let mut advices: Vec<&DeepFoldProverCommitmentAdvice<F>> = vec![
+        &com_a_advice,
+        &com_a_advice,
+        &com_rs_a_advice,
+        &com_rs_a_advice,
+    ];
+    for advice in &mat_h_chunk_advices {
+        advices.push(advice);
+    }
+    advices.push(&com_mat_a_advice_dist);
+    for advice in &bI_chunk_advices_r1 {
+        advices.push(advice);
+    }
+    for advice in &bI_chunk_advices_r2r4 {
+        advices.push(advice);
+    }
+    for advice in &bI_chunk_advices_r2r5 {
+        advices.push(advice);
+    }
+
+    // Build points vector
+    let mut points_ext: Vec<Vec<F::Extension>> = vec![
+        resize_point_ext::<F>(&z2_ext, deepfold_prover_param.max_mu),
+        resize_point_ext::<F>(&r6_ext, deepfold_prover_param.max_mu),
+        resize_point_ext::<F>(&r3_ext, deepfold_prover_param.max_mu),
+        resize_point_ext::<F>(&alpha3_ext, deepfold_prover_param.max_mu),
+    ];
+    for point in mat_h_chunk_points {
+        points_ext.push(resize_point_ext::<F>(&point, deepfold_prover_param.max_mu));
+    }
+    points_ext.push(resize_point_ext::<F>(&vec![r4_ext.clone(), alpha2_ext.clone()].concat(), deepfold_prover_param.max_mu));
+    for point in bI_chunk_points_r1 {
+        points_ext.push(resize_point_ext::<F>(&point, deepfold_prover_param.max_mu));
+    }
+    for point in bI_chunk_points_r2r4 {
+        points_ext.push(resize_point_ext::<F>(&point, deepfold_prover_param.max_mu));
+    }
+    for point in bI_chunk_points_r2r5 {
+        points_ext.push(resize_point_ext::<F>(&point, deepfold_prover_param.max_mu));
+    }
+
+    // Broadcast points to all parties
+    let points_ext: Vec<Vec<F::Extension>> = if Net::am_master() {
+        Net::recv_from_master_uniform(Some(points_ext.clone()));
+        points_ext
     } else {
         Net::recv_from_master_uniform(None)
     };
 
     // Step 11: d_batch_open at extension field points
     let timer = start_timer!(|| "DLigesis.Open.DeepFold");
-    let polys = [
-        &a_pad,
-        &a_pad,
-        &rs_a_pad,
-        &rs_a_pad,
-        &mat_h_pad,
-        &local_mat_a_pad,
-        &bI_field_pad,
-        &bI_field_pad,
-        &bI_field_pad,
-    ]
-    .map(|p| Arc::clone(p))
-    .to_vec();
-    let advices = [
-        &com_a_advice,
-        &com_a_advice,
-        &com_rs_a_advice,
-        &com_rs_a_advice,
-        &com_mat_h_advice,
-        &com_mat_a_advice_dist,
-        &com_bI_advice,
-        &com_bI_advice,
-        &com_bI_advice,
-    ];
 
     let deepfold_batched_proof_opt = crate::deepfold::deepfold_d_batch_open_at_ext_point(
         deepfold_prover_param,
@@ -657,7 +790,7 @@ pub fn ligesis_d_open<F: PrimeField + HasQuadraticExtension>(
     if Net::am_master() {
         Ok(Some(LigeSISProof {
             com_a,
-            com_bI,
+            com_bI_list,
             com_rs_a,
             bI_check_proof,
             alpha2_a_bI_r2_check_proof,

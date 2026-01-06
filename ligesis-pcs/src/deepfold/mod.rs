@@ -1,9 +1,15 @@
 mod commit;
 mod ext;
+mod multi;
 mod open;
 mod verify;
 
 pub use commit::{deepfold_commit, deepfold_d_commit};
+pub use multi::{
+    split_polynomial, multi_commit, compute_eq_at_chunk, combine_chunk_values,
+    split_point_for_chunks, expand_for_batch_open,
+    compute_eq_at_chunk_ext, combine_chunk_values_ext, expand_for_batch_open_ext,
+};
 pub use ext::{
     deepfold_batch_open_at_ext_point, deepfold_batch_verify_at_ext_point,
     deepfold_d_batch_open_at_ext_point,
