@@ -140,15 +140,17 @@ impl<F: PrimeField> SumCheckVerifier<F> for IOPVerifierState<F> {
         // insert the asserted_sum to the first position of the expected vector
         expected_vec.insert(0, *asserted_sum);
 
-        for (evaluations, &expected) in self
+        for (round, (evaluations, &expected)) in self
             .polynomials_received
             .iter()
             .zip(expected_vec.iter())
             .take(self.num_vars)
+            .enumerate()
         {
             // the deferred check during the interactive phase:
             // 1. check if the received 'P(0) + P(1) = expected`.
-            if evaluations[0] + evaluations[1] != expected {
+            let sum = evaluations[0] + evaluations[1];
+            if sum != expected {
                 return Err(PolyIOPErrors::InvalidProof(
                     "Prover message is not consistent with the claim.".to_string(),
                 ));

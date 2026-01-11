@@ -34,6 +34,22 @@ pub fn get_tensor<F: PrimeField>(r: &Vec<F>) -> Vec<F> {
     res
 }
 
+/// Evaluate eq polynomial at a specific index
+/// eq(point, i) = product_j (point_j * bit_j(i) + (1 - point_j) * (1 - bit_j(i)))
+/// where bit_j(i) is the j-th bit of i
+pub fn eval_eq<F: PrimeField>(point: &[F], index: usize) -> F {
+    let mut result = F::ONE;
+    for (j, &p) in point.iter().enumerate() {
+        let bit = ((index >> j) & 1) as u64;
+        if bit == 1 {
+            result *= p;
+        } else {
+            result *= F::ONE - p;
+        }
+    }
+    result
+}
+
 pub fn split_even_odd<F: PrimeField>(v: &Vec<F>) -> (Vec<F>, Vec<F>) {
     let mut even = Vec::new();
     let mut odd = Vec::new();
@@ -69,6 +85,20 @@ pub fn evals_to_coeffs<F: PrimeField>(mu: usize, v: &Vec<F>) -> Vec<F> {
         for i in 0..(1 << mu) {
             if i & (1 << j) != 0 {
                 u[i] = u[i] - u[i ^ (1 << j)];
+            }
+        }
+    }
+    u
+}
+
+/// Inverse of evals_to_coeffs: convert coefficients back to evaluations
+pub fn coeffs_to_evals<F: PrimeField>(mu: usize, v: &Vec<F>) -> Vec<F> {
+    let mut u = v.clone();
+    // Reverse order of evals_to_coeffs and use addition instead of subtraction
+    for j in (0..mu).rev() {
+        for i in 0..(1 << mu) {
+            if i & (1 << j) != 0 {
+                u[i] = u[i] + u[i ^ (1 << j)];
             }
         }
     }
@@ -474,6 +504,15 @@ mod tests {
     use ark_bls12_381::Fr as F;
     use ark_ff::Field;
     use ark_std::test_rng;
+
+    #[test]
+    fn test_coeffs_evals_roundtrip() {
+        let mu = 4;
+        let evals: Vec<F> = (0..1 << mu).map(|i| F::from(i as u64 + 1)).collect();
+        let coeffs = evals_to_coeffs(mu, &evals);
+        let recovered = coeffs_to_evals(mu, &coeffs);
+        assert_eq!(evals, recovered, "Round-trip should preserve evaluations");
+    }
 
     #[test]
     fn test_compute_alpha_mat_g() {

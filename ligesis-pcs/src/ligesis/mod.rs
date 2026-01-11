@@ -7,7 +7,7 @@ pub use open::{ligesis_open, ligesis_d_open};
 pub use verify::ligesis_verify;
 
 use crate::{
-    deepfold::*, errors::PCSError, rand::*, rscode::*, utils::*,
+    deepfold::*, errors::PCSError, hash::MerkleTree, rand::*, rscode::*, utils::*,
     PolynomialCommitmentScheme,
     ext_sumcheck::ExtSumCheckProof,
     types::{HasQuadraticExtension, FieldExtension},
@@ -147,7 +147,73 @@ pub struct LigeSISPCS<F: PrimeField> {
 
 impl<F: PrimeField + HasQuadraticExtension> LigeSISPCS<F> {
     pub fn compute_value_from_proof(_log_n: usize, _point: &Vec<F>, proof: &LigeSISProof<F>) -> F {
-        F::ext_real(&proof.deepfold_batched_proof.evals[0])
+        // claimed_values[0] = a(z2) (point 0 targets polynomial a)
+        F::ext_real(&proof.deepfold_batched_proof.claimed_values[0])
+    }
+
+    /// Distributed setup for LigeSIS
+    /// Returns (ProverParam, Option<VerifierParam>) where VerifierParam is only present on master
+    pub fn d_setup(
+        srs: impl Borrow<LigeSISSRS<F>>,
+    ) -> Result<(LigeSISProverParam<F>, Option<LigeSISVerifierParam<F>>), PCSError> {
+        use deNetwork::{DeMultiNet as Net, DeNet};
+
+        let LigeSISSRS {
+            eta,
+            lambda,
+            mu,
+            log_m,
+            rs_len,
+            c,
+            mat_a,
+            deepfold_srs,
+        } = srs.borrow().clone();
+        let log_n = mu - log_m;
+        let n = 1 << log_n;
+        let s_lambda = min(lambda, rs_len);
+        let (deepfold_prover_param, deepfold_verifier_param) = DeepFoldPCS::<F>::setup(
+            deepfold_srs,
+        )?;
+
+        let mat_a_pad = evals_to_arcpoly(&resize_eval(&mat_a.concat(), deepfold_srs.max_mu));
+
+        // Distributed mode: use d_chunked_batch_commit for mat_a (done once in setup)
+        let (com_mat_a_opt, mat_a_advice) = d_chunked_batch_commit(&deepfold_prover_param, &[mat_a_pad.clone()])?;
+
+        let rs = ReedSolomon::<F>::new(n, rs_len);
+        let g = rs.get_generator();
+
+        let prover_param = LigeSISProverParam {
+            eta,
+            s_lambda,
+            mu,
+            log_m,
+            log_n,
+            c,
+            rs,
+            mat_a,
+            mat_a_pad,
+            mat_a_advice,
+            deepfold_prover_param,
+        };
+
+        if Net::am_master() {
+            let verifier_param = LigeSISVerifierParam {
+                eta,
+                s_lambda,
+                mu,
+                log_m,
+                log_n,
+                rs_len,
+                c,
+                g,
+                com_mat_a: com_mat_a_opt.unwrap(),
+                deepfold_verifier_param,
+            };
+            Ok((prover_param, Some(verifier_param)))
+        } else {
+            Ok((prover_param, None))
+        }
     }
 }
 
@@ -174,7 +240,7 @@ pub struct LigeSISProverParam<F: PrimeField> {
     rs: ReedSolomon<F>,
     mat_a: Vec<Vec<F>>,
     mat_a_pad: Arc<DenseMultilinearExtension<F>>,
-    com_mat_a_advice: DeepFoldProverCommitmentAdvice<F>,
+    mat_a_advice: DeepFoldBatchMultiProverAdvice<F>,
     deepfold_prover_param: DeepFoldProverParam<F>,
 }
 
@@ -188,7 +254,7 @@ pub struct LigeSISVerifierParam<F: PrimeField> {
     rs_len: usize,
     c: usize,
     g: F,
-    com_mat_a: DeepFoldCommitment,
+    com_mat_a: DeepFoldBatchMultiCommitment,
     deepfold_verifier_param: DeepFoldVerifierParam<F>,
 }
 
@@ -201,13 +267,11 @@ pub struct ExtSumCheckWithReductionProof<F: PrimeField + HasQuadraticExtension> 
 }
 
 /// Proof for Ligesis - provides 128-bit soundness
-/// Uses extension field SumCheck and direct extension field opening in DeepFold
+/// Uses extension field SumCheck and multi-chunked batch opening in DeepFold
 #[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 pub struct LigeSISProof<F: PrimeField + HasQuadraticExtension> {
-    pub com_a: <DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::Commitment,
-    /// Commitments for bI chunks (may be 1 if no splitting needed)
-    pub com_bI_list: Vec<<DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::Commitment>,
-    pub com_rs_a: <DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::Commitment,
+    /// Combined commitment for a, bI, rs_a polynomials (3 polynomials in one commitment)
+    pub com_a_bI_rsa: DeepFoldBatchMultiCommitment,
 
     /// Extension field SumCheck proofs (no reduction needed)
     pub bI_check_proof: ExtSumCheckWithReductionProof<F>,
@@ -216,18 +280,18 @@ pub struct LigeSISProof<F: PrimeField + HasQuadraticExtension> {
     pub rs_a_check_proof: ExtSumCheckWithReductionProof<F>,
     pub mat_g_check_proofs: Vec<ExtSumCheckWithReductionProof<F>>,
 
-    /// Extension field DeepFold batch proof (direct extension field opening)
-    pub deepfold_batched_proof: DeepFoldExtBatchedProof<F>,
+    /// Extension field multi-chunked batch proof (combines all polynomial openings)
+    pub deepfold_batched_proof: MultiChunkedBatchExtProof<F>,
 }
 
-#[derive(CanonicalSerialize, CanonicalDeserialize, Debug, PartialEq, Eq, Default)]
+/// Prover advice for LigeSIS commitment
+/// Uses DeepFoldBatchMultiProverAdvice for mat_h commitment
+#[derive(Debug)]
 pub struct LigeSISProverCommitmentAdvice<F: PrimeField> {
     pub mat_f_prime: Vec<Vec<F>>,
     pub mat_h: Vec<Vec<F>>,
-    /// Chunk polynomials for mat_h (may be 1 if no splitting needed)
-    pub mat_h_chunks: Vec<Arc<DenseMultilinearExtension<F>>>,
-    /// Commitment advices for each chunk
-    pub com_mat_h_advices: Vec<<DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::ProverCommitmentAdvice>,
+    /// Combined advice for mat_h commitment using multi-chunked batch
+    pub mat_h_advice: DeepFoldBatchMultiProverAdvice<F>,
 }
 
 impl<F: PrimeField> Clone for LigeSISProverCommitmentAdvice<F> {
@@ -235,17 +299,59 @@ impl<F: PrimeField> Clone for LigeSISProverCommitmentAdvice<F> {
         LigeSISProverCommitmentAdvice {
             mat_f_prime: self.mat_f_prime.clone(),
             mat_h: self.mat_h.clone(),
-            mat_h_chunks: self.mat_h_chunks.iter().map(Arc::clone).collect(),
-            com_mat_h_advices: self.com_mat_h_advices.clone(),
+            mat_h_advice: self.mat_h_advice.clone(),
         }
     }
 }
 
-#[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq, Default)]
+impl<F: PrimeField> Default for LigeSISProverCommitmentAdvice<F> {
+    fn default() -> Self {
+        LigeSISProverCommitmentAdvice {
+            mat_f_prime: vec![],
+            mat_h: vec![],
+            mat_h_advice: DeepFoldBatchMultiProverAdvice {
+                batch_advice: DeepFoldBatchProverAdvice {
+                    f0_matrix: vec![],
+                    v0_matrix: vec![],
+                    column_hashes: vec![],
+                    merkle_tree: MerkleTree::default(),
+                },
+                chunk_polys: vec![],
+                chunks_per_poly: vec![],
+                base_mu: 0,
+                local_poly_evals: vec![],
+            },
+        }
+    }
+}
+
+/// Commitment for LigeSIS using multi-chunked batch commitment
+#[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct LigeSISCommitment<F: PrimeField> {
     pub num_vars: usize,
-    /// Commitments for mat_h chunks (may be 1 if no splitting needed)
-    pub com_mat_h_list: Vec<<DeepFoldPCS<F> as PolynomialCommitmentScheme<F>>::Commitment>,
+    /// Combined commitment for mat_h using multi-chunked batch
+    pub com_mat_h: DeepFoldBatchMultiCommitment,
+    #[doc(hidden)]
+    pub _marker: PhantomData<F>,
+}
+
+impl<F: PrimeField> Default for LigeSISCommitment<F> {
+    fn default() -> Self {
+        LigeSISCommitment {
+            num_vars: 0,
+            com_mat_h: DeepFoldBatchMultiCommitment {
+                batch_commitment: DeepFoldBatchCommitment {
+                    mu: 0,
+                    num_polys: 0,
+                    root: [0u8; 32],
+                },
+                num_polys: 0,
+                chunks_per_poly: vec![],
+                original_num_vars: vec![],
+            },
+            _marker: PhantomData,
+        }
+    }
 }
 
 impl<F: PrimeField + HasQuadraticExtension> PolynomialCommitmentScheme<F> for LigeSISPCS<F> {
@@ -322,8 +428,9 @@ impl<F: PrimeField + HasQuadraticExtension> PolynomialCommitmentScheme<F> for Li
         )?;
 
         let mat_a_pad = evals_to_arcpoly(&resize_eval(&mat_a.concat(), deepfold_srs.max_mu));
-        let (com_mat_a, com_mat_a_advice) =
-            DeepFoldPCS::commit(&deepfold_prover_param, &mat_a_pad)?;
+
+        // Non-distributed mode: use chunked_batch_commit for mat_a (done once in setup)
+        let (com_mat_a, mat_a_advice) = chunked_batch_commit(&deepfold_prover_param, &[mat_a_pad.clone()])?;
 
         let rs = ReedSolomon::<F>::new(n, rs_len);
         let g = rs.get_generator();
@@ -338,7 +445,7 @@ impl<F: PrimeField + HasQuadraticExtension> PolynomialCommitmentScheme<F> for Li
             rs,
             mat_a,
             mat_a_pad,
-            com_mat_a_advice,
+            mat_a_advice,
             deepfold_prover_param,
         };
         let verifier_param = LigeSISVerifierParam {

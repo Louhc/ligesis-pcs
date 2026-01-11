@@ -1,12 +1,28 @@
+mod chunked_batch;
 mod commit;
 mod ext;
 mod multi;
 mod open;
 mod verify;
 
-pub use commit::{deepfold_commit, deepfold_d_commit};
+pub use chunked_batch::{
+    batch_commit, batch_open, batch_verify,
+    chunked_batch_commit, chunked_batch_open, chunked_batch_verify,
+    d_chunked_batch_commit, d_chunked_batch_open,
+    compute_claimed_values_from_proof,
+    DeepFoldBatchCommitment, DeepFoldBatchProverAdvice, DeepFoldBatchProof,
+    DeepFoldBatchMultiCommitment, DeepFoldBatchMultiProverAdvice, DeepFoldBatchMultiProof,
+    // Multi-commitment batch open
+    multi_chunked_batch_open, multi_chunked_batch_verify,
+    d_multi_chunked_batch_open,
+    MultiChunkedBatchProof,
+    // Extension field multi-commitment batch open
+    multi_chunked_batch_open_at_ext_point, d_multi_chunked_batch_open_at_ext_point, multi_chunked_batch_verify_at_ext_point,
+    MultiChunkedBatchExtProof,
+};
+pub use commit::{deepfold_commit, deepfold_d_commit, deepfold_d_commit_v2, deepfold_batch_d_commit_v2, deepfold_d_commit_full_poly_v2};
 pub use multi::{
-    split_polynomial, multi_commit, compute_eq_at_chunk, combine_chunk_values,
+    split_polynomial, multi_commit, d_multi_commit_v2, compute_eq_at_chunk, combine_chunk_values,
     split_point_for_chunks, expand_for_batch_open,
     compute_eq_at_chunk_ext, combine_chunk_values_ext, expand_for_batch_open_ext,
 };

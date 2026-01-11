@@ -373,7 +373,7 @@ def run_remote_test(
     run_results = {}
 
     for i, server in enumerate(servers):
-        run_cmd = f"{binary_path} {i} /tmp/ligesis_network.conf --mu {mu} 2>&1"
+        run_cmd = f"RUST_BACKTRACE=1 {binary_path} {i} /tmp/ligesis_network.conf --mu {mu} 2>&1"
         t = threading.Thread(
             target=run_remote_command,
             args=(get_ssh_host(server), get_user(server), get_ssh_port(server),
@@ -406,6 +406,7 @@ def print_outputs(outputs: dict):
     """Print formatted outputs from parties."""
     BLUE = "\033[34m"
     GREEN = "\033[32m"
+    YELLOW = "\033[33m"
     RESET = "\033[0m"
 
     def should_skip(line: str) -> bool:
@@ -415,7 +416,21 @@ def print_outputs(outputs: dict):
         network_keywords = ["To master", "From master", "Connecting"]
         if any(kw in stripped for kw in network_keywords):
             return True
+        # Don't skip COMM_ lines - we want to capture them
+        if stripped.startswith("COMM_"):
+            return True  # Skip printing here, we'll extract separately
         return False
+
+    # Extract communication statistics
+    comm_bytes = None
+    comm_mb = None
+    for party_id in outputs:
+        if outputs[party_id]:
+            for line in outputs[party_id].strip().split("\n"):
+                if line.startswith("COMM_TOTAL_BYTES:"):
+                    comm_bytes = int(line.split(":")[1].strip())
+                elif line.startswith("COMM_TOTAL_MB:"):
+                    comm_mb = float(line.split(":")[1].strip())
 
     for party_id in [0, 1]:
         if party_id in outputs and outputs[party_id]:
@@ -426,6 +441,13 @@ def print_outputs(outputs: dict):
                         print(f"{color}{line}{RESET}")
                     else:
                         print(line)
+
+    # Print communication summary
+    if comm_bytes is not None:
+        print(f"\n{YELLOW}========================================{RESET}")
+        print(f"{YELLOW}Total Communication (master side):{RESET}")
+        print(f"{YELLOW}  {comm_bytes:,} bytes ({comm_mb:.2f} MB){RESET}")
+        print(f"{YELLOW}========================================{RESET}")
 
     print()
 

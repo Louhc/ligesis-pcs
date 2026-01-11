@@ -214,7 +214,8 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
             let messages = Net::send_to_master(&prover_msg);
             if Net::am_master() {
                 // Sum up the subprovers' messages
-                prover_msg = messages.unwrap().iter().fold(
+                let all_messages = messages.unwrap();
+                prover_msg = all_messages.iter().fold(
                     IOPProverMessage {
                         evaluations: vec![F::zero(); max_degree + 1],
                     },

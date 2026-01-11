@@ -10,8 +10,9 @@ use ark_std::{sync::Arc, vec::Vec};
 
 use super::{
     DeepFoldCommitment, DeepFoldProverCommitmentAdvice, DeepFoldProverParam,
-    deepfold_commit,
+    deepfold_commit, deepfold_d_commit_full_poly_v2,
 };
+use deNetwork::{DeMultiNet as Net, DeNet};
 
 /// Split a polynomial into chunks of size 2^base_mu
 ///
@@ -64,6 +65,35 @@ pub fn multi_commit<F: PrimeField>(
     for chunk_poly in chunk_polys {
         let (com, advice) = deepfold_commit(prover_param, &chunk_poly)?;
         commitments.push(com);
+        advices.push(advice);
+    }
+
+    Ok((commitments, advices, num_chunks_log2))
+}
+
+/// Distributed commit v2 for a polynomial that ALL parties already have (e.g., mat_h)
+/// using the new column-based distribution protocol.
+///
+/// The polynomial is split into chunks if needed, then each chunk is committed
+/// using deepfold_d_commit_full_poly_v2.
+///
+/// Returns (Option<commitments>, advices, num_chunks_log2)
+/// - commitments: Some for master, contents are commitments for workers
+/// - advices: local advices for each party
+/// - num_chunks_log2: log2 of number of chunks
+pub fn d_multi_commit_v2<F: PrimeField>(
+    prover_param: &DeepFoldProverParam<F>,
+    poly: &Arc<DenseMultilinearExtension<F>>,
+) -> Result<(Vec<Option<DeepFoldCommitment>>, Vec<DeepFoldProverCommitmentAdvice<F>>, usize), PCSError> {
+    let base_mu = prover_param.max_mu;
+    let (chunk_polys, num_chunks_log2) = split_polynomial(poly, base_mu);
+
+    let mut commitments = Vec::with_capacity(chunk_polys.len());
+    let mut advices = Vec::with_capacity(chunk_polys.len());
+
+    for chunk_poly in chunk_polys {
+        let (com_opt, advice) = deepfold_d_commit_full_poly_v2(prover_param, &chunk_poly)?;
+        commitments.push(com_opt);
         advices.push(advice);
     }
 

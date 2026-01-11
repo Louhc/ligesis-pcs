@@ -53,6 +53,22 @@ path = "dTests/dDeepFoldBatch.rs"
 name = "dMerkle"
 path = "dTests/dMerkle.rs"
 
+[[example]]
+name = "dChunkedBatch"
+path = "dTests/dChunkedBatch.rs"
+
+[[example]]
+name = "dMultiChunkedBatchBench"
+path = "dTests/dMultiChunkedBatchBench.rs"
+
+[[example]]
+name = "dMultiChunkedBatchProfile"
+path = "dTests/dMultiChunkedBatchProfile.rs"
+
+[[example]]
+name = "dNetworkBench"
+path = "dTests/dNetworkBench.rs"
+
 [[bench]]
 name = "ligesis_bench"
 harness = false
