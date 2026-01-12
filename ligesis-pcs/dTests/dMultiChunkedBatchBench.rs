@@ -40,7 +40,11 @@ use types::FGoldilocks as F;
 /// - ligesis_mu: Full polynomial size (number of variables)
 /// - log_m = (ligesis_mu - 8) / 2
 /// - base_mu = log_m + 9 (from ligesis.gen_srs_for_testing)
-fn bench_ligesis_scenario<F: PrimeField>(ligesis_mu: usize) -> Result<(), PCSError> {
+fn bench_ligesis_scenario<F: PrimeField>(
+    ligesis_mu: usize,
+    base_mu_override: Option<usize>,
+    log_m_override: Option<usize>,
+) -> Result<(), PCSError> {
     let mut rng = test_rng();
     let num_party = Net::n_parties();
     let num_party_vars = num_party.ilog2() as usize;
@@ -52,8 +56,10 @@ fn bench_ligesis_scenario<F: PrimeField>(ligesis_mu: usize) -> Result<(), PCSErr
     // log_m = (ligesis_mu - 8) / 2
     // base_mu = log_m + 9 (DeepFold SRS max_mu)
     // log_n = ligesis_mu - log_m
-    let log_m = if ligesis_mu < 8 { 0 } else { (ligesis_mu - 8) / 2 };
-    let base_mu = log_m + 9;
+    let default_log_m = if ligesis_mu < 8 { 0 } else { (ligesis_mu - 8) / 2 };
+    let log_m = log_m_override.unwrap_or(default_log_m);
+    let default_base_mu = log_m + 9;
+    let base_mu = base_mu_override.unwrap_or(default_base_mu);
     let log_n = ligesis_mu - log_m;
     let local_mu = ligesis_mu - num_party_vars;
     let full_mu = ligesis_mu;
@@ -282,7 +288,7 @@ fn main() {
         // opt.mu is ligesis_mu (full polynomial size)
         let ligesis_mu = opt.mu;
 
-        bench_ligesis_scenario::<F>(ligesis_mu)
+        bench_ligesis_scenario::<F>(ligesis_mu, opt.base_mu, opt.log_m)
             .expect("Benchmark failed");
     });
 }

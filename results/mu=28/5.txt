@@ -1,0 +1,169 @@
+[P0] ========================================
+[P0] LigeSIS Distributed Test
+[P0]   mu = 28, parties = 4
+[P0] ========================================
+[P0] Gen SRS         4.039ms  (@ 4.042ms)
+[P0] Dist SRS        5.371ms  (@ 9.419ms)
+Start:   DBatchMultiCommit.Split(1)
+End:     DBatchMultiCommit.Split(1) ................................................413.907ms
+Start:   DBatchMultiCommit.Gather
+End:     DBatchMultiCommit.Gather ..................................................487.549ms
+Start:   DBatchMultiCommit.DistColData
+End:     DBatchMultiCommit.DistColData .............................................113.536ms
+Start:   DBatchMultiCommit.ColHash
+End:     DBatchMultiCommit.ColHash .................................................172.499ms
+Start:   DBatchMultiCommit.Merkle
+End:     DBatchMultiCommit.Merkle ..................................................504.943ms
+[P0] Setup            2.139s  (@ 2.148s)
+[P0]   [DEBUG] After setup: sent=128.00 MB, recv=216.00 MB
+[P0] --- Commit Phase ---
+Start:   DLigesis.Commit.RSEncode(256x262144)
+End:     DLigesis.Commit.RSEncode(256x262144) ......................................11.470s
+Start:   DLigesis.Commit.SISHash(8x256x524288)
+End:     DLigesis.Commit.SISHash(8x256x524288) .....................................2.505s
+Start:   DLigesis.Commit.GatherMatH(33MB)
+End:     DLigesis.Commit.GatherMatH(33MB) ..........................................3.719s
+Start:   DLigesis.Commit.AssembleAndDistribute
+End:     DLigesis.Commit.AssembleAndDistribute .....................................91.970ms
+Start:   DLigesis.Commit.DeepFoldChunkedBatch
+··Start:   DBatchMultiCommit.Split(1)
+··End:     DBatchMultiCommit.Split(1) ..............................................857.419ms
+··Start:   DBatchMultiCommit.Gather
+··End:     DBatchMultiCommit.Gather ................................................915.337ms
+··Start:   DBatchMultiCommit.DistColData
+··End:     DBatchMultiCommit.DistColData ...........................................199.417ms
+··Start:   DBatchMultiCommit.ColHash
+··End:     DBatchMultiCommit.ColHash ...............................................280.397ms
+··Start:   DBatchMultiCommit.Merkle
+··End:     DBatchMultiCommit.Merkle ................................................639.079ms
+End:     DLigesis.Commit.DeepFoldChunkedBatch ......................................3.331s
+[P0] Commit          21.342s  (@ 23.760s)
+[P0]   [DEBUG] Commit phase: sent=288.00 MB, recv=432.00 MB
+[P0] --- Open Phase ---
+Start:   DLigesis.Open.ComputeA
+End:     DLigesis.Open.ComputeA ....................................................637.330ms
+Start:   DLigesis.Open.ComputeBI
+End:     DLigesis.Open.ComputeBI ...................................................800.495ms
+Start:   DLigesis.Open.ComputeRSA
+End:     DLigesis.Open.ComputeRSA ..................................................60.679ms
+Start:   DLigesis.Open.CombinedCommit
+··Start:   DBatchMultiCommit.Split(3)
+··End:     DBatchMultiCommit.Split(3) ..............................................2.661s
+··Start:   DBatchMultiCommit.Gather
+··End:     DBatchMultiCommit.Gather ................................................908.490ms
+··Start:   DBatchMultiCommit.DistColData
+··End:     DBatchMultiCommit.DistColData ...........................................435.415ms
+··Start:   DBatchMultiCommit.ColHash
+··End:     DBatchMultiCommit.ColHash ...............................................503.776ms
+··Start:   DBatchMultiCommit.Merkle
+··End:     DBatchMultiCommit.Merkle ................................................961.914ms
+End:     DLigesis.Open.CombinedCommit ..............................................5.918s
+Start:   DLigesis.Open.ExtSumchecks
+End:     DLigesis.Open.ExtSumchecks ................................................2.335s
+Start:   DLigesis.Open.DeepFold
+··Start:   DMultiChunkedBatchOpenExt.ComputeClaims
+··End:     DMultiChunkedBatchOpenExt.ComputeClaims .................................1.010s
+··Start:   DMultiChunkedBatchOpenExt.Sumcheck
+··End:     DMultiChunkedBatchOpenExt.Sumcheck ......................................2.054s
+··Start:   DMultiChunkedBatchOpenExt.EvalAndCombine
+··End:     DMultiChunkedBatchOpenExt.EvalAndCombine ................................2.326s
+··Start:   DMultiChunkedBatchOpenExt.ComputeCombinedV0
+··End:     DMultiChunkedBatchOpenExt.ComputeCombinedV0 .............................1.118s
+··Start:   DMultiChunkedBatchOpenExt.Folding
+··End:     DMultiChunkedBatchOpenExt.Folding .......................................783.464ms
+End:     DLigesis.Open.DeepFold ....................................................7.382s
+[P0] Open            17.333s  (@ 41.093s)
+[P0]   [DEBUG] Open phase: sent=766.03 MB, recv=598.88 MB
+[P0] --- Verify Phase ---
+[P0] Verify        607.020ms  (@ 41.700s)
+[P0] ========================================
+[P0] Communication Stats (master, total):
+[P0]   bytes_sent: 1239451091 (1182.03 MB)
+[P0]   bytes_recv: 1307449968 (1246.88 MB)
+[P0]   total:      2546901059 (2428.91 MB)
+[P0] ========================================
+[P0] Total: 41.700s
+[P0] Result: PASS
+[P0] ========================================
+[P1] --- Setup Phase ---
+[P1] Recv SRS       28.563ms  (@ 28.566ms)
+Start:   DBatchMultiCommit.Split(1)
+End:     DBatchMultiCommit.Split(1) ................................................501.187ms
+Start:   DBatchMultiCommit.Gather
+End:     DBatchMultiCommit.Gather ..................................................16.026ms
+Start:   DBatchMultiCommit.DistColData
+End:     DBatchMultiCommit.DistColData .............................................246.667ms
+Start:   DBatchMultiCommit.ColHash
+End:     DBatchMultiCommit.ColHash .................................................169.591ms
+Start:   DBatchMultiCommit.Merkle
+End:     DBatchMultiCommit.Merkle ..................................................155.917ms
+[P1] Setup            1.466s  (@ 1.494s)
+[P1] --- Commit Phase ---
+Start:   DLigesis.Commit.RSEncode(256x262144)
+End:     DLigesis.Commit.RSEncode(256x262144) ......................................13.508s
+Start:   DLigesis.Commit.SISHash(8x256x524288)
+End:     DLigesis.Commit.SISHash(8x256x524288) .....................................2.962s
+Start:   DLigesis.Commit.GatherMatH(33MB)
+End:     DLigesis.Commit.GatherMatH(33MB) ..........................................13.053ms
+Start:   DLigesis.Commit.AssembleAndDistribute
+End:     DLigesis.Commit.AssembleAndDistribute .....................................1.330s
+Start:   DLigesis.Commit.DeepFoldChunkedBatch
+··Start:   DBatchMultiCommit.Split(1)
+··End:     DBatchMultiCommit.Split(1) ..............................................1.000s
+··Start:   DBatchMultiCommit.Gather
+··End:     DBatchMultiCommit.Gather ................................................37.760ms
+··Start:   DBatchMultiCommit.DistColData
+··End:     DBatchMultiCommit.DistColData ...........................................493.684ms
+··Start:   DBatchMultiCommit.ColHash
+··End:     DBatchMultiCommit.ColHash ...............................................254.021ms
+··Start:   DBatchMultiCommit.Merkle
+··End:     DBatchMultiCommit.Merkle ................................................154.468ms
+End:     DLigesis.Commit.DeepFoldChunkedBatch ......................................2.651s
+[P1] Commit          20.695s  (@ 23.112s)
+[P1] --- Open Phase ---
+Start:   DLigesis.Open.ComputeA
+End:     DLigesis.Open.ComputeA ....................................................1.290s
+Start:   DLigesis.Open.ComputeBI
+End:     DLigesis.Open.ComputeBI ...................................................851.887ms
+Start:   DLigesis.Open.ComputeRSA
+End:     DLigesis.Open.ComputeRSA ..................................................12.250ms
+Start:   DLigesis.Open.CombinedCommit
+··Start:   DBatchMultiCommit.Split(3)
+··End:     DBatchMultiCommit.Split(3) ..............................................1.922s
+··Start:   DBatchMultiCommit.Gather
+··End:     DBatchMultiCommit.Gather ................................................52.443ms
+··Start:   DBatchMultiCommit.DistColData
+··End:     DBatchMultiCommit.DistColData ...........................................1.034s
+··Start:   DBatchMultiCommit.ColHash
+··End:     DBatchMultiCommit.ColHash ...............................................405.269ms
+··Start:   DBatchMultiCommit.Merkle
+··End:     DBatchMultiCommit.Merkle ................................................140.568ms
+End:     DLigesis.Open.CombinedCommit ..............................................5.154s
+Start:   DLigesis.Open.ExtSumchecks
+End:     DLigesis.Open.ExtSumchecks ................................................662ns
+Start:   DLigesis.Open.DeepFold
+··Start:   DMultiChunkedBatchOpenExt.ComputeClaims
+··End:     DMultiChunkedBatchOpenExt.ComputeClaims .................................1.071s
+··Start:   DMultiChunkedBatchOpenExt.Sumcheck
+··End:     DMultiChunkedBatchOpenExt.Sumcheck ......................................2.054s
+··Start:   DMultiChunkedBatchOpenExt.EvalAndCombine
+··End:     DMultiChunkedBatchOpenExt.EvalAndCombine ................................152ns
+··Start:   DMultiChunkedBatchOpenExt.ComputeCombinedV0
+··End:     DMultiChunkedBatchOpenExt.ComputeCombinedV0 .............................1.263s
+··Start:   DMultiChunkedBatchOpenExt.Folding
+··End:     DMultiChunkedBatchOpenExt.Folding .......................................644.092ms
+End:     DLigesis.Open.DeepFold ....................................................7.382s
+[P1] Open            17.976s  (@ 41.089s)
+[P1] ========================================
+[P1] Communication Stats (worker 1):
+[P1]   bytes_sent: 435816482 (415.63 MB)
+[P1]   bytes_recv: 320351589 (305.51 MB)
+[P1]   total:      756168071 (721.14 MB)
+[P1] ========================================
+[P1] Total: 41.089s
+[P1] ========================================
+
+========================================
+Total Communication (master side):
+  2,546,901,059 bytes (2428.91 MB)
+========================================

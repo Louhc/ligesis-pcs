@@ -96,6 +96,8 @@ def run_local_test(
     base_port: int = 18000,
     mu: int = 20,
     trace: bool = False,
+    base_mu: Optional[int] = None,
+    log_m: Optional[int] = None,
 ) -> int:
     """Run the distributed test locally with the specified number of parties."""
     binary_path = build_example(example_name, release, trace)
@@ -108,11 +110,21 @@ def run_local_test(
         config_path = f.name
 
     try:
-        print(f"\nRunning {example_name} locally with {num_parties} parties, mu={mu}...\n")
+        extra_params = []
+        if base_mu is not None:
+            extra_params.append(f"base_mu={base_mu}")
+        if log_m is not None:
+            extra_params.append(f"log_m={log_m}")
+        extra_str = f", {', '.join(extra_params)}" if extra_params else ""
+        print(f"\nRunning {example_name} locally with {num_parties} parties, mu={mu}{extra_str}...\n")
 
         processes = []
         for party_id in range(num_parties):
             cmd = [str(binary_path), str(party_id), config_path, "--mu", str(mu)]
+            if base_mu is not None:
+                cmd.extend(["--base-mu", str(base_mu)])
+            if log_m is not None:
+                cmd.extend(["--log-m", str(log_m)])
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -213,6 +225,9 @@ def run_remote_test(
     build_remote: bool = False,
     release: bool = True,
     sync: bool = False,
+    base_mu: Optional[int] = None,
+    log_m: Optional[int] = None,
+    measure_memory: bool = False,
 ) -> int:
     """Run the distributed test on remote servers."""
 
@@ -373,7 +388,16 @@ def run_remote_test(
     run_results = {}
 
     for i, server in enumerate(servers):
-        run_cmd = f"RUST_BACKTRACE=1 {binary_path} {i} /tmp/ligesis_network.conf --mu {mu} 2>&1"
+        base_cmd = f"{binary_path} {i} /tmp/ligesis_network.conf --mu {mu}"
+        if base_mu is not None:
+            base_cmd += f" --base-mu {base_mu}"
+        if log_m is not None:
+            base_cmd += f" --log-m {log_m}"
+        if measure_memory:
+            # Try GNU time, fallback to checking /proc/self/status
+            run_cmd = f"command -v gtime >/dev/null && gtime -v {base_cmd} 2>&1 || (command -v /usr/bin/time >/dev/null && /usr/bin/time -v {base_cmd} 2>&1) || {base_cmd} 2>&1"
+        else:
+            run_cmd = f"RUST_BACKTRACE=1 {base_cmd} 2>&1"
         t = threading.Thread(
             target=run_remote_command,
             args=(get_ssh_host(server), get_user(server), get_ssh_port(server),
@@ -510,6 +534,23 @@ def main():
         action="store_true",
         help="Sync code to remote servers before building (remote mode only)",
     )
+    parser.add_argument(
+        "--base-mu",
+        type=int,
+        default=None,
+        help="Override DeepFold base_mu (default: computed from mu)",
+    )
+    parser.add_argument(
+        "--log-m",
+        type=int,
+        default=None,
+        help="Override log_m (log_n = mu - log_m, default: (mu-8)/2)",
+    )
+    parser.add_argument(
+        "--memory",
+        action="store_true",
+        help="Measure peak memory usage using /usr/bin/time -v (remote mode only)",
+    )
 
     args = parser.parse_args()
 
@@ -526,9 +567,17 @@ def main():
             build_remote=args.build,
             release=args.release,
             sync=args.sync,
+            base_mu=args.base_mu,
+            log_m=args.log_m,
+            measure_memory=args.memory,
         ))
     else:
         # Local mode
+        if args.mu >= 26:
+            print(f"Error: mu={args.mu} is too large for local testing (requires too much memory).")
+            print(f"Use remote mode with --servers for mu >= 26.")
+            sys.exit(1)
+
         if args.num_parties < 1 or (args.num_parties & (args.num_parties - 1)) != 0:
             print(f"Error: num-parties must be a power of 2, got {args.num_parties}")
             sys.exit(1)
@@ -540,6 +589,8 @@ def main():
             base_port=args.port,
             mu=args.mu,
             trace=args.trace,
+            base_mu=args.base_mu,
+            log_m=args.log_m,
         ))
 
 

@@ -175,7 +175,10 @@ impl<F: PrimeField + HasQuadraticExtension> LigeSISPCS<F> {
             deepfold_srs,
         )?;
 
-        let mat_a_pad = evals_to_arcpoly(&resize_eval(&mat_a.concat(), deepfold_srs.max_mu));
+        // mat_a size = c * eta * 2^log_m = 2^(log_c + log_eta + log_m) = 2^(3 + 6 + log_m) = 2^(log_m + 9)
+        // Use actual mat_a size, not deepfold_srs.max_mu (which may be smaller for optimization)
+        let mat_a_num_vars = log_m + 9;
+        let mat_a_pad = evals_to_arcpoly(&resize_eval(&mat_a.concat(), mat_a_num_vars));
 
         // Distributed mode: use d_chunked_batch_commit for mat_a (done once in setup)
         let (com_mat_a_opt, mat_a_advice) = d_chunked_batch_commit(&deepfold_prover_param, &[mat_a_pad.clone()])?;
@@ -227,6 +230,54 @@ pub struct LigeSISSRS<F: PrimeField> {
     c: usize,
     mat_a: Vec<Vec<F>>,
     deepfold_srs: DeepFoldSRS<F>,
+}
+
+impl<F: PrimeField> LigeSISSRS<F> {
+    /// Generate SRS with custom base_mu parameter.
+    ///
+    /// - `mu`: Total polynomial size (number of variables)
+    /// - `base_mu`: DeepFold SRS max_mu (default: log_m + 9)
+    pub fn gen_with_params<R: Rng>(
+        rng: &mut R,
+        mu: usize,
+        base_mu: Option<usize>,
+    ) -> Result<Self, PCSError> {
+        let eta = F::ONE.into_bigint().to_bits_be().len();
+        let lambda = 128usize;
+        let log_m = if mu < 4 { 0 } else { (mu - 8) / 2 };
+        let rs_len = (1 << (mu - log_m)) * 2;
+        let log_c = 3;
+        let c = 1 << log_c;
+
+        // Generate mat_a with values in [0, 2^40) to avoid overflow in SIS hash
+        let mat_a_bound = 1u64 << 40;
+        let mat_a: Vec<Vec<F>> = (0..c)
+            .map(|_| {
+                (0..eta * (1 << log_m))
+                    .map(|_| F::from(rng.gen::<u64>() % mat_a_bound))
+                    .collect()
+            })
+            .collect();
+
+        let default_base_mu = log_m + 9;
+        let actual_base_mu = base_mu.unwrap_or(default_base_mu);
+
+        let deepfold_srs = DeepFoldPCS::<F>::gen_srs_for_testing(
+            rng,
+            actual_base_mu,
+        )?;
+
+        Ok(LigeSISSRS {
+            eta,
+            lambda,
+            mu,
+            log_m,
+            rs_len,
+            c,
+            mat_a,
+            deepfold_srs,
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -320,6 +371,9 @@ impl<F: PrimeField> Default for LigeSISProverCommitmentAdvice<F> {
                 chunks_per_poly: vec![],
                 base_mu: 0,
                 local_poly_evals: vec![],
+                cols_per_party: 0,
+                upper_tree: None,
+                party_roots: vec![],
             },
         }
     }
@@ -393,7 +447,7 @@ impl<F: PrimeField + HasQuadraticExtension> PolynomialCommitmentScheme<F> for Li
 
         let deepfold_srs = DeepFoldPCS::<F>::gen_srs_for_testing(
             rng,
-            log_m + 9,
+            log_m + 7,
         )?;
         Ok(LigeSISSRS {
             eta,
@@ -427,7 +481,10 @@ impl<F: PrimeField + HasQuadraticExtension> PolynomialCommitmentScheme<F> for Li
             deepfold_srs,
         )?;
 
-        let mat_a_pad = evals_to_arcpoly(&resize_eval(&mat_a.concat(), deepfold_srs.max_mu));
+        // mat_a size = c * eta * 2^log_m = 2^(log_c + log_eta + log_m) = 2^(3 + 6 + log_m) = 2^(log_m + 9)
+        // Use actual mat_a size, not deepfold_srs.max_mu (which may be smaller for optimization)
+        let mat_a_num_vars = log_m + 9;
+        let mat_a_pad = evals_to_arcpoly(&resize_eval(&mat_a.concat(), mat_a_num_vars));
 
         // Non-distributed mode: use chunked_batch_commit for mat_a (done once in setup)
         let (com_mat_a, mat_a_advice) = chunked_batch_commit(&deepfold_prover_param, &[mat_a_pad.clone()])?;

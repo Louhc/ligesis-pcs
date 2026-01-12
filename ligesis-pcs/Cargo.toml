@@ -81,5 +81,9 @@ harness = false
 name = "sis_hash_bench"
 harness = false
 
+[[bench]]
+name = "fft_bench"
+harness = false
+
 [lints.rust]
 warnings = "allow"

@@ -1,10 +1,28 @@
 use arithmetic::math::Math;
 use ark_ff::{PrimeField, UniformRand};
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
+use ark_serialize::CanonicalSerialize;
 use std::sync::Arc;
 use std::time::Instant;
+use std::fs;
 use ligesis_pcs::{LigeSISPCS, LigeSISSRS, PCSError, PolynomialCommitmentScheme, HasQuadraticExtension};
 use transcript::IOPTranscript;
+
+/// Read peak memory usage from /proc/self/status (Linux only)
+fn get_peak_memory_kb() -> Option<u64> {
+    if let Ok(status) = fs::read_to_string("/proc/self/status") {
+        for line in status.lines() {
+            if line.starts_with("VmHWM:") {
+                // VmHWM: peak resident set size
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    return parts[1].parse().ok();
+                }
+            }
+        }
+    }
+    None
+}
 
 use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 
@@ -13,7 +31,7 @@ use common::{test_rng, Opt};
 // Use FGoldilocks from ligesis_pcs which has HasQuadraticExtension implemented
 use ligesis_pcs::FGoldilocks as F;
 
-fn test_multi<F: PrimeField + HasQuadraticExtension>(mu: usize) -> Result<(), PCSError> {
+fn test_multi<F: PrimeField + HasQuadraticExtension>(mu: usize, base_mu: Option<usize>) -> Result<(), PCSError> {
     let mut rng = test_rng();
     let num_party = Net::n_parties();
     let num_party_vars = num_party.ilog2() as usize;
@@ -39,14 +57,19 @@ fn test_multi<F: PrimeField + HasQuadraticExtension>(mu: usize) -> Result<(), PC
     }
 
     if Net::am_master() {
+        let log_m = if mu < 4 { 0 } else { (mu - 8) / 2 };
+        let default_base_mu = log_m + 9;
+        let actual_base_mu = base_mu.unwrap_or(default_base_mu);
+
         log!("========================================");
         log!("LigeSIS Distributed Test");
         log!("  mu = {}, parties = {}", mu, num_party);
+        log!("  base_mu = {} (default: {})", actual_base_mu, default_base_mu);
         log!("========================================");
 
         // Gen SRS
         let start = Instant::now();
-        let srs = LigeSISPCS::<F>::gen_srs_for_testing(&mut rng, mu)?;
+        let srs = LigeSISSRS::<F>::gen_with_params(&mut rng, mu, base_mu)?;
         log_step!("Gen SRS", start.elapsed());
 
         // Distribute SRS
@@ -100,14 +123,30 @@ fn test_multi<F: PrimeField + HasQuadraticExtension>(mu: usize) -> Result<(), PC
         let start = Instant::now();
         let mut transcript = IOPTranscript::<F>::new(b"test");
         let value = LigeSISPCS::<F>::compute_value_from_proof(mu - mu / 2, &point, &proof);
-        let result = LigeSISPCS::verify(&vp, &com.unwrap(), &point, &value, &proof, &mut transcript)?;
+        let com_unwrapped = com.unwrap();
+        let result = LigeSISPCS::verify(&vp, &com_unwrapped, &point, &value, &proof, &mut transcript)?;
         log_step!("Verify", start.elapsed());
+
+        // Measure proof and commitment sizes
+        let mut proof_bytes = Vec::new();
+        proof.serialize_compressed(&mut proof_bytes).unwrap();
+        let proof_size = proof_bytes.len();
+
+        let mut com_bytes = Vec::new();
+        com_unwrapped.serialize_compressed(&mut com_bytes).unwrap();
+        let com_size = com_bytes.len();
 
         // Output communication statistics (sum of all phases)
         let total_sent = stats_after_setup.bytes_sent + stats_after_commit.bytes_sent + stats_after_open.bytes_sent;
         let total_recv = stats_after_setup.bytes_recv + stats_after_commit.bytes_recv + stats_after_open.bytes_recv;
         let total_comm_bytes = total_sent + total_recv;
         let total_comm_mb = total_comm_bytes as f64 / (1024.0 * 1024.0);
+        log!("========================================");
+        log!("Proof & Commitment Size:");
+        log!("  proof:      {} bytes ({:.2} KB)", proof_size, proof_size as f64 / 1024.0);
+        log!("  commitment: {} bytes ({:.2} KB)", com_size, com_size as f64 / 1024.0);
+        println!("PROOF_SIZE_BYTES: {}", proof_size);
+        println!("PROOF_SIZE_KB: {:.2}", proof_size as f64 / 1024.0);
         log!("========================================");
         log!("Communication Stats (master, total):");
         log!("  bytes_sent: {} ({:.2} MB)", total_sent, total_sent as f64 / (1024.0 * 1024.0));
@@ -116,6 +155,10 @@ fn test_multi<F: PrimeField + HasQuadraticExtension>(mu: usize) -> Result<(), PC
         println!("COMM_TOTAL_BYTES: {}", total_comm_bytes);
         println!("COMM_TOTAL_MB: {:.2}", total_comm_mb);
         log!("========================================");
+        if let Some(peak_mem_kb) = get_peak_memory_kb() {
+            log!("Peak Memory: {:.2} MB", peak_mem_kb as f64 / 1024.0);
+            println!("PEAK_MEMORY_MB: {:.2}", peak_mem_kb as f64 / 1024.0);
+        }
         log!("Total: {:.3?}", global_start.elapsed());
         log!("Result: {}", if result { "PASS" } else { "FAIL" });
         log!("========================================");
@@ -159,6 +202,10 @@ fn test_multi<F: PrimeField + HasQuadraticExtension>(mu: usize) -> Result<(), PC
         log!("  bytes_recv: {} ({:.2} MB)", stats.bytes_recv, stats.bytes_recv as f64 / (1024.0 * 1024.0));
         log!("  total:      {} ({:.2} MB)", total_comm_bytes, total_comm_bytes as f64 / (1024.0 * 1024.0));
         log!("========================================");
+        if let Some(peak_mem_kb) = get_peak_memory_kb() {
+            log!("Peak Memory: {:.2} MB", peak_mem_kb as f64 / 1024.0);
+            println!("PEAK_MEMORY_MB: {:.2}", peak_mem_kb as f64 / 1024.0);
+        }
         log!("Total: {:.3?}", global_start.elapsed());
         log!("========================================");
     };
@@ -168,6 +215,6 @@ fn test_multi<F: PrimeField + HasQuadraticExtension>(mu: usize) -> Result<(), PC
 
 fn main() {
     common::network_run(|opt: Opt| {
-        test_multi::<F>(opt.mu).unwrap();
+        test_multi::<F>(opt.mu, opt.base_mu).unwrap();
     });
 }

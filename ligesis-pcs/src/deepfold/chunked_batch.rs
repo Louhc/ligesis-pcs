@@ -536,6 +536,12 @@ pub struct DeepFoldBatchMultiProverAdvice<F: PrimeField> {
     /// Local polynomial evaluations for each polynomial (for distributed sumcheck)
     /// Each party stores their local portion of each polynomial
     pub local_poly_evals: Vec<Vec<F>>,
+    /// Number of columns per party (for distributed Merkle queries)
+    pub cols_per_party: usize,
+    /// Upper Merkle tree connecting party roots (only on master)
+    pub upper_tree: Option<MerkleTree>,
+    /// Party roots for distributed Merkle proof (only on master)
+    pub party_roots: Vec<Byte32>,
 }
 
 /// Proof for batch multi-polynomial opening
@@ -668,6 +674,9 @@ pub fn chunked_batch_commit<F: PrimeField>(
             chunks_per_poly,
             base_mu,
             local_poly_evals,
+            cols_per_party: 0,  // Not used in non-distributed mode
+            upper_tree: None,
+            party_roots: vec![],
         },
     ))
 }
@@ -910,6 +919,160 @@ pub fn compute_claimed_values_from_proof<F: PrimeField>(
 // Distributed Multi-polynomial Batch Commit/Open
 // =============================================================================
 
+/// Query distributed Merkle proof for a given position
+///
+/// In distributed setting:
+/// - Each party owns cols_per_party consecutive columns
+/// - Master has upper_tree connecting party roots
+/// - Workers have local_mt for their own columns
+///
+/// Returns (column_values, combined_proof) where combined_proof = upper_proof || local_proof
+#[allow(non_snake_case)]
+fn d_query_merkle_proof<F: PrimeField>(
+    advice: &DeepFoldBatchMultiProverAdvice<F>,
+    position: usize,
+) -> (Vec<F>, Vec<Byte32>) {
+    let num_party = Net::n_parties();
+    let party_id = Net::party_id();
+    let cols_per_party = advice.cols_per_party;
+
+    // Broadcast query position to all parties
+    let position: usize = if Net::am_master() {
+        Net::recv_from_master_uniform(Some(position));
+        position
+    } else {
+        Net::recv_from_master_uniform(None)
+    };
+
+    // Determine which party owns this position
+    let owner_party = position / cols_per_party;
+    let local_position = position % cols_per_party;
+
+    // Each party checks if they own this position
+    let is_owner = party_id == owner_party;
+
+    // Owner computes local proof and sends to master
+    // For non-owners, send empty data
+    let (local_column_values, local_proof, local_hash): (Vec<F>, Vec<Byte32>, Byte32) = if is_owner {
+        // Get column values at this position
+        // Workers store: v0_matrix[col_idx] = [val_at_chunk_0, val_at_chunk_1, ...]
+        // Master stores: v0_matrix[chunk_idx][col_idx] (full matrix, row-major)
+        let column_values: Vec<F> = if Net::am_master() {
+            // Master's v0_matrix is row-major: extract column from all rows
+            let global_position = party_id * cols_per_party + local_position;
+            advice.batch_advice.v0_matrix.iter()
+                .map(|row| row[global_position])
+                .collect()
+        } else {
+            // Workers' v0_matrix is column-indexed for their portion
+            advice.batch_advice.v0_matrix[local_position].clone()
+        };
+
+        // Get local Merkle proof
+        let local_mt = &advice.batch_advice.merkle_tree;
+        let proof = local_mt.prove(local_position);
+        let hash = advice.batch_advice.column_hashes[local_position];
+
+        (column_values, proof, hash)
+    } else {
+        (vec![], vec![], [0u8; 32])
+    };
+
+    // Gather results to master
+    let all_column_values_opt = Net::send_to_master(&local_column_values);
+    let all_local_proofs_opt = Net::send_to_master(&local_proof);
+    let all_local_hashes_opt = Net::send_to_master(&local_hash);
+
+    if Net::am_master() {
+        let all_column_values: Vec<Vec<F>> = all_column_values_opt.unwrap();
+        let all_local_proofs: Vec<Vec<Byte32>> = all_local_proofs_opt.unwrap();
+        let all_local_hashes: Vec<Byte32> = all_local_hashes_opt.unwrap();
+
+        // Get data from owner party
+        let column_values = all_column_values[owner_party].clone();
+        let local_proof = all_local_proofs[owner_party].clone();
+        let local_hash = all_local_hashes[owner_party];
+
+        // Get upper tree proof for the owner party
+        let upper_tree = advice.upper_tree.as_ref().unwrap();
+        let upper_proof = upper_tree.prove(owner_party);
+
+        // Combined proof: local_proof || upper_proof (leaf to root order)
+        // This matches the standard MerkleTree::verify format:
+        // - local_proof: verifies column_hash at local_position -> party_root
+        // - upper_proof: verifies party_root at owner_party -> global_root
+        let mut combined_proof = local_proof;
+        combined_proof.extend(upper_proof);
+
+        (column_values, combined_proof)
+    } else {
+        (vec![], vec![])
+    }
+}
+
+/// Verify a distributed Merkle proof
+///
+/// The proof structure is: local_proof || upper_proof (leaf to root order)
+/// This is equivalent to standard MerkleTree::verify for the full tree.
+/// Verification:
+/// 1. Compute column_hash from column_values
+/// 2. Verify local_proof: column_hash at local_position -> party_root
+/// 3. Verify upper_proof: party_root at owner_party -> global_root
+///
+/// Note: This function is provided for documentation. In practice, use MerkleTree::verify
+/// directly since the proof format is compatible.
+#[allow(dead_code)]
+fn verify_distributed_merkle_proof<F: PrimeField>(
+    global_root: &Byte32,
+    position: usize,
+    column_values: &[F],
+    proof: &[Byte32],
+    cols_per_party: usize,
+    num_parties: usize,
+) -> bool {
+    let owner_party = position / cols_per_party;
+    let local_position = position % cols_per_party;
+
+    // Split proof into local and upper parts
+    let local_proof_len = (cols_per_party as f64).log2().ceil() as usize;
+    if proof.len() < local_proof_len {
+        return false;
+    }
+    let (local_proof, upper_proof) = proof.split_at(local_proof_len);
+
+    // Compute column hash
+    let column_hash = compute_sha256_row(column_values);
+
+    // Verify local proof -> party_root
+    let mut current_hash = column_hash;
+    let mut idx = local_position;
+    for &sibling in local_proof.iter() {
+        let combined = if idx % 2 == 0 {
+            [current_hash, sibling].concat()
+        } else {
+            [sibling, current_hash].concat()
+        };
+        current_hash = compute_sha256(&combined);
+        idx /= 2;
+    }
+    let party_root = current_hash;
+
+    // Verify upper proof -> global_root
+    let mut current_hash = party_root;
+    let mut idx = owner_party;
+    for &sibling in upper_proof.iter() {
+        let combined = if idx % 2 == 0 {
+            [current_hash, sibling].concat()
+        } else {
+            [sibling, current_hash].concat()
+        };
+        current_hash = compute_sha256(&combined);
+        idx /= 2;
+    }
+
+    current_hash == *global_root
+}
+
 /// Distributed batch commit multiple polynomials with chunking support
 ///
 /// Each node holds a portion of the polynomials. The protocol:
@@ -970,27 +1133,33 @@ pub fn d_chunked_batch_commit<F: PrimeField>(
             // Case: Local portion is smaller than base_mu
             // Need to gather to master for proper chunking
             is_large_poly.push(false);
+            let timer_gather = start_timer!(|| format!("DBatchMultiCommit.Split.GatherSmall(2^{})", poly.num_vars));
             let local_evals = poly.evaluations.clone();
             let all_evals_opt = Net::send_to_master(&local_evals);
+            end_timer!(timer_gather);
 
             if Net::am_master() {
                 // Assemble full polynomial from all parties
                 // Variable ordering is [x_local, x_party] - party_id becomes the high bits
+                let timer_flatten = start_timer!(|| "DBatchMultiCommit.Split.Flatten");
                 let all_evals: Vec<Vec<F>> = all_evals_opt.unwrap();
                 let full_evals: Vec<F> = all_evals.into_iter().flatten().collect();
                 let full_poly = evals_to_arcpoly(&full_evals);
+                end_timer!(timer_flatten);
 
                 // Split into chunks (handles both full_num_vars <= base_mu and > base_mu)
                 let (chunks, num_chunks) = split_polynomial_into_chunks(&full_poly, base_mu);
                 chunks_per_poly.push(num_chunks);
 
                 // Compute FFT for each chunk on master
+                let timer_fft = start_timer!(|| format!("DBatchMultiCommit.Split.FFT({}chunks)", num_chunks));
                 for chunk in &chunks {
                     let f0 = evals_to_coeffs(base_mu, &chunk.evaluations);
                     let v0 = l0.fft(&f0);
                     master_f0_matrix.push(f0);
                     master_v0_matrix.push(v0);
                 }
+                end_timer!(timer_fft);
                 master_chunks.extend(chunks);
             } else {
                 // Workers record chunk count but don't process
@@ -1010,12 +1179,14 @@ pub fn d_chunked_batch_commit<F: PrimeField>(
             local_chunks_per_large_poly.push(num_chunks);
 
             // Compute FFT for local chunks
+            let timer_local_fft = start_timer!(|| format!("DBatchMultiCommit.Split.LocalFFT({}chunks)", num_chunks));
             for chunk in &chunks {
                 let f0 = evals_to_coeffs(base_mu, &chunk.evaluations);
                 let v0 = l0.fft(&f0);
                 local_f0_matrix.push(f0);
                 local_v0_matrix.push(v0);
             }
+            end_timer!(timer_local_fft);
             local_chunks.extend(chunks);
         }
     }
@@ -1120,38 +1291,46 @@ pub fn d_chunked_batch_commit<F: PrimeField>(
     };
     end_timer!(timer);
 
-    // Step 5: Each party computes column hashes
+    // Step 5: Each party computes column hashes and stores column data for proof queries
     let timer = start_timer!(|| "DBatchMultiCommit.ColHash");
-    let local_leaves: Vec<Byte32> = (0..cols_per_party)
+    // Convert local_columns to column-indexed format for proof queries
+    // local_column_data[col][row] = value at (row, col) within this party's columns
+    let local_column_data: Vec<Vec<F>> = (0..cols_per_party)
         .map(|i| {
-            let column: Vec<F> = (0..total_chunks)
+            (0..total_chunks)
                 .map(|j| local_columns[i * total_chunks + j])
-                .collect();
-            compute_sha256_row(&column)
+                .collect()
         })
+        .collect();
+
+    let local_leaves: Vec<Byte32> = local_column_data.iter()
+        .map(|column| compute_sha256_row(column))
         .collect();
     end_timer!(timer);
 
-    // Step 6: Build distributed Merkle tree
+    // Step 6: Build distributed Merkle tree (lazy leaf transfer)
+    // Each party builds local tree, only roots are gathered to master
     let timer = start_timer!(|| "DBatchMultiCommit.Merkle");
-    let all_leaves_opt = Net::send_to_master(&local_leaves);
 
     // Build local tree for proof generation
+    let timer_local = start_timer!(|| format!("Merkle.LocalTree({}leaves)", local_leaves.len()));
     let local_mt = MerkleTree::new(&local_leaves);
     let local_root = local_mt.root();
+    end_timer!(timer_local);
+
+    // Only gather roots (not all leaves!) - this is the key optimization
+    let timer_roots = start_timer!(|| "Merkle.GatherRoots");
     let all_roots_opt = Net::send_to_master(&local_root);
+    end_timer!(timer_roots);
     end_timer!(timer);
 
     if Net::am_master() {
-        // Combine all leaves and build full tree
-        let all_leaves: Vec<Byte32> = all_leaves_opt.unwrap().into_iter().flatten().collect();
         let all_roots: Vec<Byte32> = all_roots_opt.unwrap();
 
-        let full_mt = MerkleTree::new(&all_leaves);
-        let root = full_mt.root();
-
-        // Build upper tree from party roots (for distributed proof generation)
-        let _upper_tree = MerkleTree::new(&all_roots);
+        // Build upper tree from party roots
+        // The root of this upper tree equals the root of the full tree
+        let upper_tree = MerkleTree::new(&all_roots);
+        let root = upper_tree.root();
 
         Ok((
             Some(DeepFoldBatchMultiCommitment {
@@ -1168,8 +1347,10 @@ pub fn d_chunked_batch_commit<F: PrimeField>(
                 batch_advice: DeepFoldBatchProverAdvice {
                     f0_matrix: full_f0_matrix,
                     v0_matrix: full_v0_matrix,
-                    column_hashes: all_leaves,
-                    merkle_tree: full_mt,
+                    // Master also stores its local column hashes for proof queries when it's the owner
+                    column_hashes: local_leaves,
+                    // Master stores its local merkle tree for proof queries when it's the owner
+                    merkle_tree: local_mt,
                 },
                 // Master has all chunk polys in poly-major order (assembled from all parties)
                 chunk_polys: full_chunk_polys,
@@ -1177,6 +1358,9 @@ pub fn d_chunked_batch_commit<F: PrimeField>(
                 base_mu,
                 // Master also stores local poly evals for distributed sumcheck
                 local_poly_evals,
+                cols_per_party,
+                upper_tree: Some(upper_tree),
+                party_roots: all_roots,
             },
         ))
     } else {
@@ -1185,7 +1369,11 @@ pub fn d_chunked_batch_commit<F: PrimeField>(
             DeepFoldBatchMultiProverAdvice {
                 batch_advice: DeepFoldBatchProverAdvice {
                     f0_matrix: local_f0_matrix,
-                    v0_matrix: local_v0_matrix,
+                    // Workers store column data for distributed proof queries
+                    // v0_matrix[col_idx] = [val_at_chunk_0, val_at_chunk_1, ...]
+                    // This allows efficient lookup: v0_matrix[local_position] gives all values for that column
+                    v0_matrix: local_column_data,
+                    // Workers keep their local leaves for on-demand queries
                     column_hashes: local_leaves,
                     merkle_tree: local_mt,
                 },
@@ -1195,6 +1383,9 @@ pub fn d_chunked_batch_commit<F: PrimeField>(
                 base_mu,
                 // Workers store local poly evals for distributed sumcheck
                 local_poly_evals,
+                cols_per_party,
+                upper_tree: None,
+                party_roots: vec![],
             },
         ))
     }
@@ -3281,22 +3472,16 @@ pub fn d_multi_chunked_batch_open<F: PrimeField>(
         }
         merkle_proofs.push(level_proofs);
 
-        // Generate mt0 proofs for each commitment (master has all data, no gathering needed)
+        // Generate mt0 proofs for each commitment using distributed query
         let x0 = beta_initial;
         let mut commit_mt0_proofs: Vec<(Vec<F>, Vec<Byte32>)> = Vec::new();
 
-        if Net::am_master() {
-            for advice in advices.iter() {
-                // Master already has full v0_matrix from d_chunked_batch_commit
-                let column_at_x0: Vec<F> = advice.batch_advice.v0_matrix.iter()
-                    .map(|row| row[x0])
-                    .collect();
-
-                // Master has the full merkle tree
-                let mt0 = &advice.batch_advice.merkle_tree;
-                let mt0_proof = mt0.prove(x0);
-
-                commit_mt0_proofs.push((column_at_x0, mt0_proof));
+        // For each commitment, query the distributed merkle proof
+        // All parties participate in each query since they need to check if they own the position
+        for advice in advices.iter() {
+            let (column_values, mt0_proof) = d_query_merkle_proof(advice, x0);
+            if Net::am_master() {
+                commit_mt0_proofs.push((column_values, mt0_proof));
             }
         }
         mt0_proofs.push(commit_mt0_proofs);
@@ -4260,20 +4445,15 @@ pub fn d_multi_chunked_batch_open_at_ext_point<F: PrimeField + HasQuadraticExten
         }
         merkle_proofs.push(level_proofs);
 
-        // Generate mt0 proofs for each commitment
+        // Generate mt0 proofs for each commitment using distributed query
         let x0 = beta_initial;
         let mut commit_mt0_proofs: Vec<(Vec<F>, Vec<Byte32>)> = Vec::new();
 
-        if Net::am_master() {
-            for advice in advices.iter() {
-                let column_at_x0: Vec<F> = advice.batch_advice.v0_matrix.iter()
-                    .map(|row| row[x0])
-                    .collect();
-
-                let mt0 = &advice.batch_advice.merkle_tree;
-                let mt0_proof = mt0.prove(x0);
-
-                commit_mt0_proofs.push((column_at_x0, mt0_proof));
+        // For each commitment, query the distributed merkle proof
+        for advice in advices.iter() {
+            let (column_values, mt0_proof) = d_query_merkle_proof(advice, x0);
+            if Net::am_master() {
+                commit_mt0_proofs.push((column_values, mt0_proof));
             }
         }
         mt0_proofs.push(commit_mt0_proofs);

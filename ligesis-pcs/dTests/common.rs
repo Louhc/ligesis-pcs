@@ -19,6 +19,14 @@ pub struct Opt {
     /// Number of polynomial variables
     #[arg(short, long, default_value_t = 20)]
     pub mu: usize,
+
+    /// Override base_mu (DeepFold max_mu). If not specified, uses default formula.
+    #[arg(long)]
+    pub base_mu: Option<usize>,
+
+    /// Override log_m (determines log_n = mu - log_m). If not specified, uses default formula.
+    #[arg(long)]
+    pub log_m: Option<usize>,
 }
 
 pub(super) fn network_run<F>(func: F)
