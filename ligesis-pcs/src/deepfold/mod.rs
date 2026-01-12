@@ -63,6 +63,9 @@ pub struct DeepFoldSRS<F: PrimeField> {
     pub max_mu: usize,
     pub l0: GeneralEvaluationDomain<F>,
     pub s: usize,
+    /// Code rate multiplier (e.g., 4 for 1/4 rate, 8 for 1/8 rate)
+    /// len_l0 = (1 << max_mu) * rate
+    pub rate: usize,
 }
 
 impl<F: PrimeField> Default for DeepFoldSRS<F> {
@@ -71,6 +74,7 @@ impl<F: PrimeField> Default for DeepFoldSRS<F> {
             max_mu: 0,
             l0: GeneralEvaluationDomain::<F>::new(1).unwrap(),
             s: 0,
+            rate: 4,  // default to 1/4 rate
         }
     }
 }
@@ -139,6 +143,25 @@ impl<F: PrimeField> DeepFoldPCS<F> {
     ) -> F {
         eval_linear_poly(&proof.linear_polys[0][0], &point[0])
     }
+
+    /// Generate SRS with configurable code rate.
+    ///
+    /// - `log_size`: Number of polynomial variables (max_mu)
+    /// - `rate`: Code rate multiplier (e.g., 4 for 1/4 rate, 8 for 1/8 rate)
+    ///
+    /// Higher rate means more redundancy but larger proof size.
+    /// Lower rate means less redundancy but smaller memory/communication cost.
+    pub fn gen_srs_with_rate<R: Rng>(
+        _rng: &mut R,
+        log_size: usize,
+        rate: usize,
+    ) -> Result<DeepFoldSRS<F>, PCSError> {
+        let max_mu = log_size;
+        let len_l0 = (1 << max_mu) * rate;
+        let l0 = GeneralEvaluationDomain::<F>::new(len_l0).unwrap();
+        let s = 33;
+        Ok(DeepFoldSRS { max_mu, l0, s, rate })
+    }
 }
 
 impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
@@ -157,11 +180,7 @@ impl<F: PrimeField> PolynomialCommitmentScheme<F> for DeepFoldPCS<F> {
     type BatchProof = DeepFoldBatchedProof<F>;
 
     fn gen_srs_for_testing<R: Rng>(_rng: &mut R, log_size: usize) -> Result<Self::SRS, PCSError> {
-        let max_mu = log_size;
-        let len_l0 = (1 << max_mu) * 8;
-        let l0 = GeneralEvaluationDomain::<F>::new(len_l0).unwrap();
-        let s = 33;
-        Ok(DeepFoldSRS { max_mu, l0, s })
+        Self::gen_srs_with_rate(_rng, log_size, 4)  // default to 1/4 rate
     }
 
     fn setup(

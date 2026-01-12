@@ -27,6 +27,10 @@ pub struct Opt {
     /// Override log_m (determines log_n = mu - log_m). If not specified, uses default formula.
     #[arg(long)]
     pub log_m: Option<usize>,
+
+    /// Override code rate multiplier (e.g., 4 for 1/4 rate, 8 for 1/8 rate). Default: 4
+    #[arg(long)]
+    pub code_rate: Option<usize>,
 }
 
 pub(super) fn network_run<F>(func: F)

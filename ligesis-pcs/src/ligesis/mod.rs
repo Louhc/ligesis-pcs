@@ -233,14 +233,16 @@ pub struct LigeSISSRS<F: PrimeField> {
 }
 
 impl<F: PrimeField> LigeSISSRS<F> {
-    /// Generate SRS with custom base_mu parameter.
+    /// Generate SRS with custom base_mu and code_rate parameters.
     ///
     /// - `mu`: Total polynomial size (number of variables)
     /// - `base_mu`: DeepFold SRS max_mu (default: log_m + 9)
+    /// - `code_rate`: Code rate multiplier (default: 4 for 1/4 rate)
     pub fn gen_with_params<R: Rng>(
         rng: &mut R,
         mu: usize,
         base_mu: Option<usize>,
+        code_rate: Option<usize>,
     ) -> Result<Self, PCSError> {
         let eta = F::ONE.into_bigint().to_bits_be().len();
         let lambda = 128usize;
@@ -261,10 +263,12 @@ impl<F: PrimeField> LigeSISSRS<F> {
 
         let default_base_mu = log_m + 9;
         let actual_base_mu = base_mu.unwrap_or(default_base_mu);
+        let actual_rate = code_rate.unwrap_or(4);  // default to 1/4 rate
 
-        let deepfold_srs = DeepFoldPCS::<F>::gen_srs_for_testing(
+        let deepfold_srs = DeepFoldPCS::<F>::gen_srs_with_rate(
             rng,
             actual_base_mu,
+            actual_rate,
         )?;
 
         Ok(LigeSISSRS {

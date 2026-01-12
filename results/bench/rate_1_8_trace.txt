@@ -1,0 +1,144 @@
+================================================================================
+LigeSIS Test Results - Code Rate 1/8
+================================================================================
+Configuration: mu=28, base_mu=17, parties=4, code_rate=1/8
+
+Summary:
+- Total Time:     37.86s
+- Commit Time:    20.39s
+- Open Time:      15.35s
+- Verify Time:    604.7ms
+- Proof Size:     339.69 KB
+- Communication:  2057.51 MB
+- Peak Memory:    5473.18 MB (master), 3627.00 MB (worker)
+
+================================================================================
+Detailed Trace Output (Master P0)
+================================================================================
+
+[P0] ========================================
+[P0] LigeSIS Distributed Test
+[P0]   mu = 28, parties = 4
+[P0]   base_mu = 17 (default: 19)
+[P0]   code_rate = 1/8 (rate multiplier: 8)
+[P0] ========================================
+[P0] Gen SRS         4.058ms  (@ 4.065ms)
+[P0] Dist SRS        5.300ms  (@ 9.371ms)
+
+--- Setup Phase ---
+Start:   DBatchMultiCommit.Split(1)
+  Start:   DBatchMultiCommit.Split.LocalFFT(4chunks)
+  End:     DBatchMultiCommit.Split.LocalFFT(4chunks) ...............................343.773ms
+End:     DBatchMultiCommit.Split(1) ................................................345.860ms
+Start:   DBatchMultiCommit.Gather
+End:     DBatchMultiCommit.Gather ..................................................451.026ms
+Start:   DBatchMultiCommit.DistColData
+End:     DBatchMultiCommit.DistColData .............................................97.963ms
+Start:   DBatchMultiCommit.ColHash
+End:     DBatchMultiCommit.ColHash .................................................134.342ms
+Start:   DBatchMultiCommit.Merkle
+  Start:   Merkle.LocalTree(262144leaves)
+  End:     Merkle.LocalTree(262144leaves) ..........................................25.120ms
+  Start:   Merkle.GatherRoots
+  End:     Merkle.GatherRoots ......................................................116.490ms
+End:     DBatchMultiCommit.Merkle ..................................................141.621ms
+[P0] Setup            1.187s  (@ 1.196s)
+[P0]   [DEBUG] After setup: sent=128.00 MB, recv=120.00 MB
+
+--- Commit Phase ---
+Start:   DLigesis.Commit.RSEncode(256x262144)
+End:     DLigesis.Commit.RSEncode(256x262144) ......................................11.355s
+Start:   DLigesis.Commit.SISHash(8x256x524288)
+End:     DLigesis.Commit.SISHash(8x256x524288) .....................................2.438s
+Start:   DLigesis.Commit.GatherMatH(33MB)
+End:     DLigesis.Commit.GatherMatH(33MB) ..........................................3.969s
+Start:   DLigesis.Commit.AssembleAndDistribute
+End:     DLigesis.Commit.AssembleAndDistribute .....................................95.726ms
+Start:   DLigesis.Commit.DeepFoldChunkedBatch
+  Start:   DBatchMultiCommit.Split(1)
+    Start:   DBatchMultiCommit.Split.LocalFFT(8chunks)
+    End:     DBatchMultiCommit.Split.LocalFFT(8chunks) .............................689.795ms
+  End:     DBatchMultiCommit.Split(1) ..............................................700.986ms
+  Start:   DBatchMultiCommit.Gather
+  End:     DBatchMultiCommit.Gather ................................................859.749ms
+  Start:   DBatchMultiCommit.DistColData
+  End:     DBatchMultiCommit.DistColData ...........................................196.195ms
+  Start:   DBatchMultiCommit.ColHash
+  End:     DBatchMultiCommit.ColHash ...............................................187.341ms
+  Start:   DBatchMultiCommit.Merkle
+    Start:   Merkle.LocalTree(262144leaves)
+    End:     Merkle.LocalTree(262144leaves) ........................................31.296ms
+    Start:   Merkle.GatherRoots
+    End:     Merkle.GatherRoots ....................................................333.948ms
+  End:     DBatchMultiCommit.Merkle ................................................365.257ms
+End:     DLigesis.Commit.DeepFoldChunkedBatch ......................................2.325s
+[P0] Commit          20.394s  (@ 21.912s)
+[P0]   [DEBUG] Commit phase: sent=288.00 MB, recv=336.00 MB
+
+--- Open Phase ---
+Start:   DLigesis.Open.ComputeA
+End:     DLigesis.Open.ComputeA ....................................................770.930ms
+Start:   DLigesis.Open.ComputeBI
+End:     DLigesis.Open.ComputeBI ...................................................790.922ms
+Start:   DLigesis.Open.ComputeRSA
+End:     DLigesis.Open.ComputeRSA ..................................................61.146ms
+Start:   DLigesis.Open.CombinedCommit
+  Start:   DBatchMultiCommit.Split(3)
+    Start:   DBatchMultiCommit.Split.GatherSmall(2^16)
+    End:     DBatchMultiCommit.Split.GatherSmall(2^16) .............................17.423ms
+    Start:   DBatchMultiCommit.Split.Flatten
+    End:     DBatchMultiCommit.Split.Flatten .......................................761.062us
+    Start:   DBatchMultiCommit.Split.FFT(2chunks)
+    End:     DBatchMultiCommit.Split.FFT(2chunks) ..................................169.718ms
+    Start:   DBatchMultiCommit.Split.LocalFFT(16chunks)
+    End:     DBatchMultiCommit.Split.LocalFFT(16chunks) ............................1.302s
+    Start:   DBatchMultiCommit.Split.LocalFFT(1chunks)
+    End:     DBatchMultiCommit.Split.LocalFFT(1chunks) .............................88.511ms
+  End:     DBatchMultiCommit.Split(3) ..............................................1.586s
+  Start:   DBatchMultiCommit.Gather
+  End:     DBatchMultiCommit.Gather ................................................1.508s
+  Start:   DBatchMultiCommit.DistColData
+  End:     DBatchMultiCommit.DistColData ...........................................468.321ms
+  Start:   DBatchMultiCommit.ColHash
+  End:     DBatchMultiCommit.ColHash ...............................................324.644ms
+  Start:   DBatchMultiCommit.Merkle
+    Start:   Merkle.LocalTree(262144leaves)
+    End:     Merkle.LocalTree(262144leaves) ........................................35.878ms
+    Start:   Merkle.GatherRoots
+    End:     Merkle.GatherRoots ....................................................680.941ms
+  End:     DBatchMultiCommit.Merkle ................................................716.928ms
+End:     DLigesis.Open.CombinedCommit ..............................................4.619s
+Start:   DLigesis.Open.ExtSumchecks
+End:     DLigesis.Open.ExtSumchecks ................................................2.293s
+Start:   DLigesis.Open.DeepFold
+  Start:   DMultiChunkedBatchOpenExt.ComputeClaims
+  End:     DMultiChunkedBatchOpenExt.ComputeClaims .................................977.227ms
+  Start:   DMultiChunkedBatchOpenExt.Sumcheck
+  End:     DMultiChunkedBatchOpenExt.Sumcheck ......................................2.036s
+  Start:   DMultiChunkedBatchOpenExt.EvalAndCombine
+  End:     DMultiChunkedBatchOpenExt.EvalAndCombine ................................2.313s
+  Start:   DMultiChunkedBatchOpenExt.ComputeCombinedV0
+  End:     DMultiChunkedBatchOpenExt.ComputeCombinedV0 .............................1.033s
+  Start:   DMultiChunkedBatchOpenExt.Folding
+  End:     DMultiChunkedBatchOpenExt.Folding .......................................170.931ms
+End:     DLigesis.Open.DeepFold ....................................................6.615s
+[P0] Open            15.346s  (@ 37.259s)
+[P0]   [DEBUG] Open phase: sent=660.04 MB, recv=525.47 MB
+
+--- Verify Phase ---
+[P0] Verify        604.726ms  (@ 37.864s)
+
+================================================================================
+Final Statistics
+================================================================================
+[P0] Proof & Commitment Size:
+[P0]   proof:      347842 bytes (339.69 KB)
+[P0]   commitment: 96 bytes (0.09 KB)
+[P0] Communication Stats (master, total):
+[P0]   bytes_sent: 1128308992 (1076.04 MB)
+[P0]   bytes_recv: 1029151356 (981.48 MB)
+[P0]   total:      2157460348 (2057.51 MB)
+[P0] Peak Memory: 5473.18 MB
+[P0] Total: 37.864s
+[P0] Result: PASS
+

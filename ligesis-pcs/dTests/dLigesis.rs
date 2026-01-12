@@ -26,12 +26,19 @@ fn get_peak_memory_kb() -> Option<u64> {
 
 use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 
+/// Simple barrier synchronization - all parties wait until everyone reaches this point
+fn barrier() {
+    // Everyone sends a dummy value to master, master broadcasts back
+    Net::send_to_master(&0u8);
+    Net::recv_from_master_uniform::<u8>(if Net::am_master() { Some(0u8) } else { None });
+}
+
 mod common;
 use common::{test_rng, Opt};
 // Use FGoldilocks from ligesis_pcs which has HasQuadraticExtension implemented
 use ligesis_pcs::FGoldilocks as F;
 
-fn test_multi<F: PrimeField + HasQuadraticExtension>(mu: usize, base_mu: Option<usize>) -> Result<(), PCSError> {
+fn test_multi<F: PrimeField + HasQuadraticExtension>(mu: usize, base_mu: Option<usize>, code_rate: Option<usize>) -> Result<(), PCSError> {
     let mut rng = test_rng();
     let num_party = Net::n_parties();
     let num_party_vars = num_party.ilog2() as usize;
@@ -60,16 +67,18 @@ fn test_multi<F: PrimeField + HasQuadraticExtension>(mu: usize, base_mu: Option<
         let log_m = if mu < 4 { 0 } else { (mu - 8) / 2 };
         let default_base_mu = log_m + 9;
         let actual_base_mu = base_mu.unwrap_or(default_base_mu);
+        let actual_rate = code_rate.unwrap_or(4);
 
         log!("========================================");
         log!("LigeSIS Distributed Test");
         log!("  mu = {}, parties = {}", mu, num_party);
         log!("  base_mu = {} (default: {})", actual_base_mu, default_base_mu);
+        log!("  code_rate = 1/{} (rate multiplier: {})", actual_rate, actual_rate);
         log!("========================================");
 
         // Gen SRS
         let start = Instant::now();
-        let srs = LigeSISSRS::<F>::gen_with_params(&mut rng, mu, base_mu)?;
+        let srs = LigeSISSRS::<F>::gen_with_params(&mut rng, mu, base_mu, code_rate)?;
         log_step!("Gen SRS", start.elapsed());
 
         // Distribute SRS
@@ -97,6 +106,7 @@ fn test_multi<F: PrimeField + HasQuadraticExtension>(mu: usize, base_mu: Option<
 
         // Commit
         log!("--- Commit Phase ---");
+        barrier();  // Sync before commit to get accurate timing
         Net::reset_stats();
         let start = Instant::now();
         let (com, advice) = LigeSISPCS::d_commit(&pp, &poly_k).unwrap();
@@ -108,6 +118,7 @@ fn test_multi<F: PrimeField + HasQuadraticExtension>(mu: usize, base_mu: Option<
 
         // Open
         log!("--- Open Phase ---");
+        barrier();  // Sync before open to get accurate timing
         Net::reset_stats();
         let start = Instant::now();
         let mut transcript = IOPTranscript::<F>::new(b"test");
@@ -183,11 +194,13 @@ fn test_multi<F: PrimeField + HasQuadraticExtension>(mu: usize, base_mu: Option<
         let point: Vec<F> = Net::recv_from_master_uniform(None);
 
         log!("--- Commit Phase ---");
+        barrier();  // Sync before commit
         let start = Instant::now();
         let (_, advice) = LigeSISPCS::d_commit(&pp, &poly_k).unwrap();
         log_step!("Commit", start.elapsed());
 
         log!("--- Open Phase ---");
+        barrier();  // Sync before open
         let start = Instant::now();
         let mut transcript = IOPTranscript::<F>::new(b"test");
         LigeSISPCS::d_open(&pp, &poly_k, &advice, &point, &mut transcript).unwrap();
@@ -215,6 +228,6 @@ fn test_multi<F: PrimeField + HasQuadraticExtension>(mu: usize, base_mu: Option<
 
 fn main() {
     common::network_run(|opt: Opt| {
-        test_multi::<F>(opt.mu, opt.base_mu).unwrap();
+        test_multi::<F>(opt.mu, opt.base_mu, opt.code_rate).unwrap();
     });
 }

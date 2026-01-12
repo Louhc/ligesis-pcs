@@ -98,6 +98,7 @@ def run_local_test(
     trace: bool = False,
     base_mu: Optional[int] = None,
     log_m: Optional[int] = None,
+    code_rate: Optional[int] = None,
 ) -> int:
     """Run the distributed test locally with the specified number of parties."""
     binary_path = build_example(example_name, release, trace)
@@ -115,6 +116,8 @@ def run_local_test(
             extra_params.append(f"base_mu={base_mu}")
         if log_m is not None:
             extra_params.append(f"log_m={log_m}")
+        if code_rate is not None:
+            extra_params.append(f"code_rate=1/{code_rate}")
         extra_str = f", {', '.join(extra_params)}" if extra_params else ""
         print(f"\nRunning {example_name} locally with {num_parties} parties, mu={mu}{extra_str}...\n")
 
@@ -125,6 +128,8 @@ def run_local_test(
                 cmd.extend(["--base-mu", str(base_mu)])
             if log_m is not None:
                 cmd.extend(["--log-m", str(log_m)])
+            if code_rate is not None:
+                cmd.extend(["--code-rate", str(code_rate)])
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -228,6 +233,7 @@ def run_remote_test(
     base_mu: Optional[int] = None,
     log_m: Optional[int] = None,
     measure_memory: bool = False,
+    code_rate: Optional[int] = None,
 ) -> int:
     """Run the distributed test on remote servers."""
 
@@ -393,6 +399,8 @@ def run_remote_test(
             base_cmd += f" --base-mu {base_mu}"
         if log_m is not None:
             base_cmd += f" --log-m {log_m}"
+        if code_rate is not None:
+            base_cmd += f" --code-rate {code_rate}"
         if measure_memory:
             # Try GNU time, fallback to checking /proc/self/status
             run_cmd = f"command -v gtime >/dev/null && gtime -v {base_cmd} 2>&1 || (command -v /usr/bin/time >/dev/null && /usr/bin/time -v {base_cmd} 2>&1) || {base_cmd} 2>&1"
@@ -551,6 +559,12 @@ def main():
         action="store_true",
         help="Measure peak memory usage using /usr/bin/time -v (remote mode only)",
     )
+    parser.add_argument(
+        "--code-rate",
+        type=int,
+        default=None,
+        help="Override code rate multiplier (e.g., 4 for 1/4 rate, 8 for 1/8 rate). Default: 4",
+    )
 
     args = parser.parse_args()
 
@@ -570,6 +584,7 @@ def main():
             base_mu=args.base_mu,
             log_m=args.log_m,
             measure_memory=args.memory,
+            code_rate=args.code_rate,
         ))
     else:
         # Local mode
@@ -591,6 +606,7 @@ def main():
             trace=args.trace,
             base_mu=args.base_mu,
             log_m=args.log_m,
+            code_rate=args.code_rate,
         ))
 
 
