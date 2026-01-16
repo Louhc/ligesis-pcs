@@ -16,6 +16,8 @@ use crate::{
     structs::{IOPProof, IOPProverMessage},
     types::FieldExtension,
 };
+use arithmetic::math::Math;
+use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 
 /// Evaluate a base field MLE at an extension field point.
 ///
@@ -199,6 +201,39 @@ impl<F: PrimeField, EF: Field + FieldExtension<F> + Copy> ExtSumCheckProverState
 
         // After binding all variables, each MLE has exactly 1 evaluation
         self.ext_evaluations.iter().map(|evals| evals[0]).collect()
+    }
+
+    /// Get the current evaluations for distributed sumcheck (without binding final challenge)
+    /// Used to gather evaluations from all parties before master runs party rounds
+    pub fn get_current_evaluations(&self) -> Vec<Vec<EF>> {
+        self.ext_evaluations.clone()
+    }
+
+    /// Get the products structure for rebuilding state on master
+    pub fn get_products(&self) -> &Vec<(EF, Vec<usize>)> {
+        &self.products
+    }
+
+    /// Get the challenges accumulated so far
+    pub fn get_challenges(&self) -> &Vec<EF> {
+        &self.challenges
+    }
+
+    /// Create a new prover state from gathered evaluations (for master in distributed setting)
+    pub fn from_gathered_evaluations(
+        num_vars: usize,
+        products: Vec<(EF, Vec<usize>)>,
+        ext_evaluations: Vec<Vec<EF>>,
+        challenges: Vec<EF>,
+    ) -> Self {
+        Self {
+            round: 0,
+            num_vars,
+            products,
+            ext_evaluations,
+            challenges,
+            _marker: std::marker::PhantomData,
+        }
     }
 }
 
@@ -473,6 +508,124 @@ impl<F: PrimeField, EF: Field + FieldExtension<F> + Copy + ark_serialize::Canoni
             proofs,
             point: challenges,
         })
+    }
+
+    /// Distributed prove for extension field sumcheck.
+    /// Each party runs local rounds on their local data, then master aggregates and runs party rounds.
+    /// Returns Some(proof) on master, None on workers.
+    pub fn d_prove(self, transcript: &mut IOPTranscript<F>) -> Result<Option<ExtSumCheckProof<EF>>, PCSError> {
+        let num_party_vars = Net::n_parties().log_2() as usize;
+        let max_degree = self.products.iter().map(|(_, indices)| indices.len()).max().unwrap_or(1);
+
+        let mut state = ExtSumCheckProverState::<F, EF>::new(
+            self.num_vars,
+            self.products,
+            self.flattened_ml_extensions,
+        );
+
+        let mut proofs = Vec::new();
+        let mut challenges = Vec::new();
+
+        // Phase 1: Local rounds (all parties participate)
+        for round in 0..self.num_vars {
+            let challenge = if round == 0 {
+                None
+            } else {
+                // Challenge was set in previous iteration
+                Some(challenges.last().copied().unwrap())
+            };
+
+            // Each party computes their local round
+            let mut evals = state.prove_round(challenge);
+
+            // Gather and sum evaluations from all parties
+            let gathered_evals = Net::send_to_master(&evals);
+            if Net::am_master() {
+                let all_evals = gathered_evals.unwrap();
+                // Sum up evaluations from all parties
+                evals = vec![EF::zero(); max_degree + 1];
+                for party_evals in all_evals {
+                    for (i, &e) in party_evals.iter().enumerate() {
+                        if i < evals.len() {
+                            evals[i] += e;
+                        }
+                    }
+                }
+
+                // Append evaluations to transcript
+                for eval in &evals {
+                    transcript.append_serializable_element(b"eval", eval)?;
+                }
+            }
+            proofs.push(evals.clone());
+
+            // Get challenge for next round (or final challenge on last round)
+            let challenge_ef = if Net::am_master() {
+                let c = transcript.get_and_append_challenge(b"ext_sumcheck")?;
+                let c_ef = EF::from_base(c);
+                Net::recv_from_master_uniform(Some(c_ef));
+                c_ef
+            } else {
+                Net::recv_from_master_uniform::<EF>(None)
+            };
+            challenges.push(challenge_ef);
+        }
+
+        // Phase 2: Gather final evaluations from all parties
+        // After all local rounds, each party has 1 evaluation per MLE
+        let final_challenge = challenges.last().copied().unwrap();
+        let final_evals = state.get_final_evaluation(final_challenge);
+        let gathered_final_evals = Net::send_to_master(&final_evals);
+
+        if !Net::am_master() {
+            return Ok(None);
+        }
+
+        // Phase 3: Master runs party rounds
+        let all_final_evals = gathered_final_evals.unwrap();
+        let num_mles = all_final_evals[0].len();
+
+        // Build new MLEs from gathered evaluations (each MLE now has n_parties evaluations)
+        let new_ext_evaluations: Vec<Vec<EF>> = (0..num_mles)
+            .map(|mle_idx| {
+                all_final_evals.iter().map(|party_evals| party_evals[mle_idx]).collect()
+            })
+            .collect();
+
+        // Create new state for party rounds
+        let products = state.get_products().clone();
+        let mut party_state = ExtSumCheckProverState::<F, EF>::from_gathered_evaluations(
+            num_party_vars,
+            products,
+            new_ext_evaluations,
+            Vec::new(),
+        );
+
+        // Run party rounds on master only
+        for round in 0..num_party_vars {
+            let challenge = if round == 0 {
+                None
+            } else {
+                Some(challenges.last().copied().unwrap())
+            };
+
+            let evals = party_state.prove_round(challenge);
+
+            // Append evaluations to transcript
+            for eval in &evals {
+                transcript.append_serializable_element(b"eval", eval)?;
+            }
+            proofs.push(evals);
+
+            // Get challenge for next round
+            let c = transcript.get_and_append_challenge(b"ext_sumcheck")?;
+            challenges.push(EF::from_base(c));
+        }
+
+        Ok(Some(ExtSumCheckProof {
+            proofs,
+            point: challenges,
+        }))
     }
 }
 

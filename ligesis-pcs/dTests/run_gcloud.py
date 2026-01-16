@@ -1,36 +1,39 @@
 #!/usr/bin/env python3
 """
-Distributed testing runner for ligesis-pcs.
+Distributed testing runner for ligesis-pcs using gcloud.
+
+This script is similar to run.py but uses gcloud compute ssh/scp instead of direct SSH.
+Designed for GCP VMs without public IPs.
 
 Local mode:
-    python3 run.py dLigesis              # Run with default 4 parties locally
-    python3 run.py dLigesis -n 8         # Run with 8 parties locally
-    python3 run.py dLigesis -m 24        # Run with mu=24
-    python3 run.py dLigesis --trace      # Enable internal timing output
+    python3 run_gcloud.py dLigesis              # Run with default 4 parties locally
+    python3 run_gcloud.py dLigesis -n 8         # Run with 8 parties locally
 
-Remote mode (multi-server):
-    python3 run.py dLigesis --servers servers.json --sync --build -m 24  # Sync + build + run
-    python3 run.py dLigesis --servers servers.json --sync -m 24          # Sync + run
-    python3 run.py dLigesis --servers servers.json -m 24                 # Run only
-    python3 run.py dLigesis --servers servers.json -m 24 --trace         # With timing
+Remote mode (gcloud):
+    python3 run_gcloud.py dLigesis --servers servers_gcloud.json --sync --build -m 24
+    python3 run_gcloud.py dLigesis --servers servers_gcloud.json -m 24
+    python3 run_gcloud.py dLigesis --servers servers_gcloud.json -m 24 --trace
 
-servers.json format:
+servers_gcloud.json format:
     {
         "servers": [
-            {"host": "10.128.0.2", "ssh_host": "35.202.139.171"},
-            {"host": "10.128.0.3", "ssh_host": "104.197.202.243"},
+            {"name": "node-1", "host": "10.128.0.48"},
+            {"name": "node-2", "host": "10.128.0.49"},
             ...
+            {"name": "node-16", "host": "10.128.0.63"}
         ],
+        "zone": "us-central1-a",
+        "project": "your-gcp-project",
         "user": "ubuntu",
-        "ssh_key": "~/.ssh/id_ed25519",
         "remote_dir": "~/ligesis-pcs",
         "network_port": 18000
     }
 
+    - name: GCP instance name (for gcloud ssh)
     - host: Internal IP for inter-node communication
-    - ssh_host: (Optional) Public IP for SSH access
+    - zone: GCP zone (optional, uses default if not specified)
+    - project: GCP project (optional, uses default if not specified)
     - user: SSH username
-    - ssh_key: (Optional) Path to SSH private key
     - remote_dir: Code location on remote servers
     - network_port: Port for distributed protocol
 """
@@ -48,36 +51,15 @@ import math
 
 
 def compute_optimal_base_mu(mu: int, num_parties: int) -> int:
-    """Compute optimal base_mu for distributed LigeSIS.
-
-    Based on benchmarks:
-    - mu=24: base_mu=14 was 22% faster than default (17)
-    - mu=28: base_mu=14 was 29% faster than default (19)
-
-    Smaller base_mu (14) tends to work better for distributed systems:
-    - Smaller FFTs per chunk = faster computation
-    - Better parallelism across chunks
-    - Lower per-party memory usage
-    - mat_a gets chunked automatically when needed
-
-    Formula: optimal_base_mu = 14 (or local_num_vars if smaller)
-    """
+    """Compute optimal base_mu for distributed LigeSIS."""
     log_parties = int(math.log2(num_parties))
     local_num_vars = mu - log_parties
-
-    # base_mu=14 is optimal in most benchmarks
-    # But cannot exceed local_num_vars
     OPTIMAL_BASE_MU = 14
-
     return min(OPTIMAL_BASE_MU, local_num_vars)
 
 
 def generate_config(hosts: list[str], base_port: int = 18000, use_different_ports: bool = True) -> str:
-    """Generate network configuration.
-
-    For local testing (all hosts same IP), use_different_ports=True assigns each party a different port.
-    For remote testing (different hosts), use_different_ports=False uses the same port for all.
-    """
+    """Generate network configuration."""
     if use_different_ports:
         lines = [f"{host}:{base_port + i}" for i, host in enumerate(hosts)]
     else:
@@ -132,7 +114,6 @@ def run_local_test(
     hosts = ["127.0.0.1"] * num_parties
     config_content = generate_config(hosts, base_port)
 
-    # Compute optimal base_mu if not specified
     actual_base_mu = base_mu if base_mu is not None else compute_optimal_base_mu(mu, num_parties)
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".conf", delete=False) as f:
@@ -166,7 +147,6 @@ def run_local_test(
             )
             processes.append((party_id, proc))
 
-        # Collect output in parallel using threads
         outputs = {}
         exit_codes = [None] * num_parties
 
@@ -204,32 +184,47 @@ def run_local_test(
         os.unlink(config_path)
 
 
-def run_remote_command(
-    host: str,
+def build_gcloud_ssh_cmd(
+    instance_name: str,
     user: str,
-    port: int,
+    zone: Optional[str] = None,
+    project: Optional[str] = None,
+) -> list[str]:
+    """Build the base gcloud compute ssh command."""
+    cmd = ["gcloud", "compute", "ssh"]
+    if user:
+        cmd.append(f"{user}@{instance_name}")
+    else:
+        cmd.append(instance_name)
+    if zone:
+        cmd.extend(["--zone", zone])
+    if project:
+        cmd.extend(["--project", project])
+    # Disable PTY allocation to avoid terminal control characters in output
+    cmd.extend(["--", "-T"])
+    return cmd
+
+
+def run_gcloud_command(
+    instance_name: str,
+    user: str,
     command: str,
     party_id: int,
     results: dict,
-    ssh_key: Optional[str] = None,
+    zone: Optional[str] = None,
+    project: Optional[str] = None,
+    timeout: int = 600,
 ):
-    """Run command on remote server via SSH."""
-    ssh_cmd = [
-        "ssh",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "ConnectTimeout=10",
-        "-p", str(port),
-    ]
-    if ssh_key:
-        ssh_cmd.extend(["-i", os.path.expanduser(ssh_key)])
-    ssh_cmd.extend([f"{user}@{host}", command])
+    """Run command on remote server via gcloud compute ssh."""
+    ssh_cmd = build_gcloud_ssh_cmd(instance_name, user, zone, project)
+    ssh_cmd.append(command)
 
     try:
         result = subprocess.run(
             ssh_cmd,
             capture_output=True,
             text=True,
-            timeout=600,  # 10 minutes timeout
+            timeout=timeout,
         )
         results[party_id] = {
             "stdout": result.stdout,
@@ -239,7 +234,7 @@ def run_remote_command(
     except subprocess.TimeoutExpired:
         results[party_id] = {
             "stdout": "",
-            "stderr": "SSH timeout",
+            "stderr": "gcloud ssh timeout",
             "returncode": -1,
         }
     except Exception as e:
@@ -248,6 +243,31 @@ def run_remote_command(
             "stderr": str(e),
             "returncode": -1,
         }
+
+
+def gcloud_scp(
+    local_path: str,
+    instance_name: str,
+    remote_path: str,
+    user: str,
+    zone: Optional[str] = None,
+    project: Optional[str] = None,
+) -> subprocess.CompletedProcess:
+    """Copy file to remote server via gcloud compute scp."""
+    cmd = ["gcloud", "compute", "scp"]
+    if zone:
+        cmd.extend(["--zone", zone])
+    if project:
+        cmd.extend(["--project", project])
+
+    if user:
+        remote_spec = f"{user}@{instance_name}:{remote_path}"
+    else:
+        remote_spec = f"{instance_name}:{remote_path}"
+
+    cmd.extend([local_path, remote_spec])
+
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
 
 def run_remote_test(
@@ -263,7 +283,7 @@ def run_remote_test(
     measure_memory: bool = False,
     code_rate: Optional[int] = None,
 ) -> int:
-    """Run the distributed test on remote servers."""
+    """Run the distributed test on remote servers via gcloud."""
 
     # Load server configuration
     with open(servers_config) as f:
@@ -272,15 +292,13 @@ def run_remote_test(
     servers = config["servers"]
     remote_dir = config.get("remote_dir", "~/ligesis-pcs")
     network_port = config.get("network_port", 18000)
-    default_user = config.get("user", "root")
-    default_ssh_port = config.get("ssh_port", 22)
-    ssh_key = config.get("ssh_key")
+    default_user = config.get("user", "")
+    zone = config.get("zone")
+    project = config.get("project")
     num_parties = len(servers)
 
-    # Helper to get user/port for a server (per-server overrides global)
-    def get_user(s): return s.get("user", default_user)
-    def get_ssh_port(s): return s.get("port", default_ssh_port)
-    def get_ssh_host(s): return s.get("ssh_host", s["host"])  # Use ssh_host if available, else host
+    def get_user(s):
+        return s.get("user", default_user)
 
     if num_parties < 1 or (num_parties & (num_parties - 1)) != 0:
         print(f"Error: Number of servers must be a power of 2, got {num_parties}")
@@ -294,8 +312,13 @@ def run_remote_test(
     hosts = [s["host"] for s in servers]
     config_content = generate_config(hosts, network_port, use_different_ports=False)
 
-    print(f"Remote distributed test: {num_parties} servers, mu={mu}, {base_mu_info}")
-    print(f"Servers: {', '.join(hosts)}")
+    print(f"Remote distributed test (gcloud): {num_parties} servers, mu={mu}, {base_mu_info}")
+    print(f"Instances: {', '.join(s['name'] for s in servers)}")
+    print(f"Internal IPs: {', '.join(hosts)}")
+    if zone:
+        print(f"Zone: {zone}")
+    if project:
+        print(f"Project: {project}")
     print(f"Network config:\n{config_content}\n")
 
     # Sync code to remote servers if requested
@@ -320,29 +343,37 @@ def run_remote_test(
         sync_results = {}
 
         def do_sync(i, server):
-            # Build scp command
-            scp_cmd = ["scp", "-o", "StrictHostKeyChecking=no", "-P", str(get_ssh_port(server))]
-            if ssh_key:
-                scp_cmd.extend(["-i", os.path.expanduser(ssh_key)])
-            scp_cmd.extend([tar_path, f"{get_user(server)}@{get_ssh_host(server)}:~/ligesis_sync.tar.gz"])
+            instance_name = server["name"]
+            user = get_user(server)
 
-            result = subprocess.run(scp_cmd, capture_output=True, text=True, timeout=120)
+            # Upload tarball via gcloud scp
+            result = gcloud_scp(
+                tar_path,
+                instance_name,
+                "~/ligesis_sync.tar.gz",
+                user,
+                zone,
+                project,
+            )
             if result.returncode != 0:
                 sync_results[i] = (False, f"Upload failed: {result.stderr}")
                 return
 
             # Extract on remote
-            ssh_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-p", str(get_ssh_port(server))]
-            if ssh_key:
-                ssh_cmd.extend(["-i", os.path.expanduser(ssh_key)])
-            ssh_cmd.extend([
-                f"{get_user(server)}@{get_ssh_host(server)}",
-                f"mkdir -p {remote_dir} && cd {remote_dir} && tar xzf ~/ligesis_sync.tar.gz && rm ~/ligesis_sync.tar.gz"
-            ])
+            extract_results = {}
+            run_gcloud_command(
+                instance_name,
+                user,
+                f"mkdir -p {remote_dir} && cd {remote_dir} && tar xzf ~/ligesis_sync.tar.gz && rm ~/ligesis_sync.tar.gz",
+                0,
+                extract_results,
+                zone,
+                project,
+                timeout=120,
+            )
 
-            result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=120)
-            if result.returncode != 0:
-                sync_results[i] = (False, f"Extract failed: {result.stderr}")
+            if extract_results[0]["returncode"] != 0:
+                sync_results[i] = (False, f"Extract failed: {extract_results[0]['stderr']}")
                 return
 
             sync_results[i] = (True, "OK")
@@ -361,7 +392,7 @@ def run_remote_test(
         # Check sync results
         for i, server in enumerate(servers):
             if not sync_results[i][0]:
-                print(f"Sync failed on {get_ssh_host(server)}: {sync_results[i][1]}")
+                print(f"Sync failed on {server['name']}: {sync_results[i][1]}")
                 return 1
         print("Sync completed.\n")
 
@@ -380,9 +411,8 @@ def run_remote_test(
 
         for i, server in enumerate(servers):
             t = threading.Thread(
-                target=run_remote_command,
-                args=(get_ssh_host(server), get_user(server), get_ssh_port(server),
-                      build_cmd, i, build_results, ssh_key),
+                target=run_gcloud_command,
+                args=(server["name"], get_user(server), build_cmd, i, build_results, zone, project),
             )
             t.start()
             build_threads.append(t)
@@ -393,7 +423,7 @@ def run_remote_test(
         # Check build results
         for i, server in enumerate(servers):
             if build_results[i]["returncode"] != 0:
-                print(f"Build failed on {server['host']}:")
+                print(f"Build failed on {server['name']}:")
                 print(build_results[i]["stderr"])
                 return 1
         print("Build completed on all servers.\n")
@@ -406,9 +436,8 @@ def run_remote_test(
 
     for i, server in enumerate(servers):
         t = threading.Thread(
-            target=run_remote_command,
-            args=(get_ssh_host(server), get_user(server), get_ssh_port(server),
-                  config_cmd, i, config_results, ssh_key),
+            target=run_gcloud_command,
+            args=(server["name"], get_user(server), config_cmd, i, config_results, zone, project),
         )
         t.start()
         config_threads.append(t)
@@ -432,14 +461,12 @@ def run_remote_test(
         if code_rate is not None:
             base_cmd += f" --code-rate {code_rate}"
         if measure_memory:
-            # Try GNU time, fallback to checking /proc/self/status
             run_cmd = f"command -v gtime >/dev/null && gtime -v {base_cmd} 2>&1 || (command -v /usr/bin/time >/dev/null && /usr/bin/time -v {base_cmd} 2>&1) || {base_cmd} 2>&1"
         else:
             run_cmd = f"RUST_BACKTRACE=1 {base_cmd} 2>&1"
         t = threading.Thread(
-            target=run_remote_command,
-            args=(get_ssh_host(server), get_user(server), get_ssh_port(server),
-                  run_cmd, i, run_results, ssh_key),
+            target=run_gcloud_command,
+            args=(server["name"], get_user(server), run_cmd, i, run_results, zone, project),
         )
         t.start()
         run_threads.append(t)
@@ -464,6 +491,14 @@ def run_remote_test(
         return 0
 
 
+def clean_line(line: str) -> str:
+    """Clean a line by removing carriage returns and extra whitespace."""
+    # Remove carriage returns (common in gcloud ssh output)
+    line = line.replace('\r', '')
+    # Strip trailing whitespace but preserve leading whitespace for indentation
+    return line.rstrip()
+
+
 def print_outputs(outputs: dict):
     """Print formatted outputs from parties."""
     BLUE = "\033[34m"
@@ -478,26 +513,35 @@ def print_outputs(outputs: dict):
         network_keywords = ["To master", "From master", "Connecting"]
         if any(kw in stripped for kw in network_keywords):
             return True
-        # Don't skip COMM_ lines - we want to capture them
         if stripped.startswith("COMM_"):
-            return True  # Skip printing here, we'll extract separately
+            return True
         return False
+
+    # Clean outputs first - remove \r characters
+    cleaned_outputs = {}
+    for party_id in outputs:
+        if outputs[party_id]:
+            cleaned_outputs[party_id] = "\n".join(
+                clean_line(line) for line in outputs[party_id].split("\n")
+            )
+        else:
+            cleaned_outputs[party_id] = ""
 
     # Extract communication statistics
     comm_bytes = None
     comm_mb = None
-    for party_id in outputs:
-        if outputs[party_id]:
-            for line in outputs[party_id].strip().split("\n"):
+    for party_id in cleaned_outputs:
+        if cleaned_outputs[party_id]:
+            for line in cleaned_outputs[party_id].strip().split("\n"):
                 if line.startswith("COMM_TOTAL_BYTES:"):
                     comm_bytes = int(line.split(":")[1].strip())
                 elif line.startswith("COMM_TOTAL_MB:"):
                     comm_mb = float(line.split(":")[1].strip())
 
     for party_id in [0, 1]:
-        if party_id in outputs and outputs[party_id]:
+        if party_id in cleaned_outputs and cleaned_outputs[party_id]:
             color = BLUE if party_id == 0 else GREEN
-            for line in outputs[party_id].strip().split("\n"):
+            for line in cleaned_outputs[party_id].strip().split("\n"):
                 if line and not should_skip(line):
                     if line.startswith(f"[P{party_id}]"):
                         print(f"{color}{line}{RESET}")
@@ -514,12 +558,38 @@ def print_outputs(outputs: dict):
     print()
 
 
+def generate_servers_config(output_path: str, num_nodes: int = 16):
+    """Generate a sample servers_gcloud.json config file."""
+    servers = []
+    for i in range(num_nodes):
+        servers.append({
+            "name": f"node-{i+1}",
+            "host": f"10.128.0.{48+i}",
+        })
+
+    config = {
+        "servers": servers,
+        "zone": "us-central1-a",
+        "project": "your-gcp-project",
+        "user": "ubuntu",
+        "remote_dir": "~/ligesis-pcs",
+        "network_port": 18000,
+    }
+
+    with open(output_path, "w") as f:
+        json.dump(config, f, indent=4)
+
+    print(f"Generated sample config: {output_path}")
+    print("Please update 'zone' and 'project' fields as needed.")
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Run distributed tests for ligesis-pcs"
+        description="Run distributed tests for ligesis-pcs using gcloud"
     )
     parser.add_argument(
         "example",
+        nargs="?",
         help="Name of the example to run (e.g., dLigesis)",
     )
     parser.add_argument(
@@ -560,7 +630,7 @@ def main():
     parser.add_argument(
         "--servers",
         type=str,
-        help="Path to servers.json config file for remote mode",
+        help="Path to servers_gcloud.json config file for remote mode",
     )
     parser.add_argument(
         "--build",
@@ -595,8 +665,29 @@ def main():
         default=None,
         help="Override code rate multiplier (e.g., 4 for 1/4 rate, 8 for 1/8 rate). Default: 4",
     )
+    parser.add_argument(
+        "--generate-config",
+        type=str,
+        metavar="OUTPUT_PATH",
+        help="Generate a sample servers_gcloud.json config file",
+    )
+    parser.add_argument(
+        "--num-nodes",
+        type=int,
+        default=16,
+        help="Number of nodes for generated config (default: 16)",
+    )
 
     args = parser.parse_args()
+
+    # Handle config generation
+    if args.generate_config:
+        generate_servers_config(args.generate_config, args.num_nodes)
+        return 0
+
+    # Require example name for running tests
+    if not args.example:
+        parser.error("the following arguments are required: example")
 
     if args.servers:
         # Remote mode

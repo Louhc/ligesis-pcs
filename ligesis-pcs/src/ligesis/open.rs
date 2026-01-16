@@ -302,6 +302,28 @@ fn run_ext_sumcheck<F: PrimeField + HasQuadraticExtension>(
     Ok(ExtSumCheckWithReductionProof { ext_proof })
 }
 
+/// Distributed helper function to run extension field SumCheck
+/// Each party provides their local portion of the evaluations.
+/// Returns Some(proof) on master, None on workers.
+#[allow(non_snake_case)]
+fn d_run_ext_sumcheck<F: PrimeField + HasQuadraticExtension>(
+    local_num_vars: usize,
+    evals_list: Vec<&[F]>,
+    coeff: F,
+    transcript: &mut IOPTranscript<F>,
+) -> Result<Option<ExtSumCheckWithReductionProof<F>>, PCSError> {
+    // Build and run distributed extension field SumCheck
+    let mut builder = ExtSumCheckBuilder::<F, F::Extension>::new(local_num_vars);
+    let mles: Vec<Arc<DenseMultilinearExtension<F>>> = evals_list
+        .iter()
+        .map(|evals| evals_to_arcpoly(&evals.to_vec()))
+        .collect();
+    builder = builder.add_mle_list(mles, coeff)?;
+    let ext_proof_opt = builder.d_prove(transcript)?;
+
+    Ok(ext_proof_opt.map(|ext_proof| ExtSumCheckWithReductionProof { ext_proof }))
+}
+
 /// Helper to resize extension field point
 fn resize_point_ext<F: PrimeField + HasQuadraticExtension>(point: &[F::Extension], target_len: usize) -> Vec<F::Extension> {
     let mut result = point.to_vec();
@@ -309,6 +331,31 @@ fn resize_point_ext<F: PrimeField + HasQuadraticExtension>(point: &[F::Extension
         result.push(F::Extension::from_base(F::ZERO));
     }
     result
+}
+
+/// Compute the local portion of tensor for distributed sumcheck.
+/// For party k, computes: tensor_local[b_low] = get_tensor(alpha_low)[b_low] * eq(k, alpha_high)
+/// where alpha is split into alpha_low (local variables) and alpha_high (party selection variables).
+fn compute_local_tensor<F: PrimeField>(alpha: &[F], local_num_vars: usize, party_id: usize) -> Vec<F> {
+    let alpha_low: Vec<F> = alpha[..local_num_vars].to_vec();
+    let alpha_high = &alpha[local_num_vars..];
+
+    // Compute base tensor for local variables
+    let tensor_low = get_tensor(&alpha_low);
+
+    // Compute eq(party_id, alpha_high) = prod_i ((1-k_i)(1-alpha_high_i) + k_i*alpha_high_i)
+    let mut eq_factor = F::ONE;
+    for (i, &alpha_i) in alpha_high.iter().enumerate() {
+        let k_i = ((party_id >> i) & 1) as u64;
+        if k_i == 0 {
+            eq_factor *= F::ONE - alpha_i;
+        } else {
+            eq_factor *= alpha_i;
+        }
+    }
+
+    // Scale the tensor by eq_factor
+    tensor_low.into_iter().map(|t| t * eq_factor).collect()
 }
 
 /// Distributed Ligesis open with 128-bit security
@@ -493,26 +540,30 @@ pub fn ligesis_d_open<F: PrimeField + HasQuadraticExtension>(
     let com_a_bI_rsa = if Net::am_master() { com_a_bI_rsa_opt.unwrap() } else { DeepFoldBatchMultiCommitment::default() };
     end_timer!(timer);
 
-    // Step 8: Extension field SumCheck for bI check (moved after commit, on master)
+    // Step 8: Extension field SumCheck for bI check (distributed)
     let timer = start_timer!(|| "DLigesis.Open.ExtSumchecks");
-    let bI_field = if Net::am_master() {
-        bool_vec_to_field_vec(&mat_bI_full.concat())
-    } else {
-        vec![]
-    };
+
+    // bI check sumcheck: sum_{x} bI(x) * (bI(x) - 1) * eq(x, alpha1) = 0
+    // Each party has bI_local and can compute their local portion of the sumcheck
+    let local_bI_num_vars = bI_local.len().ilog2() as usize;
+    let bI_local_minus_one: Vec<F> = bI_local.iter().map(|&x| x - F::ONE).collect();
+    let tensor_alpha1_local = compute_local_tensor(&alpha1, local_bI_num_vars, Net::party_id());
+
+    let bI_check_proof_opt = d_run_ext_sumcheck::<F>(
+        local_bI_num_vars,
+        vec![&bI_local[..], &bI_local_minus_one[..], &tensor_alpha1_local[..]],
+        F::ONE,
+        transcript,
+    )?;
+
     let (bI_check_proof, r1_ext) = if Net::am_master() {
-        let bI_field_minus_one: Vec<F> = bI_field.iter().map(|&x| x - F::ONE).collect();
-        let tensor_alpha1 = get_tensor(&alpha1);
-        let proof = run_ext_sumcheck::<F>(
-            bI_field.len().ilog2() as usize,
-            vec![&bI_field[..], &bI_field_minus_one[..], &tensor_alpha1[..]],
-            F::ONE,
-            transcript,
-        )?;
+        let proof = bI_check_proof_opt.unwrap();
         let r1 = proof.ext_proof.point.clone();
+        Net::recv_from_master_uniform(Some(r1.clone()));
         (proof, r1)
     } else {
-        (ExtSumCheckWithReductionProof { ext_proof: crate::ext_sumcheck::ExtSumCheckProof::default() }, vec![])
+        let r1: Vec<F::Extension> = Net::recv_from_master_uniform(None);
+        (ExtSumCheckWithReductionProof { ext_proof: crate::ext_sumcheck::ExtSumCheckProof::default() }, r1)
     };
 
     // Step 9: Extension field SumChecks for rs_a and mat_g checks (on master)

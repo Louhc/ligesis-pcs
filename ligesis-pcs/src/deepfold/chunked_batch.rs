@@ -3596,6 +3596,24 @@ fn eval_mle_at_ext_point_from_ext<F: PrimeField + HasQuadraticExtension>(
     result
 }
 
+/// Evaluate eq polynomial at a specific index in extension field
+/// eq(point, i) = product_j (point_j * bit_j(i) + (1 - point_j) * (1 - bit_j(i)))
+fn eval_eq_ext<F: PrimeField + HasQuadraticExtension>(
+    point: &[F::Extension],
+    index: usize,
+) -> F::Extension {
+    let mut result = F::Extension::from_base(F::ONE);
+    for (j, &p) in point.iter().enumerate() {
+        let bit = ((index >> j) & 1) as u64;
+        if bit == 1 {
+            result = result * p;
+        } else {
+            result = result * (F::Extension::from_base(F::ONE) - p);
+        }
+    }
+    result
+}
+
 /// Proof for multi-commitment batch opening at extension field points
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct MultiChunkedBatchExtProof<F: PrimeField + HasQuadraticExtension> {
@@ -4069,21 +4087,37 @@ pub fn d_multi_chunked_batch_open_at_ext_point<F: PrimeField + HasQuadraticExten
 
     let max_local_num_vars = max_num_vars - num_party_vars;
 
-    // Step 1: Master computes extension field claimed values (only for targeted polynomial per point)
+    // Step 1: Distributed evaluation of claimed values (all parties contribute)
     let timer = start_timer!(|| "DMultiChunkedBatchOpenExt.ComputeClaims");
+    let party_id = Net::party_id();
+    let mut local_contributions: Vec<F::Extension> = Vec::with_capacity(num_points);
+    for (point_idx, point) in points.iter().enumerate() {
+        let commit_idx = point_to_commit[point_idx];
+        let poly_idx = point_to_poly[point_idx];
+        let advice = advices[commit_idx];
+        let local_num_vars = commit_local_num_vars[commit_idx][poly_idx];
+        let poly_num_vars_i = commit_poly_num_vars[commit_idx][poly_idx];
+
+        let padded_point = resize_point_ext::<F>(&point.clone(), poly_num_vars_i);
+        let point_low: Vec<F::Extension> = padded_point[..local_num_vars].to_vec();
+        let point_high: Vec<F::Extension> = padded_point[local_num_vars..].to_vec();
+
+        // eq(point_high, party_id) * eval_mle_at_ext_point(local_poly_evals, point_low)
+        let eq_factor = eval_eq_ext::<F>(&point_high, party_id);
+        let local_eval = eval_mle_at_ext_point(&advice.local_poly_evals[poly_idx], &point_low);
+        local_contributions.push(eq_factor * local_eval);
+    }
     let claimed_values: Vec<F::Extension> = if Net::am_master() {
+        let all_contributions: Vec<Vec<F::Extension>> = Net::send_to_master(&local_contributions).unwrap();
         let mut claimed_values: Vec<F::Extension> = Vec::with_capacity(num_points);
-        for (point_idx, point) in points.iter().enumerate() {
-            let commit_idx = point_to_commit[point_idx];
-            let poly_idx = point_to_poly[point_idx];
-            let poly_num_vars_i = commit_poly_num_vars[commit_idx][poly_idx];
-            let padded_point = resize_point_ext::<F>(&point.clone(), poly_num_vars_i);
-            let claimed_value = eval_mle_at_ext_point(&commit_poly_evals[commit_idx][poly_idx], &padded_point);
-            claimed_values.push(claimed_value);
+        for point_idx in 0..num_points {
+            let sum: F::Extension = all_contributions.iter().map(|c| c[point_idx]).fold(F::Extension::default(), |a, b| a + b);
+            claimed_values.push(sum);
         }
         Net::recv_from_master_uniform(Some(claimed_values.clone()));
         claimed_values
     } else {
+        Net::send_to_master(&local_contributions);
         Net::recv_from_master_uniform(None)
     };
     end_timer!(timer);
@@ -4170,7 +4204,42 @@ pub fn d_multi_chunked_batch_open_at_ext_point<F: PrimeField + HasQuadraticExten
     let r_low_ext: Vec<F::Extension> = r_low.iter().map(|&x| F::Extension::from_base(x)).collect();
 
     let timer = start_timer!(|| "DMultiChunkedBatchOpenExt.EvalAndCombine");
-    let (chunk_evals_at_r, sum_check_evals, gamma_combined, combined_evals_ext, combined_eval_at_r_low) = if Net::am_master() {
+
+    // Distributed computation of sum_check_evals (all parties contribute)
+    let mut local_sumcheck_contributions: Vec<F::Extension> = Vec::with_capacity(num_points);
+    for (point_idx, _point) in points.iter().enumerate() {
+        let commit_idx = point_to_commit[point_idx];
+        let poly_idx = point_to_poly[point_idx];
+        let advice = advices[commit_idx];
+        let local_num_vars = commit_local_num_vars[commit_idx][poly_idx];
+        let poly_num_vars_i = commit_poly_num_vars[commit_idx][poly_idx];
+
+        // r_ext is already max_num_vars length, we need to use appropriate portion
+        let r_ext_padded = resize_point_ext::<F>(&r_ext, poly_num_vars_i);
+        let r_low_local: Vec<F::Extension> = r_ext_padded[..local_num_vars].to_vec();
+        let r_high_local: Vec<F::Extension> = r_ext_padded[local_num_vars..].to_vec();
+
+        // eq(r_high, party_id) * eval_mle_at_ext_point(local_poly_evals, r_low)
+        let eq_factor = eval_eq_ext::<F>(&r_high_local, party_id);
+        let local_eval = eval_mle_at_ext_point(&advice.local_poly_evals[poly_idx], &r_low_local);
+        local_sumcheck_contributions.push(eq_factor * local_eval);
+    }
+
+    // Aggregate sum_check_evals on master
+    let sum_check_evals: Vec<F::Extension> = if Net::am_master() {
+        let all_contributions: Vec<Vec<F::Extension>> = Net::send_to_master(&local_sumcheck_contributions).unwrap();
+        let mut sum_check_evals: Vec<F::Extension> = Vec::with_capacity(num_points);
+        for point_idx in 0..num_points {
+            let sum: F::Extension = all_contributions.iter().map(|c| c[point_idx]).fold(F::Extension::default(), |a, b| a + b);
+            sum_check_evals.push(sum);
+        }
+        sum_check_evals
+    } else {
+        Net::send_to_master(&local_sumcheck_contributions);
+        vec![]
+    };
+
+    let (chunk_evals_at_r, gamma_combined, combined_evals_ext, combined_eval_at_r_low) = if Net::am_master() {
         // Collect all chunks' evaluations at the correct extension field point
         let mut chunk_evals_at_r: Vec<F::Extension> = Vec::with_capacity(total_chunks_dist);
         for (commit_idx, advice) in advices.iter().enumerate() {
@@ -4195,13 +4264,6 @@ pub fn d_multi_chunked_batch_open_at_ext_point<F: PrimeField + HasQuadraticExten
             }
         }
 
-        // Compute sumcheck subclaim evaluations (only for targeted polynomials)
-        let sum_check_evals: Vec<F::Extension> = point_to_commit.iter().zip(point_to_poly.iter())
-            .map(|(&commit_idx, &poly_idx)| {
-                eval_mle_at_ext_point(&commit_poly_evals[commit_idx][poly_idx], &r_ext)
-            })
-            .collect();
-
         // Get gamma_combine challenge
         let gamma_combined: Vec<F> = transcript.get_and_append_challenge_vectors(b"gamma_combine", total_chunks_dist)?;
 
@@ -4223,9 +4285,9 @@ pub fn d_multi_chunked_batch_open_at_ext_point<F: PrimeField + HasQuadraticExten
         // Compute combined_eval_at_r_low for distributed verification
         let combined_eval_at_r_low = eval_mle_at_ext_point_from_ext::<F>(&combined_evals_ext, &r_low_ext);
 
-        (chunk_evals_at_r, sum_check_evals, gamma_combined, combined_evals_ext, combined_eval_at_r_low)
+        (chunk_evals_at_r, gamma_combined, combined_evals_ext, combined_eval_at_r_low)
     } else {
-        (vec![], vec![], vec![], vec![], F::Extension::default())
+        (vec![], vec![], vec![], F::Extension::default())
     };
     end_timer!(timer);
 
