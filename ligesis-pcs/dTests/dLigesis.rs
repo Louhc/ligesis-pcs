@@ -3,17 +3,21 @@ use ark_ff::{PrimeField, UniformRand};
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_serialize::CanonicalSerialize;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::fs;
 use ligesis_pcs::{LigeSISPCS, LigeSISSRS, PCSError, PolynomialCommitmentScheme, HasQuadraticExtension};
 use transcript::IOPTranscript;
 
-/// Read peak memory usage from /proc/self/status (Linux only)
+use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
+
+mod common;
+use common::{test_rng, Opt};
+use ligesis_pcs::FGoldilocks as F;
+
 fn get_peak_memory_kb() -> Option<u64> {
     if let Ok(status) = fs::read_to_string("/proc/self/status") {
         for line in status.lines() {
             if line.starts_with("VmHWM:") {
-                // VmHWM: peak resident set size
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 2 {
                     return parts[1].parse().ok();
@@ -24,210 +28,176 @@ fn get_peak_memory_kb() -> Option<u64> {
     None
 }
 
-use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
-
-/// Simple barrier synchronization - all parties wait until everyone reaches this point
 fn barrier() {
-    // Everyone sends a dummy value to master, master broadcasts back
     Net::send_to_master(&0u8);
     Net::recv_from_master_uniform::<u8>(if Net::am_master() { Some(0u8) } else { None });
 }
 
-mod common;
-use common::{test_rng, Opt};
-// Use FGoldilocks from ligesis_pcs which has HasQuadraticExtension implemented
-use ligesis_pcs::FGoldilocks as F;
-
-fn test_multi<F: PrimeField + HasQuadraticExtension>(mu: usize, base_mu: Option<usize>, code_rate: Option<usize>) -> Result<(), PCSError> {
+fn test_multi<F: PrimeField + HasQuadraticExtension>(
+    mu: usize,
+    base_mu: Option<usize>,
+    code_rate: Option<usize>,
+    iterations: usize,
+) -> Result<(), PCSError> {
     let mut rng = test_rng();
     let num_party = Net::n_parties();
     let num_party_vars = num_party.ilog2() as usize;
     let party_id = Net::party_id();
-    let should_print = party_id == 0 || party_id == 1;
-    let global_start = Instant::now();
+    let is_master = Net::am_master();
 
-    macro_rules! log {
-        ($($arg:tt)*) => {
-            if should_print {
-                print!("[P{}] ", party_id);
-                println!($($arg)*);
-            }
-        };
+    macro_rules! master_print {
+        ($($arg:tt)*) => { if is_master { println!($($arg)*); } };
     }
 
-    macro_rules! log_step {
-        ($step:expr, $elapsed:expr) => {
-            if should_print {
-                println!("[P{}] {:12} {:>10.3?}  (@ {:.3?})", party_id, $step, $elapsed, global_start.elapsed());
-            }
-        };
-    }
-
-    if Net::am_master() {
+    if is_master {
         let log_m = if mu < 4 { 0 } else { (mu - 8) / 2 };
         let default_base_mu = log_m + 9;
         let actual_base_mu = base_mu.unwrap_or(default_base_mu);
         let actual_rate = code_rate.unwrap_or(4);
 
-        log!("========================================");
-        log!("LigeSIS Distributed Test");
-        log!("  mu = {}, parties = {}", mu, num_party);
-        log!("  base_mu = {} (default: {})", actual_base_mu, default_base_mu);
-        log!("  code_rate = 1/{} (rate multiplier: {})", actual_rate, actual_rate);
-        log!("========================================");
+        master_print!("========================================");
+        master_print!("LigeSIS Distributed Benchmark");
+        master_print!("  mu = {}, parties = {}, iterations = {}", mu, num_party, iterations);
+        master_print!("  base_mu = {}, code_rate = 1/{}", actual_base_mu, actual_rate);
+        master_print!("========================================");
 
-        // Gen SRS
+        // Gen SRS (once)
         let start = Instant::now();
         let srs = LigeSISSRS::<F>::gen_with_params(&mut rng, mu, base_mu, code_rate)?;
-        log_step!("Gen SRS", start.elapsed());
+        master_print!("Gen SRS: {:?}", start.elapsed());
 
-        // Distribute SRS
+        // Distribute SRS (once)
         let start = Instant::now();
         Net::recv_from_master_uniform(Some(srs.clone()));
-        log_step!("Dist SRS", start.elapsed());
+        master_print!("Dist SRS: {:?}", start.elapsed());
 
-        // Reset stats after SRS distribution (to measure only commit/open communication)
-        Net::reset_stats();
-
-        // Setup (distributed)
+        // Setup (once)
         let start = Instant::now();
         let (pp, vp_opt) = LigeSISPCS::<F>::d_setup(&srs)?;
         let vp = vp_opt.unwrap();
-        log_step!("Setup", start.elapsed());
-        let stats_after_setup = Net::stats();
-        log!("  [DEBUG] After setup: sent={:.2} MB, recv={:.2} MB",
-             stats_after_setup.bytes_sent as f64 / (1024.0 * 1024.0),
-             stats_after_setup.bytes_recv as f64 / (1024.0 * 1024.0));
+        master_print!("Setup: {:?}", start.elapsed());
 
-        // Generate poly and point
-        let poly_k = Arc::new(DenseMultilinearExtension::<F>::rand(mu - num_party_vars, &mut rng));
-        let point: Vec<F> = (0..mu).map(|_| F::rand(&mut rng)).collect();
-        Net::recv_from_master_uniform(Some(point.clone()));
+        // Run iterations
+        let mut commit_times = Vec::with_capacity(iterations);
+        let mut open_times = Vec::with_capacity(iterations);
+        let mut verify_times = Vec::with_capacity(iterations);
+        let mut proof_size = 0usize;
+        let mut total_comm_mb = 0.0f64;
 
-        // Commit
-        log!("--- Commit Phase ---");
-        barrier();  // Sync before commit to get accurate timing
-        Net::reset_stats();
-        let start = Instant::now();
-        let (com, advice) = LigeSISPCS::d_commit(&pp, &poly_k).unwrap();
-        log_step!("Commit", start.elapsed());
-        let stats_after_commit = Net::stats();
-        log!("  [DEBUG] Commit phase: sent={:.2} MB, recv={:.2} MB",
-             stats_after_commit.bytes_sent as f64 / (1024.0 * 1024.0),
-             stats_after_commit.bytes_recv as f64 / (1024.0 * 1024.0));
+        for iter in 0..iterations {
+            master_print!("\n--- Iteration {} ---", iter + 1);
 
-        // Open
-        log!("--- Open Phase ---");
-        barrier();  // Sync before open to get accurate timing
-        Net::reset_stats();
-        let start = Instant::now();
-        let mut transcript = IOPTranscript::<F>::new(b"test");
-        let proof = LigeSISPCS::d_open(&pp, &poly_k, &advice, &point, &mut transcript).unwrap().unwrap();
-        log_step!("Open", start.elapsed());
-        let stats_after_open = Net::stats();
-        log!("  [DEBUG] Open phase: sent={:.2} MB, recv={:.2} MB",
-             stats_after_open.bytes_sent as f64 / (1024.0 * 1024.0),
-             stats_after_open.bytes_recv as f64 / (1024.0 * 1024.0));
+            // Generate new poly and point for each iteration
+            let poly_k = Arc::new(DenseMultilinearExtension::<F>::rand(mu - num_party_vars, &mut rng));
+            let point: Vec<F> = (0..mu).map(|_| F::rand(&mut rng)).collect();
+            Net::recv_from_master_uniform(Some(point.clone()));
 
-        // Verify
-        log!("--- Verify Phase ---");
-        let start = Instant::now();
-        let mut transcript = IOPTranscript::<F>::new(b"test");
-        let value = LigeSISPCS::<F>::compute_value_from_proof(mu - mu / 2, &point, &proof);
-        let com_unwrapped = com.unwrap();
-        let result = LigeSISPCS::verify(&vp, &com_unwrapped, &point, &value, &proof, &mut transcript)?;
-        log_step!("Verify", start.elapsed());
+            // Commit
+            barrier();
+            Net::reset_stats();
+            let start = Instant::now();
+            let (com, advice) = LigeSISPCS::d_commit(&pp, &poly_k).unwrap();
+            let commit_time = start.elapsed();
+            commit_times.push(commit_time);
+            let stats_commit = Net::stats();
 
-        // Measure proof and commitment sizes
-        let mut proof_bytes = Vec::new();
-        proof.serialize_compressed(&mut proof_bytes).unwrap();
-        let proof_size = proof_bytes.len();
+            // Open
+            barrier();
+            Net::reset_stats();
+            let start = Instant::now();
+            let mut transcript = IOPTranscript::<F>::new(b"test");
+            let proof = LigeSISPCS::d_open(&pp, &poly_k, &advice, &point, &mut transcript).unwrap().unwrap();
+            let open_time = start.elapsed();
+            open_times.push(open_time);
+            let stats_open = Net::stats();
 
-        let mut com_bytes = Vec::new();
-        com_unwrapped.serialize_compressed(&mut com_bytes).unwrap();
-        let com_size = com_bytes.len();
+            // Verify
+            let start = Instant::now();
+            let mut transcript = IOPTranscript::<F>::new(b"test");
+            let value = LigeSISPCS::<F>::compute_value_from_proof(mu - mu / 2, &point, &proof);
+            let com_unwrapped = com.unwrap();
+            let result = LigeSISPCS::verify(&vp, &com_unwrapped, &point, &value, &proof, &mut transcript)?;
+            let verify_time = start.elapsed();
+            verify_times.push(verify_time);
+            assert!(result, "Verification failed at iteration {}", iter + 1);
 
-        // Output communication statistics (sum of all phases)
-        let total_sent = stats_after_setup.bytes_sent + stats_after_commit.bytes_sent + stats_after_open.bytes_sent;
-        let total_recv = stats_after_setup.bytes_recv + stats_after_commit.bytes_recv + stats_after_open.bytes_recv;
-        let total_comm_bytes = total_sent + total_recv;
-        let total_comm_mb = total_comm_bytes as f64 / (1024.0 * 1024.0);
-        log!("========================================");
-        log!("Proof & Commitment Size:");
-        log!("  proof:      {} bytes ({:.2} KB)", proof_size, proof_size as f64 / 1024.0);
-        log!("  commitment: {} bytes ({:.2} KB)", com_size, com_size as f64 / 1024.0);
-        println!("PROOF_SIZE_BYTES: {}", proof_size);
+            // Record sizes (last iteration)
+            if iter == iterations - 1 {
+                let mut proof_bytes = Vec::new();
+                proof.serialize_compressed(&mut proof_bytes).unwrap();
+                proof_size = proof_bytes.len();
+
+                let total_bytes = stats_commit.bytes_sent + stats_commit.bytes_recv
+                    + stats_open.bytes_sent + stats_open.bytes_recv;
+                total_comm_mb = total_bytes as f64 / (1024.0 * 1024.0);
+            }
+
+            master_print!("Commit: {:?}, Open: {:?}, Verify: {:?}",
+                commit_time, open_time, verify_time);
+        }
+
+        // Print summary
+        let avg = |times: &[Duration]| -> Duration {
+            times.iter().sum::<Duration>() / times.len() as u32
+        };
+
+        master_print!("\n========================================");
+        master_print!("Summary ({} iterations):", iterations);
+        master_print!("  Commit (avg): {:?}", avg(&commit_times));
+        master_print!("  Open (avg):   {:?}", avg(&open_times));
+        master_print!("  Verify (avg): {:?}", avg(&verify_times));
+        master_print!("  Proof size:   {} KB", proof_size as f64 / 1024.0);
+        master_print!("  Communication: {:.2} MB", total_comm_mb);
+
+        // Machine-readable output
+        println!("COMMIT_TIME_MS: {:.3}", avg(&commit_times).as_secs_f64() * 1000.0);
+        println!("OPEN_TIME_MS: {:.3}", avg(&open_times).as_secs_f64() * 1000.0);
+        println!("VERIFY_TIME_MS: {:.3}", avg(&verify_times).as_secs_f64() * 1000.0);
         println!("PROOF_SIZE_KB: {:.2}", proof_size as f64 / 1024.0);
-        log!("========================================");
-        log!("Communication Stats (master, total):");
-        log!("  bytes_sent: {} ({:.2} MB)", total_sent, total_sent as f64 / (1024.0 * 1024.0));
-        log!("  bytes_recv: {} ({:.2} MB)", total_recv, total_recv as f64 / (1024.0 * 1024.0));
-        log!("  total:      {} ({:.2} MB)", total_comm_bytes, total_comm_mb);
-        println!("COMM_TOTAL_BYTES: {}", total_comm_bytes);
         println!("COMM_TOTAL_MB: {:.2}", total_comm_mb);
-        log!("========================================");
+
         if let Some(peak_mem_kb) = get_peak_memory_kb() {
-            log!("Peak Memory: {:.2} MB", peak_mem_kb as f64 / 1024.0);
+            master_print!("  Peak Memory:  {:.2} MB", peak_mem_kb as f64 / 1024.0);
             println!("PEAK_MEMORY_MB: {:.2}", peak_mem_kb as f64 / 1024.0);
         }
-        log!("Total: {:.3?}", global_start.elapsed());
-        log!("Result: {}", if result { "PASS" } else { "FAIL" });
-        log!("========================================");
-        assert!(result);
+        master_print!("========================================");
+
     } else {
-        // Non-master parties
-        log!("--- Setup Phase ---");
-
-        let start = Instant::now();
+        // Worker nodes
         let srs = Net::recv_from_master_uniform::<LigeSISSRS<F>>(None);
-        log_step!("Recv SRS", start.elapsed());
-
-        // Reset stats after SRS distribution (to measure only commit/open communication)
-        Net::reset_stats();
-
-        let start = Instant::now();
         let (pp, _vp) = LigeSISPCS::<F>::d_setup(&srs)?;
-        log_step!("Setup", start.elapsed());
-
         let mu = srs.mu;
-        let poly_k = Arc::new(DenseMultilinearExtension::<F>::rand(mu - num_party_vars, &mut rng));
-        let point: Vec<F> = Net::recv_from_master_uniform(None);
 
-        log!("--- Commit Phase ---");
-        barrier();  // Sync before commit
-        let start = Instant::now();
-        let (_, advice) = LigeSISPCS::d_commit(&pp, &poly_k).unwrap();
-        log_step!("Commit", start.elapsed());
+        for _iter in 0..iterations {
+            let poly_k = Arc::new(DenseMultilinearExtension::<F>::rand(mu - num_party_vars, &mut rng));
+            let point: Vec<F> = Net::recv_from_master_uniform(None);
 
-        log!("--- Open Phase ---");
-        barrier();  // Sync before open
-        let start = Instant::now();
-        let mut transcript = IOPTranscript::<F>::new(b"test");
-        LigeSISPCS::d_open(&pp, &poly_k, &advice, &point, &mut transcript).unwrap();
-        log_step!("Open", start.elapsed());
+            barrier();
+            Net::reset_stats();
+            let (_, advice) = LigeSISPCS::d_commit(&pp, &poly_k).unwrap();
 
-        // Output communication statistics for worker
-        let stats = Net::stats();
-        let total_comm_bytes = stats.bytes_sent + stats.bytes_recv;
-        log!("========================================");
-        log!("Communication Stats (worker {}):", party_id);
-        log!("  bytes_sent: {} ({:.2} MB)", stats.bytes_sent, stats.bytes_sent as f64 / (1024.0 * 1024.0));
-        log!("  bytes_recv: {} ({:.2} MB)", stats.bytes_recv, stats.bytes_recv as f64 / (1024.0 * 1024.0));
-        log!("  total:      {} ({:.2} MB)", total_comm_bytes, total_comm_bytes as f64 / (1024.0 * 1024.0));
-        log!("========================================");
-        if let Some(peak_mem_kb) = get_peak_memory_kb() {
-            log!("Peak Memory: {:.2} MB", peak_mem_kb as f64 / 1024.0);
-            println!("PEAK_MEMORY_MB: {:.2}", peak_mem_kb as f64 / 1024.0);
+            barrier();
+            Net::reset_stats();
+            let mut transcript = IOPTranscript::<F>::new(b"test");
+            LigeSISPCS::d_open(&pp, &poly_k, &advice, &point, &mut transcript).unwrap();
         }
-        log!("Total: {:.3?}", global_start.elapsed());
-        log!("========================================");
-    };
+
+        if party_id == 1 {
+            let stats = Net::stats();
+            println!("[P1] Communication: sent={:.2} MB, recv={:.2} MB",
+                stats.bytes_sent as f64 / (1024.0 * 1024.0),
+                stats.bytes_recv as f64 / (1024.0 * 1024.0));
+            if let Some(peak_mem_kb) = get_peak_memory_kb() {
+                println!("[P1] Peak Memory: {:.2} MB", peak_mem_kb as f64 / 1024.0);
+            }
+        }
+    }
 
     Ok(())
 }
 
 fn main() {
     common::network_run(|opt: Opt| {
-        test_multi::<F>(opt.mu, opt.base_mu, opt.code_rate).unwrap();
+        test_multi::<F>(opt.mu, opt.base_mu, opt.code_rate, opt.iterations).unwrap();
     });
 }

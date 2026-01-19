@@ -1,4 +1,9 @@
 .claude
+.serena
+bench_results
+experiment.md
+experiment_plan.md
+CLAUDE.md
 
 .*.sw*
 .DS_Store

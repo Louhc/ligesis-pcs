@@ -31,6 +31,10 @@ pub struct Opt {
     /// Override code rate multiplier (e.g., 4 for 1/4 rate, 8 for 1/8 rate). Default: 4
     #[arg(long)]
     pub code_rate: Option<usize>,
+
+    /// Number of iterations (runs multiple tests in single network session)
+    #[arg(short, long, default_value_t = 1)]
+    pub iterations: usize,
 }
 
 pub(super) fn network_run<F>(func: F)
