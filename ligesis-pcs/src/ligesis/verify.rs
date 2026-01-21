@@ -13,6 +13,7 @@ use ark_ff::PrimeField;
 use ark_std::{
     borrow::Borrow,
     vec::Vec,
+    Zero,
 };
 use transcript::IOPTranscript;
 
@@ -88,12 +89,17 @@ pub fn ligesis_verify<F: PrimeField + HasQuadraticExtension>(
     // Step 6: Verify extension field SumCheck for bI check
     // This proves: sum_x bI(x) * (bI(x) - 1) * tensor_alpha1(x) = 0
     let bI_num_vars = (m * eta * s_lambda).ilog2() as usize;
-    let (r1_ext, bI_check_expected) = verify_ext_sumcheck_with_subclaim::<F>(
+    let (r1_ext, bI_check_expected, bI_check_claimed_sum) = verify_ext_sumcheck_with_subclaim::<F>(
         &bI_check_proof,
         bI_num_vars,
         3,  // max_degree = 3 (product of 3 polynomials)
         transcript,
     )?;
+
+    // Verify bI_check claimed_sum = 0 (bI must be binary, so bI*(bI-1) = 0 for all points)
+    if !bI_check_claimed_sum.is_zero() {
+        return Ok(false);
+    }
 
     // Verify bI_check subclaim: bI(r1) * (bI(r1) - 1) * tensor_alpha1(r1) = expected
     // claimed_values[2] = bI(r1) (point 2 targets bI)
@@ -106,12 +112,22 @@ pub fn ligesis_verify<F: PrimeField + HasQuadraticExtension>(
 
     // Step 7.1: Verify extension field SumCheck for rs_a check
     // This proves: sum_x alpha3_mat_g_n(x) * a(x) = rs_a(alpha3)
-    let (r6_ext, rs_a_check_expected) = verify_ext_sumcheck_with_subclaim::<F>(
+    let (r6_ext, rs_a_check_expected, rs_a_check_claimed_sum) = verify_ext_sumcheck_with_subclaim::<F>(
         &rs_a_check_proof,
         log_n,
         2,  // max_degree = 2
         transcript,
     )?;
+
+    // Verify rs_a_check claimed_sum = rs_a(alpha3) = claimed_values[6]
+    // This ensures the RS encoding is correct: sum_x alpha3_mat_g_n(x) * a(x) should equal rs_a(alpha3)
+    if rs_a_check_claimed_sum != claimed_values[6] {
+        return Ok(false);
+    }
+
+    // Note: The RS encoding identity states that for RS codeword c = RS(a):
+    // sum_x alpha3_mat_g_n(x) * a(x) = c(alpha3)
+    // where alpha3_mat_g_n encodes the generator matrix evaluation.
 
     // Verify rs_a_check subclaim: alpha3_mat_g_n(r6) * a(r6) = expected
     // claimed_values[1] = a(r6) (point 1 targets a)
@@ -132,7 +148,7 @@ pub fn ligesis_verify<F: PrimeField + HasQuadraticExtension>(
         let mat_g_check_proof = &mat_g_check_proofs[log_rs_len - i];
 
         // Verify extension field SumCheck
-        let (mat_g_point_ext, mat_g_expected) = verify_ext_sumcheck_with_subclaim::<F>(
+        let (mat_g_point_ext, mat_g_expected, _mat_g_claimed_sum) = verify_ext_sumcheck_with_subclaim::<F>(
             mat_g_check_proof,
             i - 1,
             3,  // max_degree = 3
@@ -171,7 +187,7 @@ pub fn ligesis_verify<F: PrimeField + HasQuadraticExtension>(
 
     // Step 9: Verify extension field SumCheck for alpha2_a_bI_r2 check
     // This proves: sum_x alpha2_a(x) * bI_r2(x) = <alpha2, H * r2_on_I>
-    let (r4_ext, alpha2_a_bI_r2_expected) = verify_ext_sumcheck_with_subclaim::<F>(
+    let (r4_ext, alpha2_a_bI_r2_expected, _alpha2_a_bI_r2_claimed_sum) = verify_ext_sumcheck_with_subclaim::<F>(
         &alpha2_a_bI_r2_check_proof,
         (m * eta).ilog2() as usize,
         2,  // max_degree = 2
@@ -190,7 +206,7 @@ pub fn ligesis_verify<F: PrimeField + HasQuadraticExtension>(
 
     // Step 10: Verify extension field SumCheck for v_bI_r2 check
     // This proves: sum_x v(x) * bI_r2(x) = <v, F'[:,I] * r2>
-    let (r5_ext, v_bI_r2_expected) = verify_ext_sumcheck_with_subclaim::<F>(
+    let (r5_ext, v_bI_r2_expected, _v_bI_r2_claimed_sum) = verify_ext_sumcheck_with_subclaim::<F>(
         &v_bI_r2_check_proof,
         (m * eta).ilog2() as usize,
         2,
@@ -266,14 +282,14 @@ pub fn ligesis_verify<F: PrimeField + HasQuadraticExtension>(
 }
 
 /// Helper to verify extension field SumCheck and return subclaim
-/// Returns (extension field point, expected evaluation at that point)
+/// Returns (extension field point, expected evaluation at that point, claimed_sum)
 #[allow(non_snake_case)]
 fn verify_ext_sumcheck_with_subclaim<F: PrimeField + HasQuadraticExtension>(
     proof: &ExtSumCheckWithReductionProof<F>,
     num_vars: usize,
     max_degree: usize,
     transcript: &mut IOPTranscript<F>,
-) -> Result<(Vec<F::Extension>, F::Extension), PCSError> {
+) -> Result<(Vec<F::Extension>, F::Extension, F::Extension), PCSError> {
     // Extract the claimed sum from the proof
     let claimed_sum = if !proof.ext_proof.proofs.is_empty() {
         proof.ext_proof.proofs[0][0] + proof.ext_proof.proofs[0][1]
@@ -290,8 +306,8 @@ fn verify_ext_sumcheck_with_subclaim<F: PrimeField + HasQuadraticExtension>(
         transcript,
     )?;
 
-    // Return the extension field point and the expected evaluation
-    Ok((proof.ext_proof.point.clone(), ext_subclaim.expected_evaluation))
+    // Return the extension field point, the expected evaluation, and the claimed sum
+    Ok((proof.ext_proof.point.clone(), ext_subclaim.expected_evaluation, claimed_sum))
 }
 
 /// Helper to resize extension field point
