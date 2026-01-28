@@ -2045,6 +2045,7 @@ def cmd_clean(args):
     return 0
 
 
+def cmd_help(_args=None):
     global NUM_PARTY
     print(f"""
 Current config: num_party = {NUM_PARTY}
