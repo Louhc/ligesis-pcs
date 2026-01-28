@@ -69,6 +69,10 @@ path = "dTests/dMultiChunkedBatchProfile.rs"
 name = "dNetworkBench"
 path = "dTests/dNetworkBench.rs"
 
+[[example]]
+name = "dSumcheck"
+path = "dTests/dSumcheck.rs"
+
 [[bench]]
 name = "ligesis_bench"
 harness = false

@@ -134,6 +134,11 @@ fn test_multi<F: PrimeField + HasQuadraticExtension>(
 
             master_print!("Commit: {:?}, Open: {:?}, Verify: {:?}",
                 commit_time, open_time, verify_time);
+
+            // Machine-readable per-iteration output
+            println!("ITER_{}_COMMIT_MS: {:.3}", iter + 1, commit_time.as_secs_f64() * 1000.0);
+            println!("ITER_{}_OPEN_MS: {:.3}", iter + 1, open_time.as_secs_f64() * 1000.0);
+            println!("ITER_{}_VERIFY_MS: {:.3}", iter + 1, verify_time.as_secs_f64() * 1000.0);
         }
 
         // Print summary

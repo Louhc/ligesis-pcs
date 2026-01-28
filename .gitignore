@@ -1,5 +1,6 @@
 .claude
 .serena
+.benchmark_cache
 bench_results
 experiment.md
 experiment_plan.md

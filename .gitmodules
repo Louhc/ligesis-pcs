@@ -1,0 +1,8 @@
+[submodule "external/PIP_FRI"]
+	path = external/PIP_FRI
+	url = https://github.com/Louhc/PIP_FRI-and-DePIP_FRI.git
+	branch = benchmark-timing
+[submodule "external/HyperPianist"]
+	path = external/HyperPianist
+	url = https://github.com/Louhc/ligesis-pcs.git
+	branch = benchmark-timing
