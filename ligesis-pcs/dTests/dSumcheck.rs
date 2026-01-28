@@ -183,7 +183,8 @@ fn run_sumcheck(
 
         let stats = Net::stats();
         let total_bytes = stats.bytes_sent + stats.bytes_recv;
-        println!("COMM_TOTAL_MB: {:.2}", total_bytes as f64 / (1024.0 * 1024.0));
+        println!("COMM_TOTAL_BYTES: {}", total_bytes);
+        println!("COMM_TOTAL_MB: {:.6}", total_bytes as f64 / (1024.0 * 1024.0));
 
         if let Some(peak_mem_kb) = get_peak_memory_kb() {
             master_print!("  Peak Memory:  {:.2} MB", peak_mem_kb as f64 / 1024.0);
