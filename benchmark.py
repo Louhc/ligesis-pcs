@@ -42,7 +42,7 @@ _interrupted = False
 
 WORKSPACE = Path(__file__).parent.resolve()
 SERVERS_CONFIG = WORKSPACE / "ligesis-pcs" / "dTests" / "servers_16.json"
-RESULTS_DIR = WORKSPACE / "bench_results"
+RESULTS_DIR = Path("bench_results")
 ZONE = "us-central1-a"
 REMOTE_DIR = "~/ligesis-pcs"
 
@@ -68,11 +68,14 @@ SCHEME_COLORS = {
     "ddeepfold": "\033[94m",
     "ddeepfoldbatch": "\033[94m",
     "ligero": "\033[93m",       # Yellow
-    "dpip_fri": "\033[95m",     # Magenta
-    "dmkzg": "\033[96m",        # Cyan
-    "ddory": "\033[91m",        # Red
+    "dpip-fri-pcs": "\033[95m", # Magenta
+    "dmkzg-pcs": "\033[96m",    # Cyan
+    "ddory-pcs": "\033[91m",    # Red
     "dsumcheck3": "\033[33m",   # Dark Yellow
     "dsumcheck4": "\033[36m",   # Dark Cyan
+    "dhyperpianist": "\033[35m", # Purple
+    "dhyperfond": "\033[32m",    # Dark Green
+    "dbasefold-pcs": "\033[32m", # Dark Green (same as dhyperfond)
 }
 COLOR_RESET = "\033[0m"
 
@@ -150,8 +153,8 @@ DISTRIBUTED_SCHEMES = {
 
 # External distributed schemes (from submodules in external/)
 EXTERNAL_SCHEMES = {
-    "dpip_fri": {
-        "display_name": "dPIP_FRI",
+    "dpip-fri-pcs": {
+        "display_name": "dPIP-FRI-PCS",
         "local_dir": WORKSPACE / "external" / "PIP_FRI",
         "remote_dir": "~/pip_fri",
         "binary": "target/release/examples/de_pip_fri",
@@ -161,37 +164,82 @@ EXTERNAL_SCHEMES = {
             f"source ~/.cargo/env && RUSTFLAGS='-Awarnings' cargo build --release --example de_pip_fri"
         ),
         "run_cmd": lambda i, remote_dir, config_path, mu, iterations: (
-            f"cd {remote_dir}/de_pip_fri && {remote_dir}/{EXTERNAL_SCHEMES['dpip_fri']['binary']} {i} data/network.conf {mu} 2>&1"
+            f"RAYON_NUM_THREADS=1 bash -c 'cd {remote_dir}/de_pip_fri && {remote_dir}/{EXTERNAL_SCHEMES['dpip-fri-pcs']['binary']} {i} data/network.conf {mu} -i {iterations}' 2>&1"
         ),
     },
-    "dmkzg": {
-        "display_name": "dmKZG",
+    "dmkzg-pcs": {
+        "display_name": "dmKZG-PCS",
         "local_dir": WORKSPACE / "external" / "HyperPianist",
         "remote_dir": "~/HyperPianist",
-        "binary": "target/release/examples/bench",
+        "binary": "hyperpianist/target/release/examples/deMkzg_bench",
         "config_path": "hyperpianist/dTests/data/network.conf",
         "port": 18000,
         "build_cmd": lambda mu: (
-            f"source ~/.cargo/env && RUSTFLAGS='-Awarnings -C target-cpu=native' "
-            f"cargo build --release --example bench"
+            f"cd hyperpianist && source ~/.cargo/env && RUSTFLAGS='-Awarnings -C target-cpu=native' "
+            f"cargo build --release --example deMkzg_bench"
         ),
         "run_cmd": lambda i, remote_dir, config_path, mu, iterations: (
-            f"{remote_dir}/{EXTERNAL_SCHEMES['dmkzg']['binary']} {i} {remote_dir}/{config_path} {mu} 2>&1"
+            f"{remote_dir}/{EXTERNAL_SCHEMES['dmkzg-pcs']['binary']} {i} {remote_dir}/{config_path} {mu} -i {iterations} 2>&1"
         ),
     },
-    "ddory": {
-        "display_name": "dDory",
+    "ddory-pcs": {
+        "display_name": "dDory-PCS",
         "local_dir": WORKSPACE / "external" / "HyperPianist",
         "remote_dir": "~/HyperPianist",
-        "binary": "target/release/examples/bench",
+        "binary": "hyperpianist/target/release/examples/deDory_bench",
         "config_path": "hyperpianist/dTests/data/network.conf",
         "port": 18000,
         "build_cmd": lambda mu: (
-            f"source ~/.cargo/env && RUSTFLAGS='-Awarnings -C target-cpu=native' "
-            f"cargo build --release --example bench"
+            f"cd hyperpianist && source ~/.cargo/env && RUSTFLAGS='-Awarnings -C target-cpu=native' "
+            f"cargo build --release --example deDory_bench"
         ),
         "run_cmd": lambda i, remote_dir, config_path, mu, iterations: (
-            f"{remote_dir}/{EXTERNAL_SCHEMES['ddory']['binary']} {i} {remote_dir}/{config_path} {mu} --dory 2>&1"
+            f"{remote_dir}/{EXTERNAL_SCHEMES['ddory-pcs']['binary']} {i} {remote_dir}/{config_path} {mu} -i {iterations} 2>&1"
+        ),
+    },
+    "dhyperpianist": {
+        "display_name": "dHyperPianist",
+        "local_dir": WORKSPACE / "external" / "HyperPianist",
+        "remote_dir": "~/HyperPianist",
+        "binary": "hyperpianist/target/release/examples/hyperpianist-bench",
+        "config_path": "hyperpianist/dTests/data/network.conf",
+        "port": 18000,
+        "build_cmd": lambda mu: (
+            f"cd hyperpianist && source ~/.cargo/env && RUSTFLAGS='-Awarnings -C target-cpu=native' "
+            f"cargo build --release --example hyperpianist-bench"
+        ),
+        "run_cmd": lambda i, remote_dir, config_path, mu, iterations: (
+            f"{remote_dir}/{EXTERNAL_SCHEMES['dhyperpianist']['binary']} {i} {remote_dir}/{config_path} --jellyfish {mu} -i {iterations} 2>&1"
+        ),
+    },
+    "dhyperfond": {
+        "display_name": "dHyperFond",
+        "local_dir": WORKSPACE / "external" / "HyperFond",
+        "remote_dir": "~/HyperFond",
+        "binary": "plonkish/target/release/examples/distributed_basefold_proof_system",
+        "config_path": "plonkish/deNetwork/data/network.conf",
+        "port": 28000,
+        "build_cmd": lambda mu: (
+            f"source ~/.cargo/env && cd plonkish && RUSTFLAGS='-Awarnings' "
+            f"cargo build --release --example distributed_basefold_proof_system"
+        ),
+        "run_cmd": lambda i, remote_dir, config_path, mu, iterations: (
+            f"RAYON_NUM_THREADS=1 {remote_dir}/{EXTERNAL_SCHEMES['dhyperfond']['binary']} {i} {remote_dir}/{config_path} {mu} -i {iterations} 2>&1"
+        ),
+    },
+    "dbasefold-pcs": {
+        "display_name": "dBasefold-PCS",
+        "local_dir": WORKSPACE / "external" / "HyperFond",
+        "remote_dir": "~/HyperFond",
+        "binary": "plonkish/target/release/examples/distributed_basefold_pcs",
+        "config_path": "plonkish/deNetwork/data/network.conf",
+        "port": 28000,
+        "build_cmd": lambda mu: (
+            f"source ~/.cargo/env && cd plonkish && RUSTFLAGS='-Awarnings' "
+            f"cargo build --release --example distributed_basefold_pcs"
+        ),
+        "run_cmd": lambda i, remote_dir, config_path, mu, iterations: (
+            f"RAYON_NUM_THREADS=1 {remote_dir}/{EXTERNAL_SCHEMES['dbasefold-pcs']['binary']} {i} {remote_dir}/{config_path} {mu} -i {iterations} 2>&1"
         ),
     },
 }
@@ -1147,7 +1195,7 @@ def run_external_benchmark(
     # Build if requested
     if build:
         print(f"  Building...", end="", flush=True)
-        build_cmd = f"cd {remote_dir} && {config['build_cmd'](mu)} 2>&1 | tail -5"
+        build_cmd = f"cd {remote_dir} && set -o pipefail && {config['build_cmd'](mu)} 2>&1 | tail -20"
 
         build_results = {}
         build_threads = []
@@ -1304,8 +1352,38 @@ def run_external_benchmark(
     )
 
 
+def parse_duration_to_ms(duration_str: str) -> Optional[float]:
+    """Parse Rust Duration debug output to milliseconds.
+
+    Examples: "1.234567s", "123.456ms", "1234µs", "1234us"
+    """
+    duration_str = duration_str.strip()
+
+    # Try seconds format: "1.234567s" or "1s"
+    m = re.match(r'^([\d.]+)s$', duration_str)
+    if m:
+        return float(m.group(1)) * 1000
+
+    # Try milliseconds format: "123.456ms"
+    m = re.match(r'^([\d.]+)ms$', duration_str)
+    if m:
+        return float(m.group(1))
+
+    # Try microseconds format: "1234µs" or "1234us"
+    m = re.match(r'^([\d.]+)[µu]s$', duration_str)
+    if m:
+        return float(m.group(1)) / 1000
+
+    # Try nanoseconds format: "1234ns"
+    m = re.match(r'^([\d.]+)ns$', duration_str)
+    if m:
+        return float(m.group(1)) / 1000000
+
+    return None
+
+
 def parse_external_output(output: str) -> dict:
-    """Parse output from external schemes (pip_fri, mkzg, dory)"""
+    """Parse output from external schemes (dpip-fri-pcs, dmkzg-pcs, dhyperfond, dbasefold-pcs, etc.)"""
     result = {}
 
     # Standard patterns (machine-readable)
@@ -1345,6 +1423,29 @@ def parse_external_output(output: str) -> dict:
                     elif unit == 's' and 'ms' not in unit:
                         val *= 1000
                 result[key] = val
+
+    # HyperFond-specific patterns (Rust Duration format)
+    # "proving for 24 variables: 1.234567s"
+    if "prover_time_ms" not in result:
+        m = re.search(r'proving for \d+ variables:\s*([\d.]+(?:s|ms|[µu]s|ns))', output)
+        if m:
+            ms = parse_duration_to_ms(m.group(1))
+            if ms is not None:
+                result["prover_time_ms"] = ms
+
+    # "verifiy for 24 variables: 123.456ms" (note: typo in original code)
+    if "verify_time_ms" not in result:
+        m = re.search(r'verifi?y for \d+ variables:\s*([\d.]+(?:s|ms|[µu]s|ns))', output)
+        if m:
+            ms = parse_duration_to_ms(m.group(1))
+            if ms is not None:
+                result["verify_time_ms"] = ms
+
+    # "proof length 1234." -> proof size in bytes
+    if "proof_size_kb" not in result:
+        m = re.search(r'proof length\s*(\d+)\.', output)
+        if m:
+            result["proof_size_kb"] = int(m.group(1)) / 1024
 
     return result
 
@@ -2062,15 +2163,17 @@ Commands:
                       Run benchmark
                       Example: run -s ligesis -m 24            # single-thread
                       Example: run -s dligesis -m 28 --build   # distributed
-                      Example: run -s dpip_fri -m 27 --sync --build  # external
+                      Example: run -s dpip-fri-pcs -m 27 --sync --build  # external PCS
+                      Example: run -s dhyperfond -m 24 --sync --build    # external SNARK
 
   batch [-s <schemes>] [-m <mus>] [-i <iterations>] [--build] [--sync]
                       Run batch benchmarks
                       Example: batch -s ligesis,deepfold -m 24,26,28
                       Example: batch -s dligesis -m 27,28 -i 5 --build
-                      Example: batch -s dpip_fri,dmkzg -m 24 --sync --build
+                      Example: batch -s dpip-fri-pcs,dmkzg-pcs -m 24 --sync --build
 
-  External schemes: dpip_fri, dmkzg, ddory (from external/ submodules)
+  External PCS: dpip-fri-pcs, dmkzg-pcs, ddory-pcs, dbasefold-pcs
+  External SNARK: dhyperpianist, dhyperfond
     --sync            Sync external code to servers before running
     --build           Build on remote servers before running
 

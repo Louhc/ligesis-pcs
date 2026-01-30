@@ -6,3 +6,6 @@
 	path = external/HyperPianist
 	url = https://github.com/Louhc/ligesis-pcs.git
 	branch = benchmark-timing
+[submodule "external/HyperFond"]
+	path = external/HyperFond
+	url = https://github.com/n96409816/HyperFond
