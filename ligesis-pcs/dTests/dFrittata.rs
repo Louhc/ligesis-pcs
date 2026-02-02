@@ -227,6 +227,13 @@ fn distributed_frittata(mu: usize, iterations: usize) {
     log!("  iterations = {}", iterations);
     log!("========================================");
 
+    // Collect per-iteration times for statistics
+    let mut all_commit_times: Vec<f64> = Vec::with_capacity(iterations);
+    let mut all_open_times: Vec<f64> = Vec::with_capacity(iterations);
+    let mut all_verify_times: Vec<f64> = Vec::with_capacity(iterations);
+    let mut last_comm_bytes: usize = 0;
+    let mut last_proof_size_kb: f64 = 0.0;
+
     for iter in 0..iterations {
         if iterations > 1 {
             log!("--- Iteration {} ---", iter + 1);
@@ -243,6 +250,7 @@ fn distributed_frittata(mu: usize, iterations: usize) {
 
         // ==================== Phase 1: Worker Commit ====================
         log!("--- Phase 1: Worker Commit ---");
+        let commit_start = Instant::now();  // Start timing commit phase
         let phase1_start = Instant::now();
 
         let mut worker_prover = FoldingProver::<
@@ -341,9 +349,11 @@ fn distributed_frittata(mu: usize, iterations: usize) {
         };
 
         log!("Phase 2 (total): {:?}", phase2_start.elapsed());
+        let commit_time = commit_start.elapsed();  // End of commit phase
 
         // ==================== Phase 3: Worker Query ====================
         log!("--- Phase 3: Worker Query ---");
+        let open_start = Instant::now();  // Start timing open phase
         let phase3_start = Instant::now();
 
         let (folding_proof, queried_evals) = worker_prover.build_proof(&input, &query_positions);
@@ -390,6 +400,7 @@ fn distributed_frittata(mu: usize, iterations: usize) {
             );
 
             let prover_time = global_start.elapsed();
+            let open_time = open_start.elapsed();  // End of open phase
             log!("Phase 4 (master query): {:?}", phase4_start.elapsed());
             log!("Total prover time: {:?}", prover_time);
 
@@ -438,16 +449,42 @@ fn distributed_frittata(mu: usize, iterations: usize) {
             log!("  Result: {}", if result.is_ok() { "PASS" } else { "FAIL" });
             log!("========================================");
 
-            // Machine-readable output
-            println!("\n--- MACHINE READABLE ---");
-            println!("PROVER_TIME_MS: {:.3}", prover_time.as_secs_f64() * 1000.0);
-            println!("VERIFY_TIME_MS: {:.3}", verify_time.as_secs_f64() * 1000.0);
-            println!("TOTAL_TIME_MS: {:.3}", (prover_time + verify_time).as_secs_f64() * 1000.0);
-            println!("PROOF_SIZE_KB: {:.3}", proof_size_kb);
-            println!("COMM_BYTES: {}", comm_bytes);
+            // Collect times for statistics
+            let commit_ms = commit_time.as_secs_f64() * 1000.0;
+            let open_ms = open_time.as_secs_f64() * 1000.0;
+            let verify_ms = verify_time.as_secs_f64() * 1000.0;
+            all_commit_times.push(commit_ms);
+            all_open_times.push(open_ms);
+            all_verify_times.push(verify_ms);
+            last_comm_bytes = comm_bytes;
+            last_proof_size_kb = proof_size_kb;
+
+            // Output per-iteration machine-readable times (1-indexed)
+            println!("ITER_{}_COMMIT_MS: {:.3}", iter + 1, commit_ms);
+            println!("ITER_{}_OPEN_MS: {:.3}", iter + 1, open_ms);
+            println!("ITER_{}_VERIFY_MS: {:.3}", iter + 1, verify_ms);
 
             assert!(result.is_ok(), "Verification failed: {:?}", result);
         }
+    }
+
+    // Output final statistics (only master outputs)
+    if Net::am_master() && !all_commit_times.is_empty() {
+        let avg_commit: f64 = all_commit_times.iter().sum::<f64>() / all_commit_times.len() as f64;
+        let avg_open: f64 = all_open_times.iter().sum::<f64>() / all_open_times.len() as f64;
+        let avg_verify: f64 = all_verify_times.iter().sum::<f64>() / all_verify_times.len() as f64;
+        let comm_mb = last_comm_bytes as f64 / (1024.0 * 1024.0);
+
+        println!("\n--- MACHINE READABLE ---");
+        println!("COMMIT_TIME_MS: {:.3}", avg_commit);
+        println!("OPEN_TIME_MS: {:.3}", avg_open);
+        println!("PROVER_TIME_MS: {:.3}", avg_commit + avg_open);
+        println!("VERIFY_TIME_MS: {:.3}", avg_verify);
+        println!("TOTAL_TIME_MS: {:.3}", avg_commit + avg_open + avg_verify);
+        println!("PROOF_SIZE_KB: {:.3}", last_proof_size_kb);
+        println!("COMM_TOTAL_BYTES: {}", last_comm_bytes);
+        println!("COMM_TOTAL_MB: {:.3}", comm_mb);
+        println!("--- END MACHINE READABLE ---");
     }
 }
 

@@ -76,6 +76,7 @@ SCHEME_COLORS = {
     "dhyperpianist": "\033[35m", # Purple
     "dhyperfond": "\033[32m",    # Dark Green
     "dbasefold-pcs": "\033[32m", # Dark Green (same as dhyperfond)
+    "dfrittata-pcs": "\033[93m", # Yellow (FRI-based)
 }
 COLOR_RESET = "\033[0m"
 
@@ -242,28 +243,24 @@ EXTERNAL_SCHEMES = {
             f"RAYON_NUM_THREADS=1 {remote_dir}/{EXTERNAL_SCHEMES['dbasefold-pcs']['binary']} {i} {remote_dir}/{config_path} {mu} -i {iterations} 2>&1"
         ),
     },
-}
-
-# External single-thread schemes (from submodules, but runs on single node)
-EXTERNAL_SINGLE_SCHEMES = {
-    "frittata": {
-        "display_name": "FRIttata",
-        "local_dir": WORKSPACE / "external" / "winterfell",
-        "remote_dir": "~/winterfell",
-        "binary": "fri/target/release/examples/frittata_bench",
+    "dfrittata-pcs": {
+        "display_name": "dFRIttata-PCS",
+        "local_dir": WORKSPACE,
+        "remote_dir": REMOTE_DIR,
+        "binary": "target/release/examples/dFrittata",
+        "config_path": "ligesis-pcs/dTests/data/network.conf",
+        "port": 18000,
         "build_cmd": lambda mu: (
-            "source ~/.cargo/env && rustup run nightly cargo build --release "
-            "--manifest-path fri/Cargo.toml --example frittata_bench"
+            f"source ~/.cargo/env && cd ligesis-pcs && RUSTFLAGS='-Awarnings' "
+            f"cargo build --release --example dFrittata"
         ),
-        # mu = circuit_size_e, log2(n) = num_poly_e
-        "run_cmd": lambda remote_dir, mu, num_poly_e, iterations: (
-            f"RAYON_NUM_THREADS=1 {remote_dir}/fri/target/release/examples/frittata_bench "
-            f"{mu} {num_poly_e} {iterations} 2>&1"
+        "run_cmd": lambda i, remote_dir, config_path, mu, iterations: (
+            f"RAYON_NUM_THREADS=1 {remote_dir}/{EXTERNAL_SCHEMES['dfrittata-pcs']['binary']} {i} {remote_dir}/{config_path} --mu {mu} -i {iterations} 2>&1"
         ),
     },
 }
 
-ALL_SCHEMES = {**SINGLE_SCHEMES, **DISTRIBUTED_SCHEMES, **EXTERNAL_SCHEMES, **EXTERNAL_SINGLE_SCHEMES}
+ALL_SCHEMES = {**SINGLE_SCHEMES, **DISTRIBUTED_SCHEMES, **EXTERNAL_SCHEMES}
 
 DEFAULT_MUS = [24, 26, 28, 30]
 DEFAULT_SINGLE_SCHEMES = ["ligesis", "deepfold", "ligero"]
@@ -628,7 +625,11 @@ def sync_main_project() -> int:
 
     # Create tarball
     tar_path = f"/tmp/ligesis_sync_{datetime.now().strftime('%H%M%S')}.tar.gz"
-    exclude_args = ["--exclude=target", "--exclude=.git", "--exclude=bench_results", "--exclude=.claude", "--exclude=external"]
+    # Keep external/winterfell (needed for dFrittata), exclude other external subdirs
+    exclude_args = [
+        "--exclude=target", "--exclude=.git", "--exclude=bench_results", "--exclude=.claude",
+        "--exclude=external/HyperFond", "--exclude=external/HyperPianist", "--exclude=external/PIP_FRI"
+    ]
 
     tar_cmd = ["tar", "czf", tar_path] + exclude_args + ["-C", str(WORKSPACE), "."]
     result = subprocess.run(tar_cmd, capture_output=True, text=True)
@@ -1390,144 +1391,6 @@ def run_external_benchmark(
     )
 
 
-# ============== External Single-Thread Benchmark ==============
-
-def sync_external_single_scheme(scheme: str) -> bool:
-    """Sync external single-thread scheme code to one server (node-0)"""
-    if scheme not in EXTERNAL_SINGLE_SCHEMES:
-        print(f"Unknown external single scheme: {scheme}")
-        return False
-
-    config = EXTERNAL_SINGLE_SCHEMES[scheme]
-    local_dir = config["local_dir"]
-    remote_dir = config["remote_dir"]
-
-    if not local_dir.exists():
-        print(f"Local directory not found: {local_dir}")
-        print(f"  Run: git submodule update --init --recursive")
-        return False
-
-    instance = get_server_name()
-    print(f"Syncing {scheme} to {instance}...", end="", flush=True)
-
-    # Create tarball
-    tar_path = f"/tmp/{scheme}_sync_{os.getpid()}.tar.gz"
-    exclude_args = ["--exclude=target", "--exclude=.git", "--exclude=bench_results"]
-    tar_cmd = ["tar", "czf", tar_path] + exclude_args + ["-C", str(local_dir), "."]
-    result = subprocess.run(tar_cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f" failed (tar)")
-        return False
-
-    # Upload and extract
-    if not gcloud_scp(tar_path, instance, f"~/{scheme}_sync.tar.gz"):
-        print(" failed (upload)")
-        return False
-
-    result = gcloud_ssh(
-        instance,
-        f"mkdir -p {remote_dir} && cd {remote_dir} && "
-        f"find . -maxdepth 1 ! -name . ! -name target -exec rm -rf {{}} + && "
-        f"tar xzf ~/{scheme}_sync.tar.gz && rm ~/{scheme}_sync.tar.gz",
-        timeout=120
-    )
-    if result["returncode"] != 0:
-        print(" failed (extract)")
-        return False
-
-    print(" done")
-    os.remove(tar_path)
-    return True
-
-
-def run_external_single_benchmark(scheme: str, mu: int, iterations: int = 1,
-                                   build: bool = False, sync: bool = False) -> BenchResult:
-    """Run external single-thread benchmark on one server"""
-    if scheme not in EXTERNAL_SINGLE_SCHEMES:
-        return BenchResult(
-            scheme=scheme, mu=mu, iteration=iterations,
-            timestamp=datetime.now().isoformat(),
-            success=False, num_parties=NUM_PARTY,
-            error=f"Unknown external single scheme: {scheme}"
-        )
-
-    config = EXTERNAL_SINGLE_SCHEMES[scheme]
-    remote_dir = config["remote_dir"]
-    instance = get_server_name()
-
-    # For FRIttata: num_poly_e = log2(NUM_PARTY), but must be >= 0
-    # NUM_PARTY should be power of 2
-    import math
-    if NUM_PARTY > 1 and (NUM_PARTY & (NUM_PARTY - 1)) == 0:
-        num_poly_e = int(math.log2(NUM_PARTY))
-    else:
-        num_poly_e = 0  # Default to 1 polynomial if NUM_PARTY is not power of 2
-
-    print(f"  Server: {instance}")
-    print(f"  num_poly_e: {num_poly_e} (simulating {2**num_poly_e} nodes)")
-
-    # Sync if requested
-    if sync:
-        if not sync_external_single_scheme(scheme):
-            return BenchResult(
-                scheme=scheme, mu=mu, iteration=iterations,
-                timestamp=datetime.now().isoformat(),
-                success=False, num_parties=NUM_PARTY,
-                error="Sync failed"
-            )
-
-    # Build if requested
-    if build:
-        print(f"  Building...", end="", flush=True)
-        build_cmd = f"cd {remote_dir} && set -o pipefail && {config['build_cmd'](mu)} 2>&1 | tail -20"
-        result = gcloud_ssh(instance, build_cmd, timeout=900)
-        if result["returncode"] != 0:
-            print(" failed")
-            return BenchResult(
-                scheme=scheme, mu=mu, iteration=iterations,
-                timestamp=datetime.now().isoformat(),
-                success=False, num_parties=NUM_PARTY,
-                error=f"Build failed: {result['stderr'] or result['stdout'][-200:]}",
-                raw_output=result["stdout"]
-            )
-        print(" done")
-
-    # Run benchmark
-    print(f"  Running...", end="", flush=True)
-    run_cmd = config["run_cmd"](remote_dir, mu, num_poly_e, iterations)
-    result = gcloud_ssh(instance, run_cmd, timeout=3600)
-
-    if result["returncode"] != 0:
-        print(" failed")
-        return BenchResult(
-            scheme=scheme, mu=mu, iteration=iterations,
-            timestamp=datetime.now().isoformat(),
-            success=False, num_parties=NUM_PARTY,
-            error=result["stderr"] if result["stderr"] else result["stdout"][-200:],
-            raw_output=result["stdout"]
-        )
-
-    print(" done")
-
-    # Parse output
-    output = result["stdout"]
-    parsed = parse_benchmark_output(output)
-
-    prover_ms = parsed.get("prover")
-    verify_ms = parsed.get("verify")
-
-    return BenchResult(
-        scheme=scheme, mu=mu, iteration=iterations,
-        timestamp=datetime.now().isoformat(),
-        success=True, num_parties=NUM_PARTY,
-        prover_time_ms=prover_ms,
-        verify_time_ms=verify_ms,
-        total_time_ms=parsed.get("total"),
-        proof_size_kb=parsed.get("proof_size_kb"),
-        raw_output=output,
-    )
-
-
 def parse_duration_to_ms(duration_str: str) -> Optional[float]:
     """Parse Rust Duration debug output to milliseconds.
 
@@ -1753,34 +1616,47 @@ def export_csv(results: list[BenchResult], filename: str):
     """Export results to CSV file"""
     import csv
     is_distributed = any(r.num_parties > 1 for r in results)
+    has_vm = any(r.machine_types for r in results)
 
     with open(filename, 'w', newline='') as f:
         writer = csv.writer(f)
+        # Header - match report output columns
+        header = ["Scheme", "mu"]
         if is_distributed:
-            writer.writerow(["Scheme", "mu", "Parties", "Commit (ms)", "Open (ms)", "Prover (ms)",
-                           "Verify (ms)", "Total (ms)", "Comm (bytes)", "Timestamp"])
+            header.extend(["Parties", "Iterations"])
+            if has_vm:
+                header.append("VM")
         else:
-            writer.writerow(["Scheme", "mu", "Commit (ms)", "Open (ms)", "Prover (ms)",
-                           "Verify (ms)", "Total (ms)", "Timestamp"])
+            header.append("Iterations")
+        header.extend([
+            "Commit (ms)", "Open (ms)", "Prover (ms)",
+            "Verify (ms)", "Proof Size (KB)", "Comm (bytes)", "CV (%)", "Timestamp"
+        ])
+        writer.writerow(header)
 
         for r in results:
             display_name = ALL_SCHEMES.get(r.scheme, {}).get("display_name", r.scheme)
-            row = [
-                display_name,
-                r.mu,
-            ]
+            iters = len(r.iter_commit_times or r.iter_prove_times or r.iter_verify_times or []) or r.iteration or 1
+            cv = calc_result_cv(r)
+            cv_str = f"{cv * 100:.1f}" if cv is not None else ""
+
+            row = [display_name, r.mu]
             if is_distributed:
-                row.append(r.num_parties)
+                row.extend([r.num_parties, iters])
+                if has_vm:
+                    row.append(format_vm(r.machine_types, False))
+            else:
+                row.append(iters)
             row.extend([
                 f"{r.commit_time_ms:.2f}" if r.commit_time_ms else "",
                 f"{r.open_time_ms:.2f}" if r.open_time_ms else "",
                 f"{r.prover_time_ms:.2f}" if r.prover_time_ms else "",
                 f"{r.verify_time_ms:.2f}" if r.verify_time_ms else "",
-                f"{r.total_time_ms:.2f}" if r.total_time_ms else "",
+                f"{r.proof_size_kb:.2f}" if r.proof_size_kb else "",
+                r.communication_bytes if r.communication_bytes else "",
+                cv_str,
+                r.timestamp[:16].replace('T', ' ') if r.timestamp else "",
             ])
-            if is_distributed:
-                row.append(r.communication_bytes if r.communication_bytes else "")
-            row.append(r.timestamp)
             writer.writerow(row)
 
 
@@ -1876,20 +1752,17 @@ def cmd_run(args):
 
     is_distributed = scheme in DISTRIBUTED_SCHEMES
     is_external = scheme in EXTERNAL_SCHEMES
-    is_external_single = scheme in EXTERNAL_SINGLE_SCHEMES
     display_name = ALL_SCHEMES[scheme]['display_name']
 
     print(f"\n{'='*60}")
-    if is_distributed or is_external or is_external_single:
+    if is_distributed or is_external:
         print(f"Running: {display_name}, mu={mu}, nodes={NUM_PARTY}, iter={iterations}")
     else:
         print(f"Running: {display_name}, mu={mu}")
     print(f"{'='*60}\n")
 
     try:
-        if is_external_single:
-            result = run_external_single_benchmark(scheme, mu, iterations, build=build, sync=sync)
-        elif is_external:
+        if is_external:
             result = run_external_benchmark(scheme, mu, iterations, build=build, sync=sync)
         elif is_distributed:
             result = run_distributed_benchmark(scheme, mu, iterations, build=build, sync=sync)
@@ -1900,7 +1773,7 @@ def cmd_run(args):
         result = BenchResult(
             scheme=scheme, mu=mu, iteration=iterations,
             timestamp=datetime.now().isoformat(),
-            success=False, num_parties=NUM_PARTY if (is_distributed or is_external or is_external_single) else 1,
+            success=False, num_parties=NUM_PARTY if (is_distributed or is_external) else 1,
             error="Interrupted by user (Ctrl+C)"
         )
 
@@ -1948,12 +1821,6 @@ def cmd_batch(args):
                 print(f"Warning: {scheme} not found at {local_dir}, skipping")
                 print(f"  Run: git submodule update --init --recursive")
                 continue
-        if scheme in EXTERNAL_SINGLE_SCHEMES:
-            local_dir = EXTERNAL_SINGLE_SCHEMES[scheme]["local_dir"]
-            if not local_dir.exists():
-                print(f"Warning: {scheme} not found at {local_dir}, skipping")
-                print(f"  Run: git submodule update --init --recursive")
-                continue
         available_schemes.append(scheme)
 
     if not available_schemes:
@@ -1983,24 +1850,14 @@ def cmd_batch(args):
         display_name = ALL_SCHEMES[scheme]['display_name']
         is_distributed = scheme in DISTRIBUTED_SCHEMES
         is_external = scheme in EXTERNAL_SCHEMES
-        is_external_single = scheme in EXTERNAL_SINGLE_SCHEMES
 
-        if is_distributed or is_external or is_external_single:
+        if is_distributed or is_external:
             print(f"[{i}/{total}] {display_name} mu={mu} n={NUM_PARTY}")
         else:
             print(f"[{i}/{total}] {display_name} mu={mu}")
 
         try:
-            if is_external_single:
-                # Only sync/build each external single scheme once
-                should_sync = sync and scheme not in synced_schemes
-                should_build = build and scheme not in built_schemes
-                result = run_external_single_benchmark(scheme, mu, iterations, build=should_build, sync=should_sync)
-                if should_sync:
-                    synced_schemes.add(scheme)
-                if should_build:
-                    built_schemes.add(scheme)
-            elif is_external:
+            if is_external:
                 # Only sync/build each external scheme once
                 should_sync = sync and scheme not in synced_schemes
                 should_build = build and scheme not in built_schemes
@@ -2025,7 +1882,7 @@ def cmd_batch(args):
             result = BenchResult(
                 scheme=scheme, mu=mu, iteration=iterations,
                 timestamp=datetime.now().isoformat(),
-                success=False, num_parties=NUM_PARTY if (is_distributed or is_external or is_external_single) else 1,
+                success=False, num_parties=NUM_PARTY if (is_distributed or is_external) else 1,
                 error="Interrupted by user (Ctrl+C)"
             )
             interrupted = True
@@ -2263,11 +2120,6 @@ def cmd_list(_args=None):
 
     print("\nDistributed (external):")
     for scheme, config in EXTERNAL_SCHEMES.items():
-        exists = "+" if config["local_dir"].exists() else "-"
-        print(f"  {exists} {config['display_name']:<20} ({scheme})")
-
-    print("\nExternal single-thread:")
-    for scheme, config in EXTERNAL_SINGLE_SCHEMES.items():
         exists = "+" if config["local_dir"].exists() else "-"
         print(f"  {exists} {config['display_name']:<20} ({scheme})")
     print()
@@ -2591,6 +2443,9 @@ def interactive_mode():
 def main():
     global NUM_PARTY
 
+    # Load cached config first
+    load_config_cache()
+
     if len(sys.argv) == 1:
         interactive_mode()
         return 0
@@ -2624,6 +2479,11 @@ Examples:
     p = subparsers.add_parser("set-n", help="Set num_party")
     p.add_argument("n", type=int, help="Number of parties (must be power of 2)")
     p.set_defaults(func=cmd_set_n)
+
+    p = subparsers.add_parser("set-vm", help="Resize server machine type")
+    p.add_argument("range", type=str, help="Node range (e.g., 1-4)")
+    p.add_argument("config", type=str, help="Machine config (8g, 16g, 32g)")
+    p.set_defaults(func=cmd_set_vm)
 
     p = subparsers.add_parser("run", help="Run benchmark")
     p.add_argument("--scheme", "-s", type=str, required=True)
