@@ -37,6 +37,13 @@ print-trace = [
 ark-bn254 = { version = "0.4.0", features = ["asm"] }
 clap = { version = "4", features = ["derive"] }
 
+# winterfell dependencies for dFrittata
+winter-fri = { path = "../external/winterfell/fri", features = ["std"] }
+winter-crypto = { path = "../external/winterfell/crypto", features = ["std"] }
+winter-math = { path = "../external/winterfell/math", features = ["std"] }
+winter-utils = { path = "../external/winterfell/utils/core", features = ["std"] }
+winter-rand-utils = { path = "../external/winterfell/utils/rand" }
+
 [[example]]
 name = "dLigesis"
 path = "dTests/dLigesis.rs"
@@ -72,6 +79,10 @@ path = "dTests/dNetworkBench.rs"
 [[example]]
 name = "dSumcheck"
 path = "dTests/dSumcheck.rs"
+
+[[example]]
+name = "dFrittata"
+path = "dTests/dFrittata.rs"
 
 [[bench]]
 name = "ligesis_bench"

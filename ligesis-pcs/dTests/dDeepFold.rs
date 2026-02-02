@@ -1,6 +1,7 @@
 use arithmetic::math::Math;
 use ark_ff::{PrimeField, UniformRand};
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
+use ark_serialize::CanonicalSerialize;
 use std::sync::Arc;
 use std::time::Instant;
 use ligesis_pcs::{DeepFoldPCS, DeepFoldSRS, PCSError, PolynomialCommitmentScheme};
@@ -86,10 +87,20 @@ fn test_deepfold_commit<F: PrimeField>(mu: usize) -> Result<(), PCSError> {
         let result = DeepFoldPCS::verify(&vp, &com.unwrap(), &point, &value, &proof, &mut transcript)?;
         log_step!("Verify", start.elapsed());
 
+        // Compute proof size via serialization
+        let mut proof_bytes = Vec::new();
+        proof.serialize_compressed(&mut proof_bytes).unwrap();
+        let proof_size_kb = proof_bytes.len() as f64 / 1024.0;
+
         log!("========================================");
         log!("Total: {:.3?}", global_start.elapsed());
+        log!("Proof size: {:.2} KB", proof_size_kb);
         log!("Result: {}", if result { "PASS" } else { "FAIL" });
         log!("========================================");
+
+        // Machine-readable output
+        println!("PROOF_SIZE_KB: {:.2}", proof_size_kb);
+
         assert!(result);
     } else {
         // Non-master parties
