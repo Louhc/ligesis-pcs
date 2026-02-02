@@ -72,4 +72,11 @@ pub trait DeNet {
     }
 
     fn set_channel_id(channel_id: usize) {}
+
+    /// Barrier synchronization: all parties wait until everyone reaches this point.
+    /// This is useful for accurate timing of distributed operations.
+    fn barrier() {
+        Self::send_bytes_to_master(vec![0u8]);
+        Self::recv_bytes_from_master_uniform(if Self::am_master() { Some(vec![0u8]) } else { None });
+    }
 }

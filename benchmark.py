@@ -171,11 +171,11 @@ EXTERNAL_SCHEMES = {
         "display_name": "dmKZG-PCS",
         "local_dir": WORKSPACE / "external" / "HyperPianist",
         "remote_dir": "~/HyperPianist",
-        "binary": "hyperpianist/target/release/examples/deMkzg_bench",
+        "binary": "target/release/examples/deMkzg_bench",
         "config_path": "hyperpianist/dTests/data/network.conf",
         "port": 18000,
         "build_cmd": lambda mu: (
-            f"cd hyperpianist && source ~/.cargo/env && RUSTFLAGS='-Awarnings -C target-cpu=native' "
+            f"source ~/.cargo/env && RUSTFLAGS='-Awarnings -C target-cpu=native' "
             f"cargo build --release --example deMkzg_bench"
         ),
         "run_cmd": lambda i, remote_dir, config_path, mu, iterations: (
@@ -186,11 +186,11 @@ EXTERNAL_SCHEMES = {
         "display_name": "dDory-PCS",
         "local_dir": WORKSPACE / "external" / "HyperPianist",
         "remote_dir": "~/HyperPianist",
-        "binary": "hyperpianist/target/release/examples/deDory_bench",
+        "binary": "target/release/examples/deDory_bench",
         "config_path": "hyperpianist/dTests/data/network.conf",
         "port": 18000,
         "build_cmd": lambda mu: (
-            f"cd hyperpianist && source ~/.cargo/env && RUSTFLAGS='-Awarnings -C target-cpu=native' "
+            f"source ~/.cargo/env && RUSTFLAGS='-Awarnings -C target-cpu=native' "
             f"cargo build --release --example deDory_bench"
         ),
         "run_cmd": lambda i, remote_dir, config_path, mu, iterations: (
@@ -201,11 +201,11 @@ EXTERNAL_SCHEMES = {
         "display_name": "dHyperPianist",
         "local_dir": WORKSPACE / "external" / "HyperPianist",
         "remote_dir": "~/HyperPianist",
-        "binary": "hyperpianist/target/release/examples/hyperpianist-bench",
+        "binary": "target/release/examples/hyperpianist-bench",
         "config_path": "hyperpianist/dTests/data/network.conf",
         "port": 18000,
         "build_cmd": lambda mu: (
-            f"cd hyperpianist && source ~/.cargo/env && RUSTFLAGS='-Awarnings -C target-cpu=native' "
+            f"source ~/.cargo/env && RUSTFLAGS='-Awarnings -C target-cpu=native' "
             f"cargo build --release --example hyperpianist-bench"
         ),
         "run_cmd": lambda i, remote_dir, config_path, mu, iterations: (
@@ -618,7 +618,8 @@ def sync_main_project() -> int:
         # Extract
         result = gcloud_ssh(
             instance,
-            f"mkdir -p {REMOTE_DIR} && cd {REMOTE_DIR} && rm -rf * && "
+            f"mkdir -p {REMOTE_DIR} && cd {REMOTE_DIR} && "
+            f"find . -maxdepth 1 ! -name . ! -name target -exec rm -rf {{}} + && "
             f"tar xzf ~/ligesis_sync.tar.gz && rm ~/ligesis_sync.tar.gz",
             timeout=120
         )
@@ -853,6 +854,23 @@ def _run_gcloud_ssh_worker(instance: str, command: str, timeout: int, result_dic
     result_dict[index] = gcloud_ssh(instance, command, timeout=timeout)
 
 
+def kill_remote_processes(binary_name: str, servers: list[dict]):
+    """Kill leftover benchmark processes on all remote servers (parallel)"""
+    results = {}
+    threads = []
+    kill_cmd = f"pkill -9 -f '{binary_name}' 2>/dev/null; true"
+    for i, server in enumerate(servers):
+        t = threading.Thread(
+            target=_run_gcloud_ssh_worker,
+            args=(server["name"], kill_cmd, 30, results, i)
+        )
+        threads.append(t)
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=35)
+
+
 def check_servers_running() -> tuple[bool, list[str], list[str]]:
     """Check if required servers are running, returns (all_running, running_list, not_running_list)"""
     needed = [f"node-{i}" for i in range(1, NUM_PARTY + 1)]
@@ -996,6 +1014,9 @@ def run_distributed_benchmark(
     # Run test - needs concurrent execution (distributed protocol requires simultaneous run)
     print(f"  Running...", end="", flush=True)
 
+    # Kill leftover processes from previous runs
+    kill_remote_processes(example_name, servers)
+
     binary_path = f"{REMOTE_DIR}/target/release/examples/{example_name}"
     run_results = {}
     threads = []
@@ -1117,7 +1138,8 @@ def sync_external_scheme(scheme: str) -> bool:
             return
         result = gcloud_ssh(
             instance,
-            f"mkdir -p {remote_dir} && cd {remote_dir} && rm -rf * && "
+            f"mkdir -p {remote_dir} && cd {remote_dir} && "
+            f"find . -maxdepth 1 ! -name . ! -name target -exec rm -rf {{}} + && "
             f"tar xzf ~/{scheme}_sync.tar.gz && rm ~/{scheme}_sync.tar.gz",
             timeout=120
         )
@@ -1258,83 +1280,66 @@ def run_external_benchmark(
         )
     print(" done")
 
-    # Run test - loop iterations times at Python level
-    print(f"  Running ({iterations} iterations)...", end="", flush=True)
+    # Run test - single call, let Rust handle iterations internally
+    print(f"  Running...", end="", flush=True)
 
-    iter_commit_times = []
-    iter_open_times = []
-    iter_verify_times = []
-    iter_prover_times = []
-    all_outputs = []
-    last_comm_mb = None
+    # Kill leftover processes from previous runs
+    binary_name = Path(config["binary"]).name
+    kill_remote_processes(binary_name, servers)
 
-    for iter_num in range(iterations):
-        run_results = {}
-        threads = []
+    run_results = {}
+    threads = []
 
-        for i, server in enumerate(servers):
-            run_cmd = config["run_cmd"](i, remote_dir, config["config_path"], mu, iterations)
-            t = threading.Thread(
-                target=_run_gcloud_ssh_worker,
-                args=(server["name"], run_cmd, 1800, run_results, i)
-            )
-            threads.append(t)
+    for i, server in enumerate(servers):
+        run_cmd = config["run_cmd"](i, remote_dir, config["config_path"], mu, iterations)
+        t = threading.Thread(
+            target=_run_gcloud_ssh_worker,
+            args=(server["name"], run_cmd, 1800, run_results, i)
+        )
+        threads.append(t)
 
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
-        # Check results
-        failed = [i for i in range(num_parties) if run_results.get(i, {}).get("returncode", -1) != 0]
-        if failed:
-            print(f" failed (iter {iter_num + 1})")
-            errors = []
-            for i in failed:
-                stdout = run_results.get(i, {}).get("stdout", "")
-                stderr = run_results.get(i, {}).get("stderr", "")
-                err = stderr if stderr else stdout[-200:]
-                errors.append(f"Party {i}: {err[:100]}")
-            return BenchResult(
-                scheme=scheme, mu=mu, iteration=iterations,
-                timestamp=datetime.now().isoformat(),
-                success=False, num_parties=num_parties,
-                error="\n".join(errors),
-                raw_output=run_results.get(0, {}).get("stdout", "")
-            )
-
-        # Parse output
-        output = run_results[0]["stdout"]
-        all_outputs.append(output)
-        parsed = parse_external_output(output)
-
-        if parsed.get("commit_time_ms") is not None:
-            iter_commit_times.append(parsed["commit_time_ms"])
-        if parsed.get("open_time_ms") is not None:
-            iter_open_times.append(parsed["open_time_ms"])
-        if parsed.get("verify_time_ms") is not None:
-            iter_verify_times.append(parsed["verify_time_ms"])
-        if parsed.get("prover_time_ms") is not None:
-            iter_prover_times.append(parsed["prover_time_ms"])
-        if parsed.get("comm_total_mb") is not None:
-            last_comm_mb = parsed["comm_total_mb"]
-
-        print(".", end="", flush=True)
+    # Check results
+    failed = [i for i in range(num_parties) if run_results.get(i, {}).get("returncode", -1) != 0]
+    if failed:
+        print(" failed")
+        errors = []
+        for i in failed:
+            stdout = run_results.get(i, {}).get("stdout", "")
+            stderr = run_results.get(i, {}).get("stderr", "")
+            err = stderr if stderr else stdout[-200:]
+            errors.append(f"Party {i}: {err[:100]}")
+        return BenchResult(
+            scheme=scheme, mu=mu, iteration=iterations,
+            timestamp=datetime.now().isoformat(),
+            success=False, num_parties=num_parties,
+            error="\n".join(errors),
+            raw_output=run_results.get(0, {}).get("stdout", "")
+        )
 
     print(" done")
 
-    # Calculate averages
-    avg_commit = sum(iter_commit_times) / len(iter_commit_times) if iter_commit_times else None
-    avg_open = sum(iter_open_times) / len(iter_open_times) if iter_open_times else None
-    avg_verify = sum(iter_verify_times) / len(iter_verify_times) if iter_verify_times else None
-    # Use direct prover_time if available (for proof systems like HyperPianist),
-    # otherwise calculate from commit + open (for PCS benchmarks like pip_fri)
-    if iter_prover_times:
-        prover_ms = sum(iter_prover_times) / len(iter_prover_times)
-    elif avg_commit or avg_open:
+    # Parse output (from party 0)
+    output = run_results[0]["stdout"]
+    parsed = parse_external_output(output)
+
+    # Also parse per-iteration times using the standard parser
+    std_parsed = parse_benchmark_output(output)
+
+    # Get averages from parsed output
+    avg_commit = parsed.get("commit_time_ms")
+    avg_open = parsed.get("open_time_ms")
+    avg_verify = parsed.get("verify_time_ms")
+    prover_ms = parsed.get("prover_time_ms")
+    if prover_ms is None and (avg_commit or avg_open):
         prover_ms = (avg_commit or 0) + (avg_open or 0)
-    else:
-        prover_ms = None
+
+    comm_bytes = parsed.get("comm_total_bytes")
+    comm_mb = parsed.get("comm_total_mb")
 
     return BenchResult(
         scheme=scheme, mu=mu, iteration=iterations,
@@ -1344,11 +1349,13 @@ def run_external_benchmark(
         open_time_ms=avg_open,
         verify_time_ms=avg_verify,
         prover_time_ms=prover_ms,
-        communication_bytes=int(last_comm_mb * 1024 * 1024) if last_comm_mb else None,
-        iter_commit_times=iter_commit_times if iter_commit_times else None,
-        iter_open_times=iter_open_times if iter_open_times else None,
-        iter_verify_times=iter_verify_times if iter_verify_times else None,
-        raw_output="\n---\n".join(all_outputs),
+        communication_bytes=comm_bytes if comm_bytes else (int(comm_mb * 1024 * 1024) if comm_mb else None),
+        proof_size_kb=parsed.get("proof_size_kb"),
+        iter_commit_times=std_parsed.get("iter_commit_times"),
+        iter_open_times=std_parsed.get("iter_open_times"),
+        iter_verify_times=std_parsed.get("iter_verify_times"),
+        iter_prove_times=std_parsed.get("iter_prove_times"),
+        raw_output=output,
     )
 
 
@@ -1423,6 +1430,11 @@ def parse_external_output(output: str) -> dict:
                     elif unit == 's' and 'ms' not in unit:
                         val *= 1000
                 result[key] = val
+
+    # Parse communication stats (try BYTES first, then MB)
+    comm_bytes_match = re.search(r'COMM_TOTAL_BYTES:\s*(\d+)', output)
+    if comm_bytes_match:
+        result["comm_total_bytes"] = int(comm_bytes_match.group(1))
 
     # HyperFond-specific patterns (Rust Duration format)
     # "proving for 24 variables: 1.234567s"
@@ -1525,9 +1537,9 @@ def print_summary_table(results: list[BenchResult], show_vm: bool = False):
         header = f"{'Scheme':<12} {'mu':>4} {'n':>3} {'i':>2}"
         if has_vm:
             header += f" {'VM':<14}" if not show_vm else f" {'VM':<30}"
-        header += f" | {'Commit':>10} {'Open':>10} {'Prover':>10} | {'Verify':>10} {'Comm':>10}"
+        header += f" | {'Commit':>10} {'Open':>10} {'Prover':>10} | {'Verify':>10} {'Comm':>10} | {'Time':>16}"
     else:
-        header = f"{'Scheme':<12} {'mu':>4} {'i':>2} | {'Commit':>10} {'Open':>10} {'Prover':>10} | {'Verify':>10}"
+        header = f"{'Scheme':<12} {'mu':>4} {'i':>2} | {'Commit':>10} {'Open':>10} {'Prover':>10} | {'Verify':>10} | {'Time':>16}"
     print(header)
     print("-" * len(header))
 
@@ -1540,6 +1552,8 @@ def print_summary_table(results: list[BenchResult], show_vm: bool = False):
         colored_name = colored_scheme(r.scheme, f"{display_name:<12}")
         # Get iteration count from available per-iteration data
         iters = len(r.iter_commit_times or r.iter_prove_times or r.iter_verify_times or []) or r.iteration or 1
+        # Format timestamp: YYYY-MM-DD HH:MM
+        ts = r.timestamp[:16].replace('T', ' ') if r.timestamp else "-"
         if is_distributed:
             line = f"{colored_name} {r.mu:>4} {r.num_parties:>3} {iters:>2}"
             if has_vm:
@@ -1550,14 +1564,14 @@ def print_summary_table(results: list[BenchResult], show_vm: bool = False):
                      f"{format_time(r.open_time_ms):>10} "
                      f"{format_time(r.prover_time_ms):>10} | "
                      f"{format_time(r.verify_time_ms):>10} "
-                     f"{format_bytes(r.communication_bytes):>10}")
+                     f"{format_bytes(r.communication_bytes):>10} | {ts:>16}")
             print(line)
         else:
             print(f"{colored_name} {r.mu:>4} {iters:>2} | "
                   f"{format_time(r.commit_time_ms):>10} "
                   f"{format_time(r.open_time_ms):>10} "
                   f"{format_time(r.prover_time_ms):>10} | "
-                  f"{format_time(r.verify_time_ms):>10}")
+                  f"{format_time(r.verify_time_ms):>10} | {ts:>16}")
 
 
 def export_csv(results: list[BenchResult], filename: str):
@@ -1913,6 +1927,8 @@ def print_detail_results(results: list[BenchResult], show_vm: bool = False):
         display_name = ALL_SCHEMES.get(r.scheme, {}).get("display_name", r.scheme)
         colored_name = colored_scheme(r.scheme, display_name)
         iters = len(r.iter_commit_times or r.iter_prove_times or r.iter_verify_times or []) or r.iteration or 1
+        # Format timestamp
+        ts = r.timestamp[:19].replace('T', ' ') if r.timestamp else "-"
 
         print(f"\n{'='*60}")
         vm_info = f" | VM: {format_vm(r.machine_types, show_vm)}" if r.machine_types else ""
@@ -1920,6 +1936,7 @@ def print_detail_results(results: list[BenchResult], show_vm: bool = False):
             print(f"{colored_name} | mu={r.mu} | n={r.num_parties} | {iters} iterations{vm_info}")
         else:
             print(f"{colored_name} | mu={r.mu} | {iters} iterations")
+        print(f"Test time: {ts}")
         print(f"{'='*60}")
 
         print(f"Average:")
@@ -2026,25 +2043,23 @@ def cmd_set_vm(args):
 
     machine_type, desc = MACHINE_CONFIGS[config]
     nodes = [f"node-{i}" for i in range(start, end + 1)]
-    nodes_str = " ".join(nodes)
+
+    # Check if any target nodes are running
+    running = get_running_servers()
+    running_targets = [n for n in nodes if n in running]
+    if running_targets:
+        print(f"Error: The following servers are still running:")
+        for n in running_targets:
+            print(f"  - {n}")
+        print(f"\nPlease stop them first with: stop {start}-{end}")
+        return 1
 
     print(f"Setting node-{start} to node-{end} to {config} ({desc})")
     print(f"Machine type: {machine_type}")
     print()
 
-    # 1. Stop servers
-    print(f"[1/3] Stopping servers...")
-    result = subprocess.run(
-        f"gcloud compute instances stop {nodes_str} --zone={ZONE} --quiet",
-        shell=True, capture_output=True, text=True
-    )
-    if result.returncode != 0:
-        print(f"Error: {result.stderr}")
-        return 1
-    print("      Done")
-
-    # 2. Change machine type
-    print(f"[2/3] Changing machine type...")
+    # Change machine type
+    print(f"Changing machine type...")
     for node in nodes:
         result = subprocess.run(
             f"gcloud compute instances set-machine-type {node} --zone={ZONE} --machine-type={machine_type}",
@@ -2053,23 +2068,11 @@ def cmd_set_vm(args):
         if result.returncode != 0:
             print(f"Error: {result.stderr}")
             return 1
-        print(f"      {node} -> {machine_type}")
-    print("      Done")
+        print(f"  {node} -> {machine_type}")
+    print("Done")
 
-    # 3. Start servers
-    print(f"[3/3] Starting servers...")
-    result = subprocess.run(
-        f"gcloud compute instances start {nodes_str} --zone={ZONE} --quiet",
-        shell=True, capture_output=True, text=True
-    )
-    if result.returncode != 0:
-        print(f"Error: {result.stderr}")
-        return 1
-    print("      Done")
-
-    # Show result
-    print()
-    return cmd_status(None)
+    print(f"\nTo start servers: start {start}-{end}")
+    return 0
 
 
 def cmd_clean(args):

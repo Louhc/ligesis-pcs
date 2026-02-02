@@ -413,6 +413,7 @@ pub fn ligesis_d_open<F: PrimeField + HasQuadraticExtension>(
     let eq_z1_0 = get_tensor(&z1_0);
 
     // Step 2: Compute a (gather, then split and distribute for commit)
+    Net::barrier();
     let timer = start_timer!(|| "DLigesis.Open.ComputeA");
     let a_k = (0..n)
         .map(|j| {
@@ -456,6 +457,7 @@ pub fn ligesis_d_open<F: PrimeField + HasQuadraticExtension>(
     };
 
     // Step 4: Compute bI (gather, then split and distribute for commit)
+    Net::barrier();
     let timer = start_timer!(|| "DLigesis.Open.ComputeBI");
     let mat_bI_k = {
         let mat_f_prime_trans = transposition(&mat_f_prime);
@@ -511,6 +513,7 @@ pub fn ligesis_d_open<F: PrimeField + HasQuadraticExtension>(
     };
 
     // Step 6: Compute rs_a (split and distribute for commit)
+    Net::barrier();
     let timer = start_timer!(|| "DLigesis.Open.ComputeRSA");
     let rs_a_full: Vec<F> = if Net::am_master() {
         rs.encode(&a_full)
@@ -532,6 +535,7 @@ pub fn ligesis_d_open<F: PrimeField + HasQuadraticExtension>(
     end_timer!(timer);
 
     // Step 7: Combined d_chunked_batch_commit for a, bI, rs_a (single Merkle tree)
+    Net::barrier();
     let timer = start_timer!(|| "DLigesis.Open.CombinedCommit");
     let (com_a_bI_rsa_opt, com_a_bI_rsa_advice) = d_chunked_batch_commit(
         deepfold_prover_param,
@@ -541,6 +545,7 @@ pub fn ligesis_d_open<F: PrimeField + HasQuadraticExtension>(
     end_timer!(timer);
 
     // Step 8: Extension field SumCheck for bI check (distributed)
+    Net::barrier();
     let timer = start_timer!(|| "DLigesis.Open.ExtSumchecks");
 
     // bI check sumcheck: sum_{x} bI(x) * (bI(x) - 1) * eq(x, alpha1) = 0
@@ -708,6 +713,7 @@ pub fn ligesis_d_open<F: PrimeField + HasQuadraticExtension>(
     };
 
     // Step 12: d_multi_chunked_batch_open at extension field points
+    Net::barrier();
     let timer = start_timer!(|| "DLigesis.Open.DeepFold");
 
     let deepfold_batched_proof_opt = d_multi_chunked_batch_open_at_ext_point(

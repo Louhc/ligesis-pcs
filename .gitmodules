@@ -9,3 +9,6 @@
 [submodule "external/HyperFond"]
 	path = external/HyperFond
 	url = https://github.com/n96409816/HyperFond
+[submodule "external/winterfell"]
+	path = external/winterfell
+	url = git@github.com:XuHuaXH/winterfell.git

@@ -119,6 +119,7 @@ pub fn ligesis_d_commit<F: PrimeField>(
     let mat_f = reshape(&poly.evaluations, m / num_party, n);
 
     // encode `F`
+    Net::barrier();
     let timer = start_timer!(|| format!("DLigesis.Commit.RSEncode({}x{})", m / num_party, n));
     let mat_f_prime = mat_f.iter().map(|row| rs.encode(row)).collect::<Vec<_>>();
     end_timer!(timer);
@@ -128,6 +129,7 @@ pub fn ligesis_d_commit<F: PrimeField>(
         |row| row[party_id * eta * m / num_party..(party_id + 1) * eta * m / num_party].to_vec()
     ).collect();
 
+    Net::barrier();
     let timer = start_timer!(|| format!("DLigesis.Commit.SISHash({}x{}x{})", c, m / num_party, n * 2));
     let mat_h_i = compute_sis_hash(&mat_a_k, &mat_f_prime, eta, m / num_party);
     end_timer!(timer);
@@ -135,6 +137,7 @@ pub fn ligesis_d_commit<F: PrimeField>(
     // Gather mat_h to master (flatten before sending for efficient serialization)
     let mat_h_i_flat: Vec<F> = mat_h_i.concat();
     let mat_h_bytes = mat_h_i_flat.len() * 8;
+    Net::barrier();
     let timer = start_timer!(|| format!("DLigesis.Commit.GatherMatH({}MB)", mat_h_bytes / 1_000_000));
     let all_mat_h_flat = Net::send_to_master(&mat_h_i_flat);
     end_timer!(timer);
