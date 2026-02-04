@@ -61,22 +61,23 @@ MACHINE_CONFIGS = {
 }
 
 # ANSI colors for scheme names
+# Use distinct 256-color codes so every known scheme has a unique color.
 SCHEME_COLORS = {
-    "ligesis": "\033[92m",      # Green
-    "dligesis": "\033[92m",
-    "deepfold": "\033[94m",     # Blue
-    "ddeepfold": "\033[94m",
-    "ddeepfoldbatch": "\033[94m",
-    "ligero": "\033[93m",       # Yellow
-    "dpip-fri-pcs": "\033[95m", # Magenta
-    "dmkzg-pcs": "\033[96m",    # Cyan
-    "ddory-pcs": "\033[91m",    # Red
-    "dsumcheck3": "\033[33m",   # Dark Yellow
-    "dsumcheck4": "\033[36m",   # Dark Cyan
-    "dhyperpianist": "\033[35m", # Purple
-    "dhyperfond": "\033[32m",    # Dark Green
-    "dbasefold-pcs": "\033[32m", # Dark Green (same as dhyperfond)
-    "dfrittata-pcs": "\033[93m", # Yellow (FRI-based)
+    "ligesis": "\033[38;5;82m",         # green
+    "dligesis": "\033[38;5;45m",        # cyan
+    "deepfold": "\033[38;5;75m",        # blue
+    "ddeepfold": "\033[38;5;69m",       # light blue
+    "ddeepfoldbatch": "\033[38;5;33m",  # dark blue
+    "ligero": "\033[38;5;220m",         # yellow
+    "dpip-fri-pcs": "\033[38;5;201m",   # magenta
+    "dmkzg-pcs": "\033[38;5;208m",      # orange
+    "ddory-pcs": "\033[38;5;196m",      # red
+    "dsumcheck3": "\033[38;5;178m",     # gold
+    "dsumcheck4": "\033[38;5;81m",      # teal
+    "dhyperpianist": "\033[38;5;129m",  # purple
+    "dhyperfond": "\033[38;5;34m",      # green (different shade)
+    "dbasefold-pcs": "\033[38;5;112m",  # light green
+    "dfrittata-pcs": "\033[38;5;214m",  # orange-yellow
 }
 COLOR_RESET = "\033[0m"
 
@@ -87,6 +88,11 @@ def colored_scheme(scheme: str, display_name: str) -> str:
     if color:
         return f"{color}{display_name}{COLOR_RESET}"
     return display_name
+
+
+def result_sort_key(r: 'BenchResult'):
+    """Sort with single-thread first, then distributed."""
+    return (r.num_parties > 1, r.scheme, r.num_parties, r.mu)
 
 # Current number of parties
 NUM_PARTY = 4
@@ -465,7 +471,7 @@ def get_stopped_servers() -> list[str]:
 
 def get_machine_types(num_parties: int) -> Optional[dict[str, str]]:
     """Get machine types for node-1 to node-{num_parties}"""
-    if num_parties <= 1:
+    if num_parties <= 0:
         return None
     result = run_gcloud([
         "compute", "instances", "list",
@@ -704,30 +710,33 @@ def cmd_sync(_args=None):
 
 def parse_duration(s: str) -> Optional[float]:
     s = s.strip()
-    patterns = [
-        (r'([\d.]+)\s*s$', lambda x: float(x) * 1000),
-        (r'([\d.]+)\s*ms$', lambda x: float(x)),
-        (r'([\d.]+)\s*us$', lambda x: float(x) / 1000),
-        (r'([\d.]+)\s*µs$', lambda x: float(x) / 1000),
-        (r'([\d.]+)\s*ns$', lambda x: float(x) / 1_000_000),
-    ]
-    for pattern, converter in patterns:
-        m = re.search(pattern, s, re.IGNORECASE)
-        if m:
-            return converter(m.group(1))
+    # Extract a numeric token followed by a time unit to avoid matching dot leaders.
+    m = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*(s|ms|us|µs|ns)', s, re.IGNORECASE)
+    if not m:
+        return None
+    value = float(m.group(1))
+    unit = m.group(2).lower()
+    if unit == "s":
+        return value * 1000
+    if unit == "ms":
+        return value
+    if unit in ("us", "µs"):
+        return value / 1000
+    if unit == "ns":
+        return value / 1_000_000
     return None
 
 
 def parse_benchmark_output(output: str) -> dict:
     result = {}
-    # Use [^,\n]+ to match until comma or newline (handles comma-separated format)
-    # Priority: avg values first (for multi-iteration runs), then single values
+    # Capture the first duration token after the label (works for "avg", "xN", "excluding setup", etc.)
+    time_token = r'([0-9]+(?:\.[0-9]+)?\s*(?:s|ms|us|µs|ns))'
     patterns = {
-        "setup": [r'Setup \(avg\)[:\s]+([^,\n]+)', r'Setup[:\s]+([^,\n]+)'],
-        "commit": [r'Commit \(avg\)[:\s]+([^,\n]+)', r'Commit[:\s]+([^,\n]+)'],
-        "open": [r'Open \(avg\)[:\s]+([^,\n]+)', r'Open[:\s]+([^,\n]+)'],
-        "verify": [r'Verify \(avg\)[:\s]+([^,\n]+)', r'Verify[:\s]+([^,\n]+)'],
-        "total": [r'Total \(avg\)[:\s]+([^,\n]+)', r'Total[:\s]+([^,\n]+)'],
+        "setup": [rf'Setup(?: \([^)]*\))?[:\s]+{time_token}'],
+        "commit": [rf'Commit(?: \([^)]*\))?[:\s]+{time_token}'],
+        "open": [rf'Open(?: \([^)]*\))?[:\s]+{time_token}'],
+        "verify": [rf'Verify(?: \([^)]*\))?[:\s]+{time_token}'],
+        "total": [rf'Total(?: \([^)]*\))?[:\s]+{time_token}'],
     }
 
     for key, pats in patterns.items():
@@ -860,9 +869,12 @@ def run_single_thread_benchmark(scheme: str, mu: int, iterations: int = 1) -> Be
         verify_time_ms=parsed.get("verify"),
         prover_time_ms=prover_ms,
         total_time_ms=parsed.get("total"),
+        proof_size_kb=parsed.get("proof_size_kb"),
+        communication_bytes=parsed.get("communication_bytes"),
         iter_commit_times=parsed.get("iter_commit_times"),
         iter_open_times=parsed.get("iter_open_times"),
         iter_verify_times=parsed.get("iter_verify_times"),
+        iter_prove_times=parsed.get("iter_prove_times"),
         raw_output=output,
     )
 
@@ -1498,7 +1510,7 @@ def parse_external_output(output: str) -> dict:
 
 def save_result(result: BenchResult, batch_id: Optional[str] = None):
     # Auto-fill machine types for distributed runs
-    if result.machine_types is None and result.num_parties > 1:
+    if result.machine_types is None and result.num_parties >= 1:
         result.machine_types = get_machine_types(result.num_parties)
 
     if result.num_parties > 1:
@@ -1522,6 +1534,7 @@ def save_result(result: BenchResult, batch_id: Optional[str] = None):
 def load_all_results(distributed: bool = False, num_parties: Optional[int] = None) -> list[BenchResult]:
     """Load all results from results directory"""
     results = []
+    single_vm_cache: Optional[dict[str, str]] = None
 
     if distributed and num_parties:
         search_dirs = [RESULTS_DIR / f"distributed_n{num_parties}"]
@@ -1541,7 +1554,28 @@ def load_all_results(distributed: bool = False, num_parties: Optional[int] = Non
                     if line:
                         try:
                             data = json.loads(line)
-                            results.append(BenchResult(**data))
+                            r = BenchResult(**data)
+                            # Backfill missing metrics from raw_output if available
+                            if r.raw_output and (
+                                r.proof_size_kb is None
+                                or r.iter_commit_times is None
+                                or r.iter_open_times is None
+                                or r.iter_verify_times is None
+                            ):
+                                parsed = parse_benchmark_output(r.raw_output)
+                                if r.proof_size_kb is None:
+                                    r.proof_size_kb = parsed.get("proof_size_kb")
+                                if r.iter_commit_times is None:
+                                    r.iter_commit_times = parsed.get("iter_commit_times")
+                                if r.iter_open_times is None:
+                                    r.iter_open_times = parsed.get("iter_open_times")
+                                if r.iter_verify_times is None:
+                                    r.iter_verify_times = parsed.get("iter_verify_times")
+                            if r.num_parties == 1 and r.machine_types is None:
+                                if single_vm_cache is None:
+                                    single_vm_cache = get_machine_types(1) or {"node-1": "unknown"}
+                                r.machine_types = single_vm_cache
+                            results.append(r)
                         except (json.JSONDecodeError, TypeError):
                             pass
     return results
@@ -1576,7 +1610,7 @@ def print_summary_table(results: list[BenchResult], show_vm: bool = False):
     print("-" * len(header))
 
     # Sort by (scheme, num_parties, mu) for better grouping
-    sorted_results = sorted(results, key=lambda r: (r.scheme, r.num_parties, r.mu))
+    sorted_results = sorted(results, key=result_sort_key)
 
     for r in sorted_results:
         display_name = ALL_SCHEMES.get(r.scheme, {}).get("display_name", r.scheme)
@@ -1593,10 +1627,10 @@ def print_summary_table(results: list[BenchResult], show_vm: bool = False):
                 width = 30 if show_vm else 14
                 line += f" {vm_str:<{width}}"
             cv = calc_result_cv(r)
-            line += (f" | {format_time(r.commit_time_ms):>10} "
-                     f"{format_time(r.open_time_ms):>10} "
-                     f"{format_time(r.prover_time_ms):>10} | "
-                     f"{format_time(r.verify_time_ms):>10} "
+            line += (f" | {format_time(avg_time_ms(r, 'commit')):>10} "
+                     f"{format_time(avg_time_ms(r, 'open')):>10} "
+                     f"{format_time(avg_time_ms(r, 'prover')):>10} | "
+                     f"{format_time(avg_time_ms(r, 'verify')):>10} "
                      f"{format_proof_size(r.proof_size_kb):>10} "
                      f"{format_bytes(r.communication_bytes):>10} "
                      f"{format_cv(cv):>6} | {ts:>16}")
@@ -1604,10 +1638,10 @@ def print_summary_table(results: list[BenchResult], show_vm: bool = False):
         else:
             cv = calc_result_cv(r)
             print(f"{colored_name} {r.mu:>4} {iters:>2} | "
-                  f"{format_time(r.commit_time_ms):>10} "
-                  f"{format_time(r.open_time_ms):>10} "
-                  f"{format_time(r.prover_time_ms):>10} | "
-                  f"{format_time(r.verify_time_ms):>10} "
+                  f"{format_time(avg_time_ms(r, 'commit')):>10} "
+                  f"{format_time(avg_time_ms(r, 'open')):>10} "
+                  f"{format_time(avg_time_ms(r, 'prover')):>10} | "
+                  f"{format_time(avg_time_ms(r, 'verify')):>10} "
                   f"{format_proof_size(r.proof_size_kb):>10} "
                   f"{format_cv(cv):>6} | {ts:>16}")
 
@@ -1648,10 +1682,10 @@ def export_csv(results: list[BenchResult], filename: str):
             else:
                 row.append(iters)
             row.extend([
-                f"{r.commit_time_ms:.2f}" if r.commit_time_ms else "",
-                f"{r.open_time_ms:.2f}" if r.open_time_ms else "",
-                f"{r.prover_time_ms:.2f}" if r.prover_time_ms else "",
-                f"{r.verify_time_ms:.2f}" if r.verify_time_ms else "",
+                f"{avg_time_ms(r, 'commit'):.2f}" if avg_time_ms(r, 'commit') else "",
+                f"{avg_time_ms(r, 'open'):.2f}" if avg_time_ms(r, 'open') else "",
+                f"{avg_time_ms(r, 'prover'):.2f}" if avg_time_ms(r, 'prover') else "",
+                f"{avg_time_ms(r, 'verify'):.2f}" if avg_time_ms(r, 'verify') else "",
                 f"{r.proof_size_kb:.2f}" if r.proof_size_kb else "",
                 r.communication_bytes if r.communication_bytes else "",
                 cv_str,
@@ -1733,6 +1767,44 @@ def format_cv(cv: Optional[float], sample_size: int = 0) -> str:
     return f"{pct:>4.0f}%{suffix}"
 
 
+def _mean(values: Optional[list[float]]) -> Optional[float]:
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def avg_time_ms(r: 'BenchResult', kind: str) -> Optional[float]:
+    """Return average time in ms for commit/open/verify/prover."""
+    if kind == "commit":
+        if r.iter_commit_times:
+            return _mean(r.iter_commit_times)
+        if r.commit_time_ms is not None and r.iteration and r.iteration > 1:
+            return r.commit_time_ms / r.iteration
+        return r.commit_time_ms
+    if kind == "open":
+        if r.iter_open_times:
+            return _mean(r.iter_open_times)
+        if r.open_time_ms is not None and r.iteration and r.iteration > 1:
+            return r.open_time_ms / r.iteration
+        return r.open_time_ms
+    if kind == "verify":
+        if r.iter_verify_times:
+            return _mean(r.iter_verify_times)
+        if r.verify_time_ms is not None and r.iteration and r.iteration > 1:
+            return r.verify_time_ms / r.iteration
+        return r.verify_time_ms
+    if kind == "prover":
+        if r.iter_prove_times:
+            return _mean(r.iter_prove_times)
+        if r.iter_commit_times and r.iter_open_times:
+            combined = [c + o for c, o in zip(r.iter_commit_times, r.iter_open_times)]
+            return _mean(combined)
+        if r.prover_time_ms is not None and r.iteration and r.iteration > 1:
+            return r.prover_time_ms / r.iteration
+        return r.prover_time_ms
+    return None
+
+
 # ============== Command Handlers ==============
 
 def cmd_run(args):
@@ -1762,6 +1834,10 @@ def cmd_run(args):
     print(f"{'='*60}\n")
 
     try:
+        if sync and not (is_distributed or is_external):
+            ret = sync_main_project()
+            if ret != 0:
+                return 1
         if is_external:
             result = run_external_benchmark(scheme, mu, iterations, build=build, sync=sync)
         elif is_distributed:
@@ -1846,6 +1922,12 @@ def cmd_batch(args):
     built_schemes = set()
     synced_schemes = set()
 
+    # Sync once for single-thread schemes if requested
+    if sync and any(s in SINGLE_SCHEMES for s, _ in tests):
+        ret = sync_main_project()
+        if ret != 0:
+            return 1
+
     for i, (scheme, mu) in enumerate(tests, 1):
         display_name = ALL_SCHEMES[scheme]['display_name']
         is_distributed = scheme in DISTRIBUTED_SCHEMES
@@ -1892,7 +1974,13 @@ def cmd_batch(args):
 
         if result.success:
             extra = f", comm={format_bytes(result.communication_bytes)}" if result.communication_bytes else ""
-            print(f"        prover={format_time(result.prover_time_ms)}, verify={format_time(result.verify_time_ms)}{extra}\n")
+            avg_commit = avg_time_ms(result, "commit")
+            avg_open = avg_time_ms(result, "open")
+            avg_verify = avg_time_ms(result, "verify")
+            if avg_commit is not None or avg_open is not None:
+                print(f"        commit={format_time(avg_commit)}, open={format_time(avg_open)}, verify={format_time(avg_verify)}{extra}\n")
+            else:
+                print(f"        prover={format_time(avg_time_ms(result, 'prover'))}, verify={format_time(avg_verify)}{extra}\n")
         else:
             print(f"        Error: {result.error[:80]}\n")
 
@@ -1925,18 +2013,21 @@ def cmd_batch(args):
 def cmd_report(args):
     """Show/export benchmark results"""
     distributed = getattr(args, 'distributed', False)
+    single_only = getattr(args, 'single', False)
     num_parties = getattr(args, 'n', None)
     show_all = getattr(args, 'all', False)
     show_detail = getattr(args, 'detail', False)
     scheme_filter = getattr(args, 'scheme', None)
     show_vm = getattr(args, 'vm', False)
 
-    # When filtering by scheme, search all directories
-    if scheme_filter:
+    # Determine scope: default = both, -d = distributed only, -u = single only
+    if distributed and not single_only:
+        results = load_all_results(distributed=True, num_parties=num_parties)
+    elif single_only and not distributed:
+        results = load_all_results(distributed=False)
+    else:
         results = load_all_results(distributed=True, num_parties=num_parties)
         results += load_all_results(distributed=False)
-    else:
-        results = load_all_results(distributed=distributed, num_parties=num_parties)
     if not results:
         print("No results found")
         return 1
@@ -1945,8 +2036,13 @@ def cmd_report(args):
 
     # Filter by scheme name (case-insensitive, partial match)
     if scheme_filter:
-        sf = scheme_filter.lower()
-        successful = [r for r in successful if sf in r.scheme.lower()]
+        tokens = [t.strip().lower() for t in scheme_filter.split(",") if t.strip()]
+        if len(tokens) > 1:
+            allowed = set(tokens)
+            successful = [r for r in successful if r.scheme.lower() in allowed]
+        else:
+            sf = tokens[0] if tokens else scheme_filter.lower()
+            successful = [r for r in successful if sf in r.scheme.lower()]
 
     if not successful:
         print("No successful test results")
@@ -1954,7 +2050,7 @@ def cmd_report(args):
 
     if show_all:
         # Show all results, grouped by (scheme, mu, num_parties)
-        results_list = sorted(successful, key=lambda x: (x.scheme, x.mu, x.num_parties, x.timestamp))
+        results_list = sorted(successful, key=lambda x: (x.num_parties > 1, x.scheme, x.mu, x.num_parties, x.timestamp))
         print_all_results(results_list, show_detail, show_vm)
     else:
         # Get latest result for each (scheme, mu, num_parties) tuple
@@ -1962,7 +2058,7 @@ def cmd_report(args):
         for r in sorted(successful, key=lambda x: x.timestamp):
             latest[(r.scheme, r.mu, r.num_parties)] = r
 
-        results_list = sorted(latest.values(), key=lambda x: (x.scheme, x.mu, x.num_parties))
+        results_list = sorted(latest.values(), key=result_sort_key)
 
         if show_detail:
             print_detail_results(results_list, show_vm)
@@ -2294,10 +2390,11 @@ Commands:
     --sync            Sync external code to servers before running
     --build           Build on remote servers before running
 
-  report [-d] [-s <scheme>] [-n <parties>] [-a] [--detail] [--vm] [--csv <file>]
+  report [-d|-u] [-s <scheme>] [-n <parties>] [-a] [--detail] [--vm] [--csv <file>]
                       Show/export results
-                      -d, --distributed   Show distributed results
-                      -s, --scheme <name> Filter by scheme (e.g., dligesis)
+                      -d, --distributed   Show distributed results only
+                      -u, --single        Show single-thread results only
+                      -s, --scheme <name> Filter by scheme (e.g., dligesis or ligesis,dligesis)
                       -n <parties>        Filter by num_parties
                       -a, --all           Show all historical results (not just latest)
                       --detail            Show per-iteration times with statistics
@@ -2352,6 +2449,7 @@ def create_parser():
     p = subparsers.add_parser("report")
     p.add_argument("--csv", type=str, default=None, help="Export to CSV file")
     p.add_argument("--distributed", "-d", action="store_true", help="Show distributed results")
+    p.add_argument("--single", "-u", action="store_true", help="Show single-thread results")
     p.add_argument("--scheme", "-s", type=str, default=None, help="Filter by scheme name")
     p.add_argument("-n", type=int, default=None, help="Filter by num_parties")
     p.add_argument("--all", "-a", action="store_true", help="Show all historical results")
@@ -2506,9 +2604,12 @@ Examples:
     p = subparsers.add_parser("report", help="Show/export results")
     p.add_argument("--csv", type=str, default=None, help="Export to CSV file")
     p.add_argument("--distributed", "-d", action="store_true", help="Show distributed results")
+    p.add_argument("--single", "-u", action="store_true", help="Show single-thread results")
+    p.add_argument("--scheme", "-s", type=str, default=None, help="Filter by scheme name")
     p.add_argument("-n", type=int, default=None, help="Filter by num_parties")
     p.add_argument("--all", "-a", action="store_true", help="Show all historical results")
     p.add_argument("--detail", action="store_true", help="Show per-iteration times")
+    p.add_argument("--vm", action="store_true", help="Show all node machine types")
     p.set_defaults(func=cmd_report)
 
     args = parser.parse_args()

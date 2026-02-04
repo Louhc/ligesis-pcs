@@ -2,6 +2,7 @@ use std::time::Instant;
 use ark_std::{test_rng, UniformRand};
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use std::sync::Arc;
+use ark_serialize::CanonicalSerialize;
 
 use clap::Parser;
 use ligesis_pcs::{
@@ -54,8 +55,11 @@ fn main() {
     let start = Instant::now();
     let mut com = None;
     let mut advice = None;
-    for _ in 0..iterations {
+    for i in 0..iterations {
+        let iter_start = Instant::now();
         let (c, a) = LigeSISPCS::<F>::commit(&pp, &poly).unwrap();
+        let iter_ms = iter_start.elapsed().as_secs_f64() * 1000.0;
+        println!("ITER_{}_COMMIT_MS: {:.3}", i + 1, iter_ms);
         com = Some(c);
         advice = Some(a);
     }
@@ -68,22 +72,31 @@ fn main() {
     // Open
     let start = Instant::now();
     let mut proof = None;
-    for _ in 0..iterations {
+    for i in 0..iterations {
         let mut transcript = IOPTranscript::<F>::new(b"ligesis_pcs_bench");
+        let iter_start = Instant::now();
         let p = LigeSISPCS::<F>::open(&pp, &poly, &advice, &point, &mut transcript).unwrap();
+        let iter_ms = iter_start.elapsed().as_secs_f64() * 1000.0;
+        println!("ITER_{}_OPEN_MS: {:.3}", i + 1, iter_ms);
         proof = Some(p);
     }
     let open_time = start.elapsed();
     println!("Open (x{}): {:?} (avg: {:?})", iterations, open_time, open_time / iterations as u32);
 
     let proof = proof.unwrap();
+    let mut proof_bytes = Vec::new();
+    proof.serialize_compressed(&mut proof_bytes).unwrap();
+    println!("PROOF_SIZE_KB: {:.3}", proof_bytes.len() as f64 / 1024.0);
     let value = LigeSISPCS::<F>::compute_value_from_proof(mu - mu / 2, &point, &proof);
 
     // Verify
     let start = Instant::now();
-    for _ in 0..iterations {
+    for i in 0..iterations {
         let mut transcript = IOPTranscript::<F>::new(b"ligesis_pcs_bench");
+        let iter_start = Instant::now();
         let res = LigeSISPCS::<F>::verify(&vp, &com, &point, &value, &proof, &mut transcript).unwrap();
+        let iter_ms = iter_start.elapsed().as_secs_f64() * 1000.0;
+        println!("ITER_{}_VERIFY_MS: {:.3}", i + 1, iter_ms);
         assert!(res);
     }
     let verify_time = start.elapsed();

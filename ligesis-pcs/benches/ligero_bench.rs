@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 use ark_poly::DenseMultilinearExtension;
 use ark_std::test_rng;
 use std::sync::Arc;
+use ark_serialize::CanonicalSerialize;
 
 use clap::Parser;
 use ligesis_pcs::{
@@ -46,6 +47,10 @@ fn fmt_duration(d: Duration) -> String {
     }
 }
 
+fn ms_to_duration(ms: f64) -> Duration {
+    Duration::from_secs_f64(ms / 1000.0)
+}
+
 fn main() {
     let args = Args::parse();
     let mu = args.mu;
@@ -70,46 +75,61 @@ fn main() {
     let point = random_field_vector_from_rng::<F>(mu, &mut rng);
 
     // Commit
-    let start = Instant::now();
     let mut com = None;
     let mut advice = None;
-    for _ in 0..iterations {
+    let mut commit_total_ms = 0.0f64;
+    for i in 0..iterations {
+        let iter_start = Instant::now();
         let (c, a) = LigeroPCS::<F>::commit(&pp, &poly).unwrap();
+        let iter_ms = iter_start.elapsed().as_secs_f64() * 1000.0;
+        commit_total_ms += iter_ms;
+        println!("ITER_{}_COMMIT_MS: {:.3}", i + 1, iter_ms);
         com = Some(c);
         advice = Some(a);
     }
-    let commit_time = start.elapsed() / iterations as u32;
-    println!("Commit:   {}", fmt_duration(commit_time));
+    let commit_avg = ms_to_duration(commit_total_ms / iterations as f64);
+    println!("Commit:   {}", fmt_duration(commit_avg));
 
     let com = com.unwrap();
     let advice = advice.unwrap();
 
     // Open
-    let start = Instant::now();
     let mut proof = None;
-    for _ in 0..iterations {
+    let mut open_total_ms = 0.0f64;
+    for i in 0..iterations {
         let mut transcript = IOPTranscript::<F>::new(b"ligero_bench");
+        let iter_start = Instant::now();
         let p = LigeroPCS::<F>::open(&pp, &poly, &advice, &point, &mut transcript).unwrap();
+        let iter_ms = iter_start.elapsed().as_secs_f64() * 1000.0;
+        open_total_ms += iter_ms;
+        println!("ITER_{}_OPEN_MS: {:.3}", i + 1, iter_ms);
         proof = Some(p);
     }
-    let open_time = start.elapsed() / iterations as u32;
-    println!("Open:     {}", fmt_duration(open_time));
+    let open_avg = ms_to_duration(open_total_ms / iterations as f64);
+    println!("Open:     {}", fmt_duration(open_avg));
 
     let proof = proof.unwrap();
+    let mut proof_bytes = Vec::new();
+    proof.serialize_compressed(&mut proof_bytes).unwrap();
+    println!("PROOF_SIZE_KB: {:.3}", proof_bytes.len() as f64 / 1024.0);
     let log_m0 = mu / 2;
     let value = LigeroPCS::<F>::compute_value_from_proof(log_m0, &point, &proof);
 
     // Verify
-    let start = Instant::now();
-    for _ in 0..iterations {
+    let mut verify_total_ms = 0.0f64;
+    for i in 0..iterations {
         let mut transcript = IOPTranscript::<F>::new(b"ligero_bench");
+        let iter_start = Instant::now();
         let res = LigeroPCS::<F>::verify(&vp, &com, &point, &value, &proof, &mut transcript).unwrap();
+        let iter_ms = iter_start.elapsed().as_secs_f64() * 1000.0;
+        verify_total_ms += iter_ms;
+        println!("ITER_{}_VERIFY_MS: {:.3}", i + 1, iter_ms);
         assert!(res);
     }
-    let verify_time = start.elapsed() / iterations as u32;
-    println!("Verify:   {}", fmt_duration(verify_time));
+    let verify_avg = ms_to_duration(verify_total_ms / iterations as f64);
+    println!("Verify:   {}", fmt_duration(verify_avg));
 
     println!("----------------------------------------");
-    println!("Total:    {}", fmt_duration(commit_time + open_time + verify_time));
+    println!("Total:    {}", fmt_duration(ms_to_duration((commit_total_ms + open_total_ms + verify_total_ms) / iterations as f64)));
     println!("========================================");
 }
